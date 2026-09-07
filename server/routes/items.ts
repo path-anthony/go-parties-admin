@@ -1,6 +1,9 @@
 import { Router } from "express";
 import { getDefaultAccount } from "../account.js";
+import { toCsv } from "../csv.js";
 import { prisma } from "../db.js";
+
+const CSV_HEADERS = ["name", "category", "price", "price_unit", "notes", "photo_url"];
 
 const router = Router();
 
@@ -26,6 +29,27 @@ router.get("/", async (_req, res) => {
     orderBy: [{ category: "asc" }, { name: "asc" }],
   });
   res.json(items);
+});
+
+router.get("/export.csv", async (_req, res) => {
+  const account = await getDefaultAccount();
+  const items = await prisma.item.findMany({
+    where: { accountId: account.id },
+    orderBy: [{ category: "asc" }, { name: "asc" }],
+  });
+
+  const rows = items.map((item) => [
+    item.name,
+    item.category,
+    item.price?.toString() ?? "",
+    item.priceUnit ?? "",
+    item.notes ?? "",
+    item.photoUrl ?? "",
+  ]);
+
+  res.setHeader("Content-Type", "text/csv; charset=utf-8");
+  res.setHeader("Content-Disposition", 'attachment; filename="items-export.csv"');
+  res.send(toCsv(CSV_HEADERS, rows));
 });
 
 router.post("/", async (req, res) => {

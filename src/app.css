@@ -67,6 +67,34 @@
   margin-bottom: 12px;
 }
 
+.panel-header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.panel-header-row h2 {
+  margin-bottom: 0;
+}
+
+.btn-secondary {
+  display: inline-block;
+  background: var(--white);
+  color: var(--charcoal);
+  border: 1.5px solid var(--line);
+  border-radius: 12px;
+  padding: 9px 16px;
+  font-weight: 700;
+  font-size: 13px;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.btn-secondary:hover {
+  border-color: var(--charcoal-soft);
+}
+
 .muted {
   color: var(--muted);
   font-size: 13.5px;

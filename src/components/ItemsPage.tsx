@@ -26,7 +26,12 @@ export function ItemsPage() {
       </section>
 
       <section className="panel">
-        <h2>Catalog{items ? ` (${items.length})` : ""}</h2>
+        <div className="panel-header-row">
+          <h2>Catalog{items ? ` (${items.length})` : ""}</h2>
+          <a className="btn-secondary" href="/api/items/export.csv" download="items-export.csv">
+            Export CSV
+          </a>
+        </div>
         {error && <p className="form-error">{error}</p>}
         {!items && !error && <p className="muted">Loading…</p>}
         {items && items.length === 0 && <p className="muted">No items yet.</p>}
