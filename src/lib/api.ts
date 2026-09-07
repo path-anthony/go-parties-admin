@@ -1,4 +1,4 @@
-import type { Item, NewItem } from "./types";
+import type { Item, NewItem, RecommendResponse } from "./types";
 
 async function asJson<T>(res: Response): Promise<T> {
   const body = await res.json();
@@ -18,4 +18,12 @@ export function createItem(item: NewItem): Promise<Item> {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(item),
   }).then(asJson<Item>);
+}
+
+export function recommend(theme: string): Promise<RecommendResponse> {
+  return fetch("/api/recommend", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ theme }),
+  }).then(asJson<RecommendResponse>);
 }

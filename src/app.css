@@ -24,6 +24,31 @@
   color: var(--orange);
 }
 
+.tabs {
+  display: flex;
+  gap: 4px;
+  background: var(--white);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 4px;
+}
+
+.tab {
+  border: none;
+  background: transparent;
+  padding: 8px 14px;
+  border-radius: 8px;
+  font-weight: 700;
+  font-size: 13.5px;
+  color: var(--charcoal-soft);
+  cursor: pointer;
+}
+
+.tab.active {
+  background: var(--orange-tint);
+  color: var(--charcoal);
+}
+
 .page {
   display: flex;
   flex-direction: column;
@@ -165,4 +190,30 @@ textarea:focus {
 .item-price {
   font-weight: 700;
   white-space: nowrap;
+}
+
+.recommend-form {
+  display: flex;
+  gap: 10px;
+}
+
+.recommend-form input {
+  flex: 1;
+}
+
+.rationale {
+  color: var(--charcoal);
+  font-size: 14.5px;
+  margin: 0 0 12px;
+}
+
+.total-row {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1.5px solid var(--charcoal);
+  font-weight: 800;
+  font-size: 16px;
+  color: var(--charcoal);
 }

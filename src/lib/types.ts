@@ -19,3 +19,12 @@ export type NewItem = {
   notes: string;
   photoUrl: string;
 };
+
+export type RecommendResponse = {
+  theme: string;
+  rationale: string;
+  items: Item[];
+  total: number;
+  note?: string;
+  error?: string;
+};
