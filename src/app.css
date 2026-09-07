@@ -1,5 +1,5 @@
 .app-shell {
-  max-width: 760px;
+  max-width: 1080px;
   margin: 0 auto;
   padding: 24px 20px 60px;
 }
@@ -138,21 +138,103 @@ textarea:focus {
   font-size: 13px;
 }
 
-.category-group {
-  margin-top: 14px;
+.table-scroll {
+  overflow-x: auto;
 }
 
-.category-group:first-of-type {
-  margin-top: 4px;
+.items-table {
+  border-collapse: collapse;
+  font-size: 13.5px;
 }
 
-.category-label {
+.items-table td:nth-child(1) .editable-cell,
+.items-table td:nth-child(2) .editable-cell {
+  min-width: 160px;
+}
+
+.items-table td:nth-child(3) .editable-cell {
+  min-width: 80px;
+}
+
+.items-table td:nth-child(4) .editable-cell {
+  min-width: 140px;
+}
+
+.items-table td:nth-child(5) .editable-cell {
+  min-width: 240px;
+}
+
+.items-table td:nth-child(6) .editable-cell {
+  min-width: 200px;
+}
+
+.items-table th {
+  text-align: left;
   font-size: 11px;
   font-weight: 700;
-  letter-spacing: 0.14em;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: var(--taupe, var(--muted));
-  margin-bottom: 6px;
+  color: var(--muted);
+  padding: 6px 8px;
+  border-bottom: 1.5px solid var(--charcoal);
+  white-space: nowrap;
+}
+
+.items-table td {
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--line);
+  vertical-align: middle;
+}
+
+.items-table td:first-child,
+.items-table th:first-child {
+  padding-left: 0;
+}
+
+.editable-cell {
+  position: relative;
+  min-width: 100px;
+}
+
+.cell-input {
+  width: 100%;
+  border: 1.5px solid transparent;
+  border-radius: 8px;
+  padding: 6px 8px;
+  background: transparent;
+  color: var(--charcoal);
+  font-size: 13.5px;
+}
+
+.cell-input:hover {
+  border-color: var(--line);
+  background: var(--cream);
+}
+
+.cell-input:focus {
+  border-color: var(--orange);
+  background: var(--white);
+  outline: none;
+}
+
+.cell-input-error {
+  border-color: var(--bad);
+}
+
+.cell-status {
+  display: block;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--muted);
+  padding: 0 8px;
+}
+
+.cell-status-saved {
+  color: var(--good);
+}
+
+.cell-status-error {
+  color: var(--bad);
 }
 
 .item-list {

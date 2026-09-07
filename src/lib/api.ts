@@ -20,6 +20,18 @@ export function createItem(item: NewItem): Promise<Item> {
   }).then(asJson<Item>);
 }
 
+export type ItemPatch = Partial<Pick<Item, "name" | "category" | "priceUnit" | "notes" | "photoUrl">> & {
+  price?: string | number | null;
+};
+
+export function updateItem(id: string, patch: ItemPatch): Promise<Item> {
+  return fetch(`/api/items/${id}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(patch),
+  }).then(asJson<Item>);
+}
+
 export function recommend(theme: string): Promise<RecommendResponse> {
   return fetch("/api/recommend", {
     method: "POST",
