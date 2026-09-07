@@ -6,3 +6,35 @@ generator client {
 datasource db {
   provider = "postgresql"
 }
+
+// Every row belongs to an Account. Only one Account exists today (The Go
+// Event Group), but Item is scoped to it from day one so multi-tenancy is
+// a query filter later, not a migration.
+model Account {
+  id        String   @id @default(cuid())
+  name      String
+  email     String   @unique
+  createdAt DateTime @default(now()) @map("created_at")
+
+  items Item[]
+
+  @@map("accounts")
+}
+
+model Item {
+  id        String   @id @default(cuid())
+  accountId String   @map("account_id")
+  name      String
+  category  String
+  price     Decimal? @db.Decimal(10, 2)
+  priceUnit String?  @map("price_unit")
+  notes     String?
+  photoUrl  String?  @map("photo_url")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  account Account @relation(fields: [accountId], references: [id])
+
+  @@index([accountId])
+  @@map("items")
+}
