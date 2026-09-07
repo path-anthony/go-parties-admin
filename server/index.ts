@@ -1,8 +1,16 @@
 import "dotenv/config";
+import cookieParser from "cookie-parser";
 import cors from "cors";
 import express, { type ErrorRequestHandler } from "express";
+import { requireAuth } from "./auth.js";
+import authRouter from "./routes/auth.js";
 import itemsRouter from "./routes/items.js";
 import recommendRouter from "./routes/recommend.js";
+
+if (!process.env.ADMIN_PASSWORD) {
+  console.error("ADMIN_PASSWORD is not set. Refusing to start — every session would be unforgeable to check.");
+  process.exit(1);
+}
 
 const LOCALHOST_ORIGIN = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/;
 
@@ -11,19 +19,22 @@ app.use(
   cors({
     origin(origin, callback) {
       // No Origin header (curl, server-to-server) or a localhost origin: allow.
-      // Local dev only — do not widen this without adding real auth first.
       if (!origin || LOCALHOST_ORIGIN.test(origin)) {
         callback(null, true);
       } else {
         callback(new Error("Not allowed by CORS"));
       }
     },
+    credentials: true,
   }),
 );
 app.use(express.json());
+// Signing secret is ADMIN_PASSWORD itself — see server/auth.ts.
+app.use(cookieParser(process.env.ADMIN_PASSWORD));
 
-app.use("/api/items", itemsRouter);
-app.use("/api/recommend", recommendRouter);
+app.use("/api/auth", authRouter);
+app.use("/api/items", requireAuth, itemsRouter);
+app.use("/api/recommend", requireAuth, recommendRouter);
 
 app.get("/api/health", (_req, res) => {
   res.json({ ok: true });

@@ -1,11 +1,35 @@
 import type { Item, NewItem, RecommendResponse } from "./types";
 
+export const AUTH_EXPIRED_EVENT = "auth:expired";
+
 async function asJson<T>(res: Response): Promise<T> {
+  if (res.status === 401) {
+    window.dispatchEvent(new Event(AUTH_EXPIRED_EVENT));
+  }
   const body = await res.json();
   if (!res.ok) {
     throw new Error(body?.error ?? `Request failed (${res.status})`);
   }
   return body as T;
+}
+
+export function getAuthStatus(): Promise<{ authenticated: boolean }> {
+  return fetch("/api/auth/me").then((res) => res.json());
+}
+
+export async function login(password: string): Promise<{ ok: true }> {
+  // Doesn't go through asJson: a wrong password here is an expected login
+  // failure, not an expired session, so it shouldn't fire AUTH_EXPIRED_EVENT.
+  const res = await fetch("/api/auth/login", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ password }),
+  });
+  const body = await res.json();
+  if (!res.ok) {
+    throw new Error(body?.error ?? "Login failed");
+  }
+  return body;
 }
 
 export function getItems(): Promise<Item[]> {

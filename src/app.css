@@ -4,6 +4,37 @@
   padding: 24px 20px 60px;
 }
 
+.login-shell {
+  min-height: 100svh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+
+.login-card {
+  width: 100%;
+  max-width: 340px;
+  background: var(--white);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 28px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.login-card .wordmark {
+  text-align: center;
+  margin-bottom: 4px;
+}
+
+.login-card .btn-primary {
+  width: 100%;
+  align-self: stretch;
+  text-align: center;
+}
+
 .app-header {
   display: flex;
   align-items: center;

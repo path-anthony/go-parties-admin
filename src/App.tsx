@@ -1,11 +1,12 @@
 import { useState } from "react";
 import "./app.css";
+import { AuthGate } from "./components/AuthGate";
 import { ItemsPage } from "./components/ItemsPage";
 import { RecommendDemo } from "./components/RecommendDemo";
 
 type Tab = "items" | "demo";
 
-function App() {
+function AdminApp() {
   const [tab, setTab] = useState<Tab>("items");
 
   return (
@@ -33,6 +34,14 @@ function App() {
       </header>
       <main>{tab === "items" ? <ItemsPage /> : <RecommendDemo />}</main>
     </div>
+  );
+}
+
+function App() {
+  return (
+    <AuthGate>
+      <AdminApp />
+    </AuthGate>
   );
 }
 
