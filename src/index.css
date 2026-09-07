@@ -1,0 +1,52 @@
+:root {
+  --cream: #f9f7f3;
+  --white: #ffffff;
+  --line: #e8e2d9;
+  --charcoal: #211d1c;
+  --charcoal-soft: #4a4340;
+  --muted: #8c847c;
+  --orange: #f49b1f;
+  --orange-deep: #d9820a;
+  --orange-tint: #fdf1e0;
+  --good: #3e8e4a;
+  --bad: #b3402f;
+
+  color-scheme: light only;
+  font-family: "Inter", system-ui, sans-serif;
+  color: var(--charcoal-soft);
+  background: var(--cream);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  background: var(--cream);
+}
+
+#root {
+  min-height: 100svh;
+}
+
+h1,
+h2,
+h3 {
+  color: var(--charcoal);
+  font-weight: 800;
+  letter-spacing: -0.015em;
+  margin: 0;
+}
+
+button {
+  font-family: inherit;
+}
+
+input,
+textarea,
+select {
+  font-family: inherit;
+  font-size: 14.5px;
+}
