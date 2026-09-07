@@ -2,6 +2,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { Router } from "express";
 import { getDefaultAccount } from "../account.js";
 import { prisma } from "../db.js";
+import type { Item } from "../../src/generated/prisma/client.js";
 
 const router = Router();
 
@@ -51,7 +52,7 @@ router.post("/", async (req, res) => {
   }
 
   const catalogText = catalogItems
-    .map((item) => {
+    .map((item: Item) => {
       const parts = [
         `id: ${item.id}`,
         `name: ${item.name}`,
@@ -94,7 +95,7 @@ router.post("/", async (req, res) => {
   const requestedIds = Array.isArray(input.item_ids) ? input.item_ids.filter((id): id is string => typeof id === "string") : [];
   const rationale = typeof input.rationale === "string" ? input.rationale : "";
 
-  const catalogById = new Map(catalogItems.map((item) => [item.id, item]));
+  const catalogById = new Map(catalogItems.map((item: Item) => [item.id, item]));
   const recommended = requestedIds
     .map((id) => catalogById.get(id))
     .filter((item): item is (typeof catalogItems)[number] => item !== undefined);
