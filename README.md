@@ -19,6 +19,8 @@ No auth, no routing, no deployment in this pass — local only.
 5. `npm run import:inventory -- /path/to/GEG-Master-Inventory-v2.xlsx` — imports the item catalog from the master spreadsheet's "All Items" sheet. Prints a row count and flags any rows that failed or were skipped.
 6. `npm run dev` — runs the Vite dev server (port 5173) and the API server (port 3001) together
 
+Catalog round-trip: the Items tab has an "Export CSV" button (same columns as `data/item-import-template.csv`). Hand that file to Andy, edit it, and re-import it with the same command as step 5 — the import script auto-detects the template format vs. the legacy master-inventory format.
+
 ## Structure
 
 - `prisma/schema.prisma` — Account and Item models

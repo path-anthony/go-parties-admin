@@ -1,18 +1,28 @@
-// Imports items from the GEG master inventory spreadsheet into the Item
-// table. Usage: npm run import:inventory -- /path/to/GEG-Master-Inventory-v2.xlsx
+// Imports items into the Item table. Supports two source formats,
+// auto-detected from the columns present:
 //
-// Reads the "All Items" sheet only. Maps its columns onto the clean Item
-// schema and drops the audit-trail columns (Source Deck, Year, Prior Price,
-// Prior Source, Conflict) that only existed to help build the sheet by hand.
+//   1. The legacy "All Items" sheet from GEG-Master-Inventory-v2.xlsx
+//      (columns: Item, Category, Price ($), Price Unit, Owned vs Partner,
+//      Notes, plus audit-trail columns this script drops: Source Deck,
+//      Year, Prior Price, Prior Source, Conflict).
+//   2. The clean template format (data/item-import-template.csv: name,
+//      category, price, price_unit, notes, photo_url) — what
+//      /api/items/export.csv produces, so an exported catalog can be
+//      handed to Andy, edited, and re-imported with this same script.
 //
-// The source sheet has two known messes this script works around rather
-// than failing on:
-//   - Some rows have a bare number in "Price Unit" and nothing in
-//     "Price ($)" (e.g. Corn Hole: price unit "90"). That's the price,
-//     shifted one column left by a data-entry slip. Recovered as the price.
-//   - Most rows have no numeric price at all (TBD, "Custom quote", a rate
-//     description like "475 per day 650 for weekend"). Those are kept as
-//     free-text in price_unit with price left null, not invented.
+// Usage: npm run import:inventory -- /path/to/file.xlsx (or .csv)
+//
+// Every column beyond the item name is optional in both formats: a
+// missing or unrecognized value is left null on the Item, never guessed
+// and never a reason to fail the row. Only a missing name skips a row
+// (or, if the whole file has no recognizable name column, fails fast
+// with a clear error instead of silently importing nothing).
+//
+// The legacy format has one more mess this script works around: some
+// rows have a bare number in "Price Unit" and nothing in "Price ($)"
+// (e.g. Corn Hole: price unit "90"). That's the price, shifted one
+// column left by a data-entry slip. Recovered as the price, flagged
+// as a warning.
 import "dotenv/config";
 import { readFileSync } from "node:fs";
 import { PrismaPg } from "@prisma/adapter-pg";
@@ -22,17 +32,35 @@ import { PrismaClient } from "../src/generated/prisma/client.js";
 const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL });
 const prisma = new PrismaClient({ adapter });
 
-const SHEET_NAME = "All Items";
 const SEED_ACCOUNT_EMAIL = "info@thegoeventgroup.com";
 const NON_ITEM_NAME_LENGTH = 150; // legend/footnote rows read as one long sentence
 
-type SourceRow = {
+type LegacyRow = {
   Item?: string;
   Category?: string;
   "Price ($)"?: number | string;
   "Price Unit"?: number | string;
   "Owned vs Partner"?: string;
   Notes?: string;
+};
+
+type TemplateRow = {
+  name?: string;
+  category?: string;
+  price?: number | string;
+  price_unit?: string;
+  notes?: string;
+  photo_url?: string;
+};
+
+type MappedRow = {
+  name: string;
+  category: string;
+  price?: number;
+  priceUnit?: string;
+  notes?: string;
+  photoUrl?: string;
+  warning?: string;
 };
 
 type ImportOutcome =
@@ -57,37 +85,73 @@ function toNumber(value: unknown): number | undefined {
   return undefined;
 }
 
-function derivePriceFields(row: SourceRow): { price?: number; priceUnit?: string; warning?: string } {
+function mapLegacyRow(row: LegacyRow): MappedRow | null {
+  const name = toTrimmedString(row.Item);
+  if (!name) return null;
+
+  const category = toTrimmedString(row.Category) ?? "Uncategorized";
+
   const numericPrice = toNumber(row["Price ($)"]);
   const rawUnit = row["Price Unit"];
   const numericUnit = toNumber(rawUnit);
   const textUnit = toTrimmedString(rawUnit);
 
+  let price: number | undefined;
+  let priceUnit: string | undefined;
+  let warning: string | undefined;
+
   if (numericPrice !== undefined) {
-    return { price: numericPrice, priceUnit: textUnit };
+    price = numericPrice;
+    priceUnit = textUnit;
+  } else if (numericUnit !== undefined) {
+    price = numericUnit;
+    warning = `price recovered from "Price Unit" column (was ${numericUnit}, "Price ($)" was empty)`;
+  } else {
+    priceUnit = textUnit;
   }
 
-  if (numericUnit !== undefined) {
-    return {
-      price: numericUnit,
-      warning: `price recovered from "Price Unit" column (was ${numericUnit}, "Price ($)" was empty)`,
-    };
+  const ownedTag = toTrimmedString(row["Owned vs Partner"]);
+  const notesText = toTrimmedString(row.Notes);
+  const notes = ownedTag && notesText ? `${ownedTag}. ${notesText}` : (ownedTag ?? notesText);
+
+  if (!toTrimmedString(row.Category)) {
+    warning = "imported with default category (source row had none)";
   }
 
-  return { priceUnit: textUnit };
+  return { name, category, price, priceUnit, notes, warning };
 }
 
-function deriveNotes(row: SourceRow): string | undefined {
-  const ownedTag = toTrimmedString(row["Owned vs Partner"]);
-  const notes = toTrimmedString(row.Notes);
-  if (ownedTag && notes) return `${ownedTag}. ${notes}`;
-  return ownedTag ?? notes;
+function mapTemplateRow(row: TemplateRow): MappedRow | null {
+  const name = toTrimmedString(row.name);
+  if (!name) return null;
+
+  const category = toTrimmedString(row.category) ?? "Uncategorized";
+
+  const rawPrice = row.price;
+  const numericPrice = toNumber(rawPrice);
+  let warning: string | undefined;
+  if (numericPrice === undefined && toTrimmedString(rawPrice) !== undefined) {
+    warning = `price column had a non-numeric value ("${toTrimmedString(rawPrice)}"), left blank`;
+  }
+  if (!toTrimmedString(row.category)) {
+    warning = "imported with default category (source row had none)";
+  }
+
+  return {
+    name,
+    category,
+    price: numericPrice,
+    priceUnit: toTrimmedString(row.price_unit),
+    notes: toTrimmedString(row.notes),
+    photoUrl: toTrimmedString(row.photo_url),
+    warning,
+  };
 }
 
 async function main() {
   const filePath = process.argv[2];
   if (!filePath) {
-    console.error("Usage: npm run import:inventory -- /path/to/GEG-Master-Inventory-v2.xlsx");
+    console.error("Usage: npm run import:inventory -- /path/to/file.xlsx (or .csv)");
     process.exit(1);
   }
 
@@ -98,54 +162,62 @@ async function main() {
   }
 
   const workbook = read(readFileSync(filePath));
-  const sheet = workbook.Sheets[SHEET_NAME];
+  const sheetName = workbook.SheetNames.includes("All Items") ? "All Items" : workbook.SheetNames[0];
+  const sheet = workbook.Sheets[sheetName];
   if (!sheet) {
-    console.error(`Sheet "${SHEET_NAME}" not found. Sheets in file: ${workbook.SheetNames.join(", ")}`);
+    console.error(`No readable sheet found in ${filePath}.`);
     process.exit(1);
   }
 
-  const rows = utils.sheet_to_json<SourceRow>(sheet, { defval: undefined });
+  const headerRow = (utils.sheet_to_json<string[]>(sheet, { header: 1 })[0] ?? []).map(String);
+  const format: "legacy" | "template" | null = headerRow.includes("Item")
+    ? "legacy"
+    : headerRow.includes("name")
+      ? "template"
+      : null;
+
+  if (!format) {
+    console.error(
+      `Unrecognized columns in "${sheetName}": ${headerRow.join(", ")}\n` +
+        `Expected either "Item" (legacy master-inventory format) or "name" (item-import-template.csv format).`,
+    );
+    process.exit(1);
+  }
+
+  const rows =
+    format === "legacy"
+      ? utils.sheet_to_json<LegacyRow>(sheet, { defval: undefined })
+      : utils.sheet_to_json<TemplateRow>(sheet, { defval: undefined });
+  const mapRow = format === "legacy" ? mapLegacyRow : mapTemplateRow;
+
   const outcomes: ImportOutcome[] = [];
 
   for (const row of rows) {
-    const name = toTrimmedString(row.Item);
+    const mapped = mapRow(row as never);
+    if (!mapped) continue; // no name: blank/spacer row
 
-    if (!name) {
-      // Fully blank row, e.g. a trailing spacer row.
+    if (mapped.name.length > NON_ITEM_NAME_LENGTH) {
+      outcomes.push({ status: "skipped", name: mapped.name, reason: "reads as a legend/footnote, not an item" });
       continue;
     }
-
-    if (name.length > NON_ITEM_NAME_LENGTH) {
-      outcomes.push({ status: "skipped", name, reason: "reads as a legend/footnote, not an item" });
-      continue;
-    }
-
-    const category = toTrimmedString(row.Category) ?? "Uncategorized";
-    const { price, priceUnit, warning } = derivePriceFields(row);
-    const notes = deriveNotes(row);
 
     try {
       await prisma.item.create({
         data: {
           accountId: account.id,
-          name,
-          category,
-          price,
-          priceUnit,
-          notes,
+          name: mapped.name,
+          category: mapped.category,
+          price: mapped.price,
+          priceUnit: mapped.priceUnit,
+          notes: mapped.notes,
+          photoUrl: mapped.photoUrl,
         },
       });
-      outcomes.push({
-        status: "imported",
-        name,
-        warning: category === "Uncategorized" && !toTrimmedString(row.Category)
-          ? "imported with default category (source row had none)"
-          : warning,
-      });
+      outcomes.push({ status: "imported", name: mapped.name, warning: mapped.warning });
     } catch (error) {
       outcomes.push({
         status: "failed",
-        name,
+        name: mapped.name,
         reason: error instanceof Error ? error.message : String(error),
       });
     }
@@ -156,7 +228,16 @@ async function main() {
   const failed = outcomes.filter((o) => o.status === "failed");
   const warnings = imported.filter((o) => o.status === "imported" && o.warning);
 
-  console.log(`\nImported ${imported.length} of ${rows.length} sheet rows into account "${account.name}".`);
+  if (rows.length > 0 && outcomes.length === 0) {
+    console.error(
+      `Found the "${format === "legacy" ? "Item" : "name"}" column, but every row's value in it was empty. Nothing imported.`,
+    );
+    process.exit(1);
+  }
+
+  console.log(
+    `\nImported ${imported.length} of ${rows.length} sheet rows (${format} format) into account "${account.name}".`,
+  );
 
   if (warnings.length > 0) {
     console.log(`\n${warnings.length} imported with a note:`);
