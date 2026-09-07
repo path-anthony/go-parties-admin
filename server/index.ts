@@ -6,6 +6,7 @@ import cookieParser from "cookie-parser";
 import cors from "cors";
 import express, { type ErrorRequestHandler } from "express";
 import { requireAuth } from "./auth.js";
+import { isOriginAllowed } from "./cors.js";
 import authRouter from "./routes/auth.js";
 import itemsRouter from "./routes/items.js";
 import recommendRouter from "./routes/recommend.js";
@@ -18,14 +19,12 @@ if (!process.env.ADMIN_PASSWORD) {
   process.exit(1);
 }
 
-const LOCALHOST_ORIGIN = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/;
-
 const app = express();
 app.use(
   cors({
     origin(origin, callback) {
-      // No Origin header (curl, server-to-server) or a localhost origin: allow.
-      if (!origin || LOCALHOST_ORIGIN.test(origin)) {
+      // No Origin header (curl, server-to-server): allow.
+      if (!origin || isOriginAllowed(origin)) {
         callback(null, true);
       } else {
         callback(new Error("Not allowed by CORS"));
