@@ -20,7 +20,14 @@ if (!process.env.ADMIN_PASSWORD) {
 }
 
 const app = express();
+
+// CORS only applies to the API. Static assets (and the SPA's own JS/CSS,
+// which Vite serves with a `crossorigin` attribute — that makes the browser
+// send an Origin header even for same-origin loads) must never be evaluated
+// against the origin allowlist, or the deployed app's own origin gets
+// rejected trying to load its own bundle.
 app.use(
+  "/api",
   cors({
     origin(origin, callback) {
       // No Origin header (curl, server-to-server): allow.
@@ -37,6 +44,8 @@ app.use(express.json());
 // Signing secret is ADMIN_PASSWORD itself — see server/auth.ts.
 app.use(cookieParser(process.env.ADMIN_PASSWORD));
 
+// Everything below requires a session except /api/auth (you need to reach
+// login while logged out) and /api/health (platform health checks).
 app.use("/api/auth", authRouter);
 app.use("/api/items", requireAuth, itemsRouter);
 app.use("/api/recommend", requireAuth, recommendRouter);
