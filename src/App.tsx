@@ -1,8 +1,17 @@
+import "./app.css";
+import { ItemsPage } from "./components/ItemsPage";
+
 function App() {
   return (
-    <div style={{ maxWidth: 760, margin: "0 auto", padding: 24 }}>
-      <h1>GO! Event Group · Admin</h1>
-      <p>Scaffold ready.</p>
+    <div className="app-shell">
+      <header className="app-header">
+        <div className="wordmark">
+          <span className="wordmark-go">GO!</span> EVENT GROUP
+        </div>
+      </header>
+      <main>
+        <ItemsPage />
+      </main>
     </div>
   );
 }
