@@ -7,6 +7,7 @@ import cors from "cors";
 import express, { type ErrorRequestHandler } from "express";
 import { requireAuth } from "./auth.js";
 import { isOriginAllowed } from "./cors.js";
+import { recommendLimiter } from "./rateLimit.js";
 import authRouter from "./routes/auth.js";
 import itemsRouter from "./routes/items.js";
 import recommendRouter from "./routes/recommend.js";
@@ -20,6 +21,9 @@ if (!process.env.ADMIN_PASSWORD) {
 }
 
 const app = express();
+// Needed for express-rate-limit (and any other req.ip use) to see the real
+// client IP instead of Railway's edge proxy — trust exactly one hop.
+app.set("trust proxy", 1);
 
 // CORS only applies to the API. Static assets (and the SPA's own JS/CSS,
 // which Vite serves with a `crossorigin` attribute — that makes the browser
@@ -50,10 +54,13 @@ app.use(express.json());
 app.use(cookieParser(process.env.ADMIN_PASSWORD));
 
 // Everything below requires a session except /api/auth (you need to reach
-// login while logged out) and /api/health (platform health checks).
+// login while logged out), /api/health (platform health checks), and
+// /api/recommend — that one is called by anonymous customers from the
+// public storefront, not the admin UI, so it's public by design and rate
+// limited instead of session-gated (each call costs real money).
 app.use("/api/auth", authRouter);
 app.use("/api/items", requireAuth, itemsRouter);
-app.use("/api/recommend", requireAuth, recommendRouter);
+app.use("/api/recommend", recommendLimiter, recommendRouter);
 
 app.get("/api/health", (_req, res) => {
   res.json({ ok: true });
