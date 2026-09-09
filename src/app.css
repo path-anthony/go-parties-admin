@@ -250,11 +250,25 @@
 
 /* ---------- overview: KPI cards ---------- */
 
+.kpi-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.kpi-section-label {
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
 .kpi-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
   gap: 10px;
-  max-width: 620px;
+  max-width: 640px;
 }
 
 .kpi-card {
@@ -266,12 +280,21 @@
   gap: 5px;
 }
 
+.kpi-card-placeholder {
+  background: transparent;
+  border: 1.5px dashed var(--line);
+}
+
 .kpi-label {
   font-size: 10.5px;
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--taupe);
+}
+
+.kpi-card-placeholder .kpi-label {
+  color: var(--muted);
 }
 
 .kpi-value {
@@ -281,39 +304,9 @@
   letter-spacing: -0.01em;
 }
 
-/* ---------- coming-soon screens ---------- */
-
-.coming-soon {
-  max-width: 460px;
-  background: var(--white);
-  border-radius: 8px;
-  padding: 24px 22px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.coming-soon-tag {
-  align-self: flex-start;
-  font-size: 10px;
+.kpi-card-placeholder .kpi-value {
+  color: var(--muted);
   font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--orange-deep);
-  background: var(--orange-tint);
-  padding: 3px 8px;
-  border-radius: 4px;
-}
-
-.coming-soon h2 {
-  font-size: 17px;
-  margin-top: 2px;
-}
-
-.coming-soon p {
-  font-size: 13px;
-  line-height: 1.55;
-  margin: 0;
 }
 
 /* ---------- forms ---------- */
@@ -589,7 +582,7 @@ textarea:focus {
   top: 0;
   right: 0;
   height: 100svh;
-  width: 260px;
+  width: 400px;
   max-width: 90vw;
   background: var(--white);
   border-left: 1px solid var(--line);
@@ -600,7 +593,7 @@ textarea:focus {
   display: flex;
   flex-direction: column;
   gap: 12px;
-  padding: 16px;
+  padding: 20px;
   overflow-y: auto;
 }
 
@@ -654,10 +647,10 @@ textarea:focus {
 }
 
 .askgo-result .item-name {
-  font-size: 12.5px;
+  font-size: 13.5px;
 }
 
 .askgo-result .item-price {
-  font-size: 12px;
+  font-size: 13px;
   color: var(--charcoal-soft);
 }

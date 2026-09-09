@@ -9,6 +9,13 @@ type Stats = {
   categories: number;
 };
 
+const PLACEHOLDER_CARDS = [
+  { label: "Sales this month" },
+  { label: "Upcoming events (30d)" },
+  { label: "Bookings needing crew" },
+  { label: "Leads by stage" },
+];
+
 function computeStats(items: Item[]): Stats {
   const priced = items.filter((item) => item.price !== null).length;
   return {
@@ -40,25 +47,40 @@ export function OverviewScreen() {
       {!stats && !error && <p className="muted">Loading…</p>}
 
       {stats && (
-        <div className="kpi-grid">
-          <div className="kpi-card">
-            <span className="kpi-label">Total items</span>
-            <span className="kpi-value">{stats.total}</span>
-          </div>
-          <div className="kpi-card">
-            <span className="kpi-label">Priced</span>
-            <span className="kpi-value">{stats.priced}</span>
-          </div>
-          <div className="kpi-card">
-            <span className="kpi-label">TBD / no price</span>
-            <span className="kpi-value">{stats.tbd}</span>
-          </div>
-          <div className="kpi-card">
-            <span className="kpi-label">Categories</span>
-            <span className="kpi-value">{stats.categories}</span>
+        <div className="kpi-section">
+          <span className="kpi-section-label">Inventory</span>
+          <div className="kpi-grid">
+            <div className="kpi-card">
+              <span className="kpi-label">Total items</span>
+              <span className="kpi-value">{stats.total}</span>
+            </div>
+            <div className="kpi-card">
+              <span className="kpi-label">Priced</span>
+              <span className="kpi-value">{stats.priced}</span>
+            </div>
+            <div className="kpi-card">
+              <span className="kpi-label">TBD / no price</span>
+              <span className="kpi-value">{stats.tbd}</span>
+            </div>
+            <div className="kpi-card">
+              <span className="kpi-label">Categories</span>
+              <span className="kpi-value">{stats.categories}</span>
+            </div>
           </div>
         </div>
       )}
+
+      <div className="kpi-section">
+        <span className="kpi-section-label">Not yet tracked</span>
+        <div className="kpi-grid">
+          {PLACEHOLDER_CARDS.map(({ label }) => (
+            <div key={label} className="kpi-card kpi-card-placeholder">
+              <span className="kpi-label">{label}</span>
+              <span className="kpi-value">--</span>
+            </div>
+          ))}
+        </div>
+      </div>
     </div>
   );
 }

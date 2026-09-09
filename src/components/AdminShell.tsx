@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { AskGoPanel } from "./AskGoPanel";
 import { NavRail } from "./NavRail";
-import { ComingSoonScreen } from "./screens/ComingSoonScreen";
+import { EmptyScreen } from "./screens/EmptyScreen";
 import { InventoryScreen } from "./screens/InventoryScreen";
 import { OverviewScreen } from "./screens/OverviewScreen";
 
@@ -22,34 +22,9 @@ function ScreenBody({ screen }: { screen: ScreenKey }) {
     case "inventory":
       return <InventoryScreen />;
     case "packages":
-      return (
-        <ComingSoonScreen
-          headline="Packages & Themes"
-          description={[
-            "A package is a curated bundle of items with quantities, like a bill of materials — it has to be sellable and coherent on its own, no meaningless packages just to fill a slot.",
-            "A theme sits on top: a curated layer mapping packages, items, decor, and copy to an occasion, like a Bluey birthday or a quinceañera. AI drafts the theme-to-package mapping; Mel approves before anything goes live.",
-          ]}
-        />
-      );
     case "bookings":
-      return (
-        <ComingSoonScreen
-          headline="Bookings"
-          description={[
-            "The CRM pipeline that sits on top of the item and package spine: Booking, Client, Contract, and Payment records tracking who booked what, the signed contract, and what's been paid.",
-          ]}
-        />
-      );
     case "crew":
-      return (
-        <ComingSoonScreen
-          headline="Crew & Gigs"
-          description={[
-            "A gig is a dated need for a human skill, sent to matching contractors favorites-first — Andy's most reliable contractors see it first.",
-            "Contractors accept or counter an offer; acceptance triggers a contract automatically.",
-          ]}
-        />
-      );
+      return <EmptyScreen title={SCREEN_TITLES[screen]} />;
   }
 }
 
