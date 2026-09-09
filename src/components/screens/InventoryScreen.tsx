@@ -1,10 +1,10 @@
 import { useEffect, useState } from "react";
-import { getItems } from "../lib/api";
-import type { Item } from "../lib/types";
-import { AddItemForm } from "./AddItemForm";
-import { EditableItemsTable } from "./EditableItemsTable";
+import { getItems } from "../../lib/api";
+import type { Item } from "../../lib/types";
+import { AddItemForm } from "../AddItemForm";
+import { EditableItemsTable } from "../EditableItemsTable";
 
-export function ItemsPage() {
+export function InventoryScreen() {
   const [items, setItems] = useState<Item[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -19,7 +19,7 @@ export function ItemsPage() {
   }
 
   return (
-    <div className="page">
+    <div className="screen">
       <section className="panel">
         <h2>Add an item</h2>
         <AddItemForm onAdded={(item) => setItems((prev) => [...(prev ?? []), item])} />
