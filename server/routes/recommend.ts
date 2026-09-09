@@ -14,6 +14,30 @@ const MODEL = process.env.CLAUDE_MODEL ?? "claude-sonnet-5";
 const MIN_RATIONALE_LENGTH = 20;
 const MAX_ATTEMPTS = 3;
 
+type LeadItem = { id: string; name: string; category: string; price: number | null; priceUnit: string | null };
+
+// Fire-and-forget: logs every recommend call as a Lead, success or not, but
+// never awaited on the response path — a slow or failed insert must not add
+// latency or block the customer's answer. Errors are swallowed (logged, not
+// thrown) for the same reason.
+function logLead(accountId: string, theme: string, items: LeadItem[], total: number) {
+  prisma.lead
+    .create({ data: { accountId, theme, itemsReturned: { items, total } } })
+    .catch((err: unknown) => {
+      console.error("[lead] failed to log lead:", err);
+    });
+}
+
+function toLeadItems(items: Item[]): LeadItem[] {
+  return items.map((item) => ({
+    id: item.id,
+    name: item.name,
+    category: item.category,
+    price: item.price !== null ? Number(item.price) : null,
+    priceUnit: item.priceUnit,
+  }));
+}
+
 const RECOMMEND_TOOL: Anthropic.Tool = {
   name: "recommend_items",
   description: "Return the item ids recommended for the party, and why.",
@@ -54,6 +78,7 @@ router.post("/", async (req, res) => {
   });
 
   if (catalogItems.length === 0) {
+    logLead(account.id, theme.trim(), [], 0);
     return res.json({ theme, rationale: "No priced items in the catalog yet.", items: [], total: 0 });
   }
 
@@ -114,6 +139,7 @@ router.post("/", async (req, res) => {
   }
 
   if (rationale.trim().length < MIN_RATIONALE_LENGTH) {
+    logLead(account.id, theme.trim(), [], 0);
     return res.status(502).json({ error: "Model did not return a usable recommendation" });
   }
 
@@ -128,6 +154,8 @@ router.post("/", async (req, res) => {
   }
 
   const total = recommended.reduce((sum, item) => sum + Number(item.price), 0);
+
+  logLead(account.id, theme.trim(), toLeadItems(recommended), total);
 
   res.json({
     theme: theme.trim(),

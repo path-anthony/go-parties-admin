@@ -10,6 +10,7 @@ import { isOriginAllowed } from "./cors.js";
 import { recommendLimiter } from "./rateLimit.js";
 import authRouter from "./routes/auth.js";
 import itemsRouter from "./routes/items.js";
+import leadsRouter from "./routes/leads.js";
 import recommendRouter from "./routes/recommend.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -60,6 +61,7 @@ app.use(cookieParser(process.env.ADMIN_PASSWORD));
 // limited instead of session-gated (each call costs real money).
 app.use("/api/auth", authRouter);
 app.use("/api/items", requireAuth, itemsRouter);
+app.use("/api/leads", requireAuth, leadsRouter);
 app.use("/api/recommend", recommendLimiter, recommendRouter);
 
 app.get("/api/health", (_req, res) => {

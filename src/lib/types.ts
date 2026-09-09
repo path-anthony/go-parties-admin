@@ -28,3 +28,14 @@ export type RecommendResponse = {
   note?: string;
   error?: string;
 };
+
+export type Lead = {
+  id: string;
+  accountId: string;
+  theme: string;
+  itemsReturned: {
+    items: { id: string; name: string; category: string; price: number | null; priceUnit: string | null }[];
+    total: number;
+  };
+  createdAt: string;
+};

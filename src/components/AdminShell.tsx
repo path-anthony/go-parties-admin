@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { AskGoPanel } from "./AskGoPanel";
 import { NavRail } from "./NavRail";
+import { BookingsScreen } from "./screens/BookingsScreen";
 import { EmptyScreen } from "./screens/EmptyScreen";
 import { InventoryScreen } from "./screens/InventoryScreen";
 import { OverviewScreen } from "./screens/OverviewScreen";
@@ -21,8 +22,9 @@ function ScreenBody({ screen }: { screen: ScreenKey }) {
       return <OverviewScreen />;
     case "inventory":
       return <InventoryScreen />;
-    case "packages":
     case "bookings":
+      return <BookingsScreen />;
+    case "packages":
     case "crew":
       return <EmptyScreen title={SCREEN_TITLES[screen]} />;
   }

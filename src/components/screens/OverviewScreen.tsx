@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { getItems } from "../../lib/api";
+import { getItems, getLeads } from "../../lib/api";
 import type { Item } from "../../lib/types";
 
 type Stats = {
@@ -7,6 +7,7 @@ type Stats = {
   priced: number;
   tbd: number;
   categories: number;
+  leadsCaptured: number;
 };
 
 const PLACEHOLDER_CARDS = [
@@ -16,7 +17,7 @@ const PLACEHOLDER_CARDS = [
   { label: "Leads by stage" },
 ];
 
-function computeStats(items: Item[]): Stats {
+function computeItemStats(items: Item[]) {
   const priced = items.filter((item) => item.price !== null).length;
   return {
     total: items.length,
@@ -31,8 +32,8 @@ export function OverviewScreen() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    getItems()
-      .then((items) => setStats(computeStats(items)))
+    Promise.all([getItems(), getLeads()])
+      .then(([items, leads]) => setStats({ ...computeItemStats(items), leadsCaptured: leads.length }))
       .catch((err) => setError(err instanceof Error ? err.message : "Failed to load"));
   }, []);
 
@@ -40,7 +41,7 @@ export function OverviewScreen() {
     <div className="screen">
       <div className="screen-head">
         <h2>Overview</h2>
-        <p className="muted">Live counts from the catalog.</p>
+        <p className="muted">Live counts from the catalog and captured interest.</p>
       </div>
 
       {error && <p className="form-error">{error}</p>}
@@ -48,7 +49,7 @@ export function OverviewScreen() {
 
       {stats && (
         <div className="kpi-section">
-          <span className="kpi-section-label">Inventory</span>
+          <span className="kpi-section-label">Live</span>
           <div className="kpi-grid">
             <div className="kpi-card">
               <span className="kpi-label">Total items</span>
@@ -65,6 +66,10 @@ export function OverviewScreen() {
             <div className="kpi-card">
               <span className="kpi-label">Categories</span>
               <span className="kpi-value">{stats.categories}</span>
+            </div>
+            <div className="kpi-card">
+              <span className="kpi-label">Leads captured (total)</span>
+              <span className="kpi-value">{stats.leadsCaptured}</span>
             </div>
           </div>
         </div>

@@ -1,4 +1,4 @@
-import type { Item, NewItem, RecommendResponse } from "./types";
+import type { Item, Lead, NewItem, RecommendResponse } from "./types";
 
 export const AUTH_EXPIRED_EVENT = "auth:expired";
 
@@ -54,6 +54,10 @@ export function updateItem(id: string, patch: ItemPatch): Promise<Item> {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(patch),
   }).then(asJson<Item>);
+}
+
+export function getLeads(): Promise<Lead[]> {
+  return fetch("/api/leads").then(asJson<Lead[]>);
 }
 
 export function recommend(theme: string): Promise<RecommendResponse> {

@@ -17,6 +17,7 @@ model Account {
   createdAt DateTime @default(now()) @map("created_at")
 
   items Item[]
+  leads Lead[]
 
   @@map("accounts")
 }
@@ -37,4 +38,22 @@ model Item {
 
   @@index([accountId])
   @@map("items")
+}
+
+// Raw captured interest from /api/recommend, the first piece of the CRM
+// pipeline (see GO-PRODUCT.md: Booking, Client, Contract, Payment sit on
+// top of this). No stage field yet — cold/warm/hot needs real follow-up
+// tracking, which isn't built yet. This just records what was typed and
+// what came back, every time, regardless of outcome.
+model Lead {
+  id            String   @id @default(cuid())
+  accountId     String   @map("account_id")
+  theme         String
+  itemsReturned Json     @map("items_returned")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  account Account @relation(fields: [accountId], references: [id])
+
+  @@index([accountId])
+  @@map("leads")
 }
