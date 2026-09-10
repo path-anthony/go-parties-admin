@@ -1,4 +1,4 @@
-import type { Item, Lead, NewItem, RecommendResponse } from "./types";
+import type { AskGoMessage, Item, Lead, NewItem, RecommendResponse } from "./types";
 
 export const AUTH_EXPIRED_EVENT = "auth:expired";
 
@@ -60,10 +60,10 @@ export function getLeads(): Promise<Lead[]> {
   return fetch("/api/leads").then(asJson<Lead[]>);
 }
 
-export function recommend(theme: string): Promise<RecommendResponse> {
+export function recommend(messages: AskGoMessage[], subOcc: string | null = null): Promise<RecommendResponse> {
   return fetch("/api/recommend", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ theme }),
+    body: JSON.stringify({ subOcc, messages }),
   }).then(asJson<RecommendResponse>);
 }

@@ -551,12 +551,6 @@ textarea:focus {
   white-space: nowrap;
 }
 
-.rationale {
-  color: var(--charcoal);
-  font-size: 13.5px;
-  margin: 0;
-}
-
 .total-row {
   display: flex;
   justify-content: space-between;
@@ -614,6 +608,36 @@ textarea:focus {
 .askgo-intro {
   font-size: 12px;
   line-height: 1.45;
+}
+
+.askgo-thread {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.askgo-msg {
+  max-width: 88%;
+  padding: 8px 10px;
+  border-radius: 6px;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.askgo-msg-user {
+  align-self: flex-end;
+  background: var(--orange-tint);
+  color: var(--charcoal);
+}
+
+.askgo-msg-assistant {
+  align-self: flex-start;
+  background: var(--cream);
+  border: 1px solid var(--line);
+  color: var(--charcoal);
 }
 
 .askgo-form {

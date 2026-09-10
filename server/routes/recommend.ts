@@ -7,19 +7,22 @@ import type { Item } from "../../src/generated/prisma/client.js";
 const router = Router();
 
 const MODEL = process.env.CLAUDE_MODEL ?? "claude-sonnet-5";
-// A real rationale is "1-3 sentences"; anything shorter than this is almost
+// A real message is "1-3 sentences"; anything shorter than this is almost
 // certainly a degenerate output (observed: the model occasionally returns
 // the literal string "placeholder" instead of real reasoning). Retry rather
 // than show that to the user.
-const MIN_RATIONALE_LENGTH = 20;
+const MIN_MESSAGE_LENGTH = 20;
 const MAX_ATTEMPTS = 3;
 
+type ConversationMessage = { role: "user" | "assistant"; content: string };
 type LeadItem = { id: string; name: string; category: string; price: number | null; priceUnit: string | null };
 
-// Fire-and-forget: logs every recommend call as a Lead, success or not, but
-// never awaited on the response path — a slow or failed insert must not add
-// latency or block the customer's answer. Errors are swallowed (logged, not
-// thrown) for the same reason.
+// Fire-and-forget: logs a Lead only once a turn commits to a real
+// recommendation, never on a clarifying-question turn — an abandoned or
+// still-in-progress conversation must never show up in Bookings. Never
+// awaited on the response path, and errors are swallowed (logged, not
+// thrown): a slow or failed insert must not add latency or block the
+// customer's answer.
 function logLead(accountId: string, theme: string, items: LeadItem[], total: number) {
   prisma.lead
     .create({ data: { accountId, theme, itemsReturned: { items, total } } })
@@ -38,30 +41,59 @@ function toLeadItems(items: Item[]): LeadItem[] {
   }));
 }
 
-const RECOMMEND_TOOL: Anthropic.Tool = {
-  name: "recommend_items",
-  description: "Return the item ids recommended for the party, and why.",
+function isValidMessage(entry: unknown): entry is ConversationMessage {
+  if (typeof entry !== "object" || entry === null) return false;
+  const { role, content } = entry as { role?: unknown; content?: unknown };
+  const roleValid = role === "user" || role === "assistant";
+  const contentValid = typeof content === "string" && content.trim() !== "";
+  return roleValid && contentValid;
+}
+
+function parseMessages(value: unknown): ConversationMessage[] | null {
+  if (!Array.isArray(value) || value.length === 0) return null;
+  return value.every(isValidMessage) ? value : null;
+}
+
+const RESPOND_TOOL: Anthropic.Tool = {
+  name: "respond_to_party_request",
+  description:
+    "Decide whether you have enough to recommend real items with confidence, or whether one clarifying question " +
+    "would meaningfully improve the pick.",
   input_schema: {
     type: "object",
     properties: {
+      ready: {
+        type: "boolean",
+        description:
+          "True the moment you have occasion type, a rough guest count, and a budget signal, nothing else is " +
+          "required. False only when one of those three is genuinely missing.",
+      },
+      message: {
+        type: "string",
+        description:
+          "If ready is false: one short, casual clarifying question, 1-3 sentences, asking for exactly one " +
+          "missing thing. If ready is true: a short closing line, 1-3 sentences, on why these items fit.",
+      },
       item_ids: {
         type: "array",
         items: { type: "string" },
-        description: "IDs of recommended items, taken only from the catalog provided.",
-      },
-      rationale: {
-        type: "string",
-        description: "1-3 sentences on why these items fit the theme, in a direct, no-hype tone.",
+        description:
+          "Only used when ready is true: IDs of recommended items, taken only from the catalog provided. Leave " +
+          "empty when ready is false.",
       },
     },
-    required: ["item_ids", "rationale"],
+    required: ["ready", "message", "item_ids"],
   },
 };
 
 router.post("/", async (req, res) => {
-  const { theme } = req.body ?? {};
-  if (typeof theme !== "string" || theme.trim() === "") {
-    return res.status(400).json({ error: "theme is required" });
+  const { subOcc, messages: rawMessages } = req.body ?? {};
+  const messages = parseMessages(rawMessages);
+  if (!messages) {
+    return res.status(400).json({ error: "messages is required and must be a non-empty array of {role, content}" });
+  }
+  if (subOcc !== null && subOcc !== undefined && typeof subOcc !== "string") {
+    return res.status(400).json({ error: "subOcc must be a string or null" });
   }
 
   const apiKey = process.env.ANTHROPIC_API_KEY;
@@ -70,6 +102,13 @@ router.post("/", async (req, res) => {
   }
 
   const account = await getDefaultAccount();
+  // theme is derived from every user turn so far, joined — used only for the
+  // Lead row (logged just once, on the turn that commits to ready:true).
+  const theme = messages
+    .filter((m) => m.role === "user")
+    .map((m) => m.content.trim())
+    .join(" / ");
+
   // Only items with a real price can be totaled honestly. TBD/custom-quote
   // items are excluded from what the model is even shown.
   const catalogItems = await prisma.item.findMany({
@@ -78,8 +117,8 @@ router.post("/", async (req, res) => {
   });
 
   if (catalogItems.length === 0) {
-    logLead(account.id, theme.trim(), [], 0);
-    return res.json({ theme, rationale: "No priced items in the catalog yet.", items: [], total: 0 });
+    logLead(account.id, theme, [], 0);
+    return res.json({ ready: true, message: "No priced items in the catalog yet.", items: [], total: 0 });
   }
 
   const catalogText = catalogItems
@@ -97,30 +136,40 @@ router.post("/", async (req, res) => {
 
   const anthropic = new Anthropic({ apiKey });
 
+  const system =
+    "You are Ask GO, a knowledgeable crew member at The Go Event Group, not a chatbot. You help a customer build " +
+    "a real party from a real catalog over a short back-and-forth conversation.\n\n" +
+    "The bar for ready is exactly three things: occasion type, a rough guest count, and a budget signal. The " +
+    "moment all three are present in the conversation, go ready immediately and recommend, even on the first " +
+    "message. Do not ask about logistics, venue, colors, preferences, or anything else once you have those " +
+    "three, that's a detail you can reasonably assume or the customer can adjust later, not a reason to hold " +
+    "back a recommendation. Ask at most one clarifying question per turn, and only when one of the three is " +
+    "genuinely missing, never a list of questions.\n\n" +
+    "Voice: short, sure, chill. 1-3 sentences. No exclamation points, no emoji, no 'Great question', no hype " +
+    "words ('unforgettable', 'elevate', 'seamless', 'magical'). Matter-of-fact, then a little warmth. No em " +
+    "dashes, use a period or comma instead.\n\n" +
+    "You may only recommend items by the exact id given in the catalog below. Never invent an item, id, or price. " +
+    "Pick a set of items that fits the occasion, guest count, and budget as closely as possible, favoring a mix " +
+    "of categories over many items from one category. If the budget can't be met with real items, get as close " +
+    "as you can and say so.\n" +
+    (subOcc ? `\nThe customer selected sub-occasion: ${subOcc}.\n` : "") +
+    `\nCatalog:\n${catalogText}`;
+
+  let ready = false;
+  let message = "";
   let requestedIds: string[] = [];
-  let rationale = "";
 
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
-    const message = await anthropic.messages.create({
+    const response = await anthropic.messages.create({
       model: MODEL,
       max_tokens: 1024,
-      system:
-        "You recommend real party items from a supplied catalog. You may only recommend items by the exact id " +
-        "given in the catalog. Never invent an item, id, or price. Pick a set of items that fits the requested " +
-        "theme, occasion, guest count, and budget as closely as possible, favoring a mix of categories over " +
-        "many items from one category. If the budget can't be met with real items, get as close as you can " +
-        "and say so in the rationale.",
-      messages: [
-        {
-          role: "user",
-          content: `Theme / occasion: ${theme.trim()}\n\nCatalog:\n${catalogText}`,
-        },
-      ],
-      tools: [RECOMMEND_TOOL],
-      tool_choice: { type: "tool", name: "recommend_items" },
+      system,
+      messages: messages.map((m) => ({ role: m.role, content: m.content })),
+      tools: [RESPOND_TOOL],
+      tool_choice: { type: "tool", name: "respond_to_party_request" },
     });
 
-    const toolUse = message.content.find(
+    const toolUse = response.content.find(
       (block): block is Anthropic.ToolUseBlock => block.type === "tool_use",
     );
     if (!toolUse) {
@@ -128,19 +177,23 @@ router.post("/", async (req, res) => {
       continue;
     }
 
-    const input = toolUse.input as { item_ids?: unknown; rationale?: unknown };
+    const input = toolUse.input as { ready?: unknown; message?: unknown; item_ids?: unknown };
+    ready = input.ready === true;
+    message = typeof input.message === "string" ? input.message : "";
     requestedIds = Array.isArray(input.item_ids) ? input.item_ids.filter((id): id is string => typeof id === "string") : [];
-    rationale = typeof input.rationale === "string" ? input.rationale : "";
 
-    if (rationale.trim().length >= MIN_RATIONALE_LENGTH) {
+    if (message.trim().length >= MIN_MESSAGE_LENGTH) {
       break;
     }
-    console.warn(`[recommend] attempt ${attempt}: degenerate rationale ("${rationale}"), retrying`);
+    console.warn(`[recommend] attempt ${attempt}: degenerate message ("${message}"), retrying`);
   }
 
-  if (rationale.trim().length < MIN_RATIONALE_LENGTH) {
-    logLead(account.id, theme.trim(), [], 0);
-    return res.status(502).json({ error: "Model did not return a usable recommendation" });
+  if (message.trim().length < MIN_MESSAGE_LENGTH) {
+    return res.status(502).json({ error: "Model did not return a usable response" });
+  }
+
+  if (!ready) {
+    return res.json({ ready: false, message });
   }
 
   const catalogById = new Map(catalogItems.map((item: Item) => [item.id, item]));
@@ -150,20 +203,14 @@ router.post("/", async (req, res) => {
   const droppedIds = requestedIds.filter((id) => !catalogById.has(id));
 
   if (droppedIds.length > 0) {
-    console.warn(`[recommend] theme="${theme.trim()}": dropped ${droppedIds.length} id(s) not in catalog: ${droppedIds.join(", ")}`);
+    console.warn(`[recommend] theme="${theme}": dropped ${droppedIds.length} id(s) not in catalog: ${droppedIds.join(", ")}`);
   }
 
   const total = recommended.reduce((sum, item) => sum + Number(item.price), 0);
 
-  logLead(account.id, theme.trim(), toLeadItems(recommended), total);
+  logLead(account.id, theme, toLeadItems(recommended), total);
 
-  res.json({
-    theme: theme.trim(),
-    rationale,
-    items: recommended,
-    total,
-    ...(droppedIds.length > 0 ? { note: `${droppedIds.length} id(s) from the model didn't match the catalog and were dropped.` } : {}),
-  });
+  res.json({ ready: true, message, items: recommended, total });
 });
 
 export default router;

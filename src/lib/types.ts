@@ -20,14 +20,11 @@ export type NewItem = {
   photoUrl: string;
 };
 
-export type RecommendResponse = {
-  theme: string;
-  rationale: string;
-  items: Item[];
-  total: number;
-  note?: string;
-  error?: string;
-};
+export type AskGoMessage = { role: "user" | "assistant"; content: string };
+
+export type RecommendResponse =
+  | { ready: false; message: string }
+  | { ready: true; message: string; items: Item[]; total: number };
 
 export type Lead = {
   id: string;
