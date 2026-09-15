@@ -81,3 +81,45 @@ export type LeadActivity = {
   text: string;
   createdAt: string;
 };
+
+export const UNIT_STATUSES = ["Available", "Booked", "Maintenance"] as const;
+export type UnitStatus = (typeof UNIT_STATUSES)[number];
+
+export type Unit = {
+  id: string;
+  itemId: string;
+  label: string;
+  status: UnitStatus;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type NewUnit = { itemId: string; label: string; status: UnitStatus };
+export type UnitPatch = Partial<Pick<Unit, "label" | "status">>;
+
+export const BOOKING_STATUSES = ["Confirmed", "Completed", "Cancelled"] as const;
+export type BookingStatus = (typeof BOOKING_STATUSES)[number];
+
+export type Booking = {
+  id: string;
+  accountId: string;
+  leadId: string | null;
+  eventDate: string; // serialized DATE, "YYYY-MM-DDT00:00:00.000Z"
+  customerName: string;
+  customerContact: string;
+  status: BookingStatus;
+  unitIds: string[];
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type NewBooking = {
+  leadId: string | null;
+  eventDate: string; // "YYYY-MM-DD"
+  customerName: string;
+  customerContact: string;
+  status: BookingStatus;
+  unitIds: string[];
+};
+
+export type BookingPatch = Partial<NewBooking>;

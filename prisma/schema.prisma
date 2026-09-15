@@ -19,6 +19,7 @@ model Account {
   items        Item[]
   leads        Lead[]
   leadStatuses LeadStatus[]
+  bookings     Booking[]
 
   @@map("accounts")
 }
@@ -57,6 +58,66 @@ model LeadActivity {
   @@map("lead_activities")
 }
 
+// A Unit is one physical instance of an Item (GO-PRODUCT.md: items are the
+// menu, units are the warehouse). Optional per item: only items GO tracks
+// as distinct physical pieces get rows here. Scoped to an account through
+// its item. status is a manual flag for now (Available, Booked,
+// Maintenance), validated at the API; real availability will come from
+// BookingUnit once a calendar exists.
+model Unit {
+  id        String   @id @default(cuid())
+  itemId    String   @map("item_id")
+  label     String
+  status    String   @default("Available")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at")
+
+  item     Item          @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  bookings BookingUnit[]
+
+  @@index([itemId])
+  @@map("units")
+}
+
+// A confirmed event on a real date. leadId is optional: a booking can be
+// taken over the phone without a tracked lead behind it, and deleting a
+// lead leaves the booking in place. status is Confirmed, Completed, or
+// Cancelled, validated at the API.
+model Booking {
+  id              String   @id @default(cuid())
+  accountId       String   @map("account_id")
+  leadId          String?  @map("lead_id")
+  eventDate       DateTime @map("event_date") @db.Date
+  customerName    String   @map("customer_name")
+  customerContact String   @map("customer_contact")
+  status          String   @default("Confirmed")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @default(now()) @updatedAt @map("updated_at")
+
+  account Account       @relation(fields: [accountId], references: [id])
+  lead    Lead?         @relation(fields: [leadId], references: [id], onDelete: SetNull)
+  units   BookingUnit[]
+
+  @@index([accountId, eventDate])
+  @@index([leadId])
+  @@map("bookings")
+}
+
+// Which physical units are committed to which booking. The date lives on
+// the booking. This is what will eventually drive real availability.
+model BookingUnit {
+  bookingId String   @map("booking_id")
+  unitId    String   @map("unit_id")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  booking Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  unit    Unit    @relation(fields: [unitId], references: [id], onDelete: Cascade)
+
+  @@id([bookingId, unitId])
+  @@index([unitId])
+  @@map("booking_units")
+}
+
 model Item {
   id        String   @id @default(cuid())
   accountId String   @map("account_id")
@@ -70,6 +131,7 @@ model Item {
   updatedAt DateTime @updatedAt @map("updated_at")
 
   account Account @relation(fields: [accountId], references: [id])
+  units   Unit[]
 
   @@index([accountId])
   @@map("items")
@@ -111,6 +173,7 @@ model Lead {
   account    Account        @relation(fields: [accountId], references: [id])
   statusRef  LeadStatus     @relation(fields: [accountId, status], references: [accountId, name], onUpdate: Cascade, onDelete: Restrict)
   activities LeadActivity[]
+  bookings   Booking[]
 
   @@index([accountId])
   @@index([accountId, status])

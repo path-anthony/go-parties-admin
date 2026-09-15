@@ -1,14 +1,20 @@
 import type {
   AskGoMessage,
+  Booking,
+  BookingPatch,
   Item,
   Lead,
   LeadActivity,
   LeadPatch,
   LeadStatus,
   LeadStatusRow,
+  NewBooking,
   NewItem,
   NewLead,
+  NewUnit,
   RecommendResponse,
+  Unit,
+  UnitPatch,
 } from "./types";
 
 export const AUTH_EXPIRED_EVENT = "auth:expired";
@@ -107,6 +113,31 @@ export function reorderLeadStatuses(ids: string[]): Promise<LeadStatusRow[]> {
 
 export function deleteLeadStatus(id: string): Promise<{ ok: true }> {
   return fetch(`/api/lead-statuses/${id}`, jsonRequest("DELETE")).then(asJson<{ ok: true }>);
+}
+
+export function getUnits(): Promise<Unit[]> {
+  return fetch("/api/units").then(asJson<Unit[]>);
+}
+
+export function createUnit(unit: NewUnit): Promise<Unit> {
+  return fetch("/api/units", jsonRequest("POST", unit)).then(asJson<Unit>);
+}
+
+export function updateUnit(id: string, patch: UnitPatch): Promise<Unit> {
+  return fetch(`/api/units/${id}`, jsonRequest("PATCH", patch)).then(asJson<Unit>);
+}
+
+export function getBookings(): Promise<Booking[]> {
+  return fetch("/api/bookings").then(asJson<Booking[]>);
+}
+
+export function createBooking(booking: NewBooking): Promise<Booking> {
+  return fetch("/api/bookings", jsonRequest("POST", booking)).then(asJson<Booking>);
+}
+
+// unitIds, when present, replaces the booking's whole unit set.
+export function updateBooking(id: string, patch: BookingPatch): Promise<Booking> {
+  return fetch(`/api/bookings/${id}`, jsonRequest("PATCH", patch)).then(asJson<Booking>);
 }
 
 export function recommend(messages: AskGoMessage[], subOcc: string | null = null): Promise<RecommendResponse> {

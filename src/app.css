@@ -739,6 +739,99 @@ select:focus {
   color: var(--muted);
 }
 
+/* ---------- scheduling: units and bookings ---------- */
+
+.inline-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.inline-form label {
+  min-width: 150px;
+}
+
+.inline-form .btn-primary {
+  align-self: flex-end;
+}
+
+.inline-form-wide {
+  flex-basis: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+}
+
+.unit-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  max-height: 150px;
+  overflow-y: auto;
+  border: 1.5px solid var(--line);
+  border-radius: 6px;
+  padding: 6px 8px;
+  background: var(--white);
+  min-width: 240px;
+}
+
+.unit-picker label {
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--charcoal);
+}
+
+.unit-picker input[type="checkbox"] {
+  margin: 0;
+}
+
+.booking-units {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  min-width: 220px;
+}
+
+.booking-units details {
+  font-size: 11.5px;
+  flex-basis: 100%;
+}
+
+.booking-units summary {
+  cursor: pointer;
+  font-weight: 700;
+  color: var(--charcoal-soft);
+}
+
+.booking-units .unit-picker {
+  margin-top: 6px;
+}
+
+/* The inventory table's per-column min-widths are keyed by nth-child on
+   .items-table; these tables have different columns, so flatten them. */
+.items-table.scheduling-table td .editable-cell {
+  min-width: 130px;
+}
+
+.items-table.scheduling-table td {
+  vertical-align: top;
+  padding-top: 6px;
+  padding-bottom: 6px;
+}
+
+.items-table.scheduling-table select {
+  padding: 4px 6px;
+  font-size: 12px;
+}
+
 /* ---------- settings: lead columns ---------- */
 
 .settings-help {

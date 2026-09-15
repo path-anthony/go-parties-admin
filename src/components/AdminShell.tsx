@@ -5,15 +5,17 @@ import { BookingsScreen } from "./screens/BookingsScreen";
 import { EmptyScreen } from "./screens/EmptyScreen";
 import { InventoryScreen } from "./screens/InventoryScreen";
 import { OverviewScreen } from "./screens/OverviewScreen";
+import { SchedulingScreen } from "./screens/SchedulingScreen";
 import { SettingsScreen } from "./screens/SettingsScreen";
 
-export type ScreenKey = "overview" | "inventory" | "packages" | "bookings" | "crew" | "settings";
+export type ScreenKey = "overview" | "inventory" | "packages" | "bookings" | "scheduling" | "crew" | "settings";
 
 const SCREEN_TITLES: Record<ScreenKey, string> = {
   overview: "Overview",
   inventory: "Inventory",
   packages: "Packages & Themes",
   bookings: "Bookings",
+  scheduling: "Scheduling",
   crew: "Crew & Gigs",
   settings: "Settings",
 };
@@ -26,6 +28,8 @@ function ScreenBody({ screen }: { screen: ScreenKey }) {
       return <InventoryScreen />;
     case "bookings":
       return <BookingsScreen />;
+    case "scheduling":
+      return <SchedulingScreen />;
     case "settings":
       return <SettingsScreen />;
     case "packages":
