@@ -1,6 +1,8 @@
 import { type FormEvent, useState } from "react";
 import { createItem } from "../lib/api";
+import { isUploadedPhoto } from "../lib/photo";
 import type { Item, NewItem } from "../lib/types";
+import { PhotoDropZone } from "./PhotoDropZone";
 
 const EMPTY: NewItem = { name: "", category: "", price: "", priceUnit: "", notes: "", photoUrl: "" };
 
@@ -27,6 +29,10 @@ export function AddItemForm({ onAdded, onCancel }: { onAdded: (item: Item) => vo
       setSaving(false);
     }
   }
+
+  // A dropped photo is held in form state as a data URL and saved with the
+  // item on submit, so a new item with a photo is one step, not two.
+  const uploaded = isUploadedPhoto(form.photoUrl || null);
 
   return (
     <form onSubmit={handleSubmit} className="add-item-form">
@@ -64,10 +70,33 @@ export function AddItemForm({ onAdded, onCancel }: { onAdded: (item: Item) => vo
         Notes
         <textarea rows={2} value={form.notes} onChange={(e) => set("notes", e.target.value)} />
       </label>
-      <label>
-        Photo URL
-        <input value={form.photoUrl} onChange={(e) => set("photoUrl", e.target.value)} placeholder="https://..." />
-      </label>
+      <div className="detail-field">
+        <span className="detail-field-label">Photo</span>
+        <PhotoDropZone
+          value={form.photoUrl || null}
+          alt="Photo for the new item"
+          onPhoto={(photoUrl) => set("photoUrl", photoUrl)}
+          disabled={saving}
+          compact
+        />
+        <div className="photo-actions">
+          {uploaded ? (
+            <>
+              <span className="muted">Photo attached. It saves with the item.</span>
+              <button type="button" className="btn-secondary" onClick={() => set("photoUrl", "")} disabled={saving}>
+                Remove photo
+              </button>
+            </>
+          ) : (
+            <input
+              value={form.photoUrl}
+              onChange={(e) => set("photoUrl", e.target.value)}
+              placeholder="Or paste a photo URL, https://..."
+              aria-label="Photo URL"
+            />
+          )}
+        </div>
+      </div>
       {error && <p className="form-error">{error}</p>}
       <div className="form-actions">
         <button type="submit" className="btn-primary" disabled={saving}>

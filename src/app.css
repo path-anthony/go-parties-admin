@@ -924,6 +924,19 @@ select:focus {
   background: var(--orange-tint);
 }
 
+.photo-drop-compact {
+  min-height: 80px;
+}
+
+.photo-drop-compact .photo-preview {
+  max-height: 120px;
+}
+
+.photo-actions > input {
+  flex: 1;
+  min-width: 200px;
+}
+
 .photo-preview {
   max-width: 100%;
   max-height: 180px;

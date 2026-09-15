@@ -1,9 +1,10 @@
-import { type ChangeEvent, type DragEvent, type KeyboardEvent, useRef, useState } from "react";
+import { type KeyboardEvent, useState } from "react";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import { updateItem, type ItemPatch } from "../lib/api";
-import { compressImage, isUploadedPhoto } from "../lib/photo";
+import { isUploadedPhoto } from "../lib/photo";
 import type { Item } from "../lib/types";
 import { EditableCell } from "./EditableCell";
+import { PhotoDropZone } from "./PhotoDropZone";
 
 function priceLabel(item: Item): string {
   if (item.price === null) return "TBD";
@@ -149,34 +150,8 @@ function ItemDetail({ item, onItemUpdated }: { item: Item; onItemUpdated: (item:
 }
 
 function PhotoField({ item, onSave }: { item: Item; onSave: (patch: ItemPatch) => Promise<void> }) {
-  const inputRef = useRef<HTMLInputElement>(null);
-  const [dragging, setDragging] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  async function handleFile(file: File | undefined) {
-    if (!file) return;
-    setBusy(true);
-    setError(null);
-    try {
-      await onSave({ photoUrl: await compressImage(file) });
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Upload failed");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  function handleDrop(e: DragEvent<HTMLDivElement>) {
-    e.preventDefault();
-    setDragging(false);
-    void handleFile(e.dataTransfer.files[0]);
-  }
-
-  function handleChoose(e: ChangeEvent<HTMLInputElement>) {
-    void handleFile(e.target.files?.[0]);
-    e.target.value = "";
-  }
 
   async function handleRemove() {
     setBusy(true);
@@ -194,33 +169,12 @@ function PhotoField({ item, onSave }: { item: Item; onSave: (patch: ItemPatch) =
 
   return (
     <>
-      <div
-        className={dragging ? "photo-drop photo-drop-active" : "photo-drop"}
-        onDragOver={(e) => {
-          e.preventDefault();
-          setDragging(true);
-        }}
-        onDragLeave={() => setDragging(false)}
-        onDrop={handleDrop}
-        onClick={() => inputRef.current?.click()}
-        role="button"
-        tabIndex={0}
-        aria-label={`Photo for ${item.name}: drop an image here or press Enter to choose one`}
-        onKeyDown={(e) => {
-          if (e.key === "Enter" || e.key === " ") {
-            e.preventDefault();
-            inputRef.current?.click();
-          }
-        }}
-      >
-        {item.photoUrl ? (
-          <img className="photo-preview" src={item.photoUrl} alt={item.name} />
-        ) : (
-          <span className="muted">Drop a photo here, or click to choose one</span>
-        )}
-        {busy && <span className="cell-status">Saving…</span>}
-        <input ref={inputRef} type="file" accept="image/*" style={{ display: "none" }} onChange={handleChoose} />
-      </div>
+      <PhotoDropZone
+        value={item.photoUrl}
+        alt={`Photo for ${item.name}`}
+        onPhoto={(photoUrl) => onSave({ photoUrl })}
+        disabled={busy}
+      />
       <div className="photo-actions">
         {uploaded && <span className="muted">Uploaded photo, stored with the item.</span>}
         {!uploaded && (
