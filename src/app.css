@@ -320,6 +320,35 @@
   font-weight: 700;
 }
 
+.kpi-card-wide {
+  grid-column: span 2;
+}
+
+.kpi-stages {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+}
+
+.kpi-stage {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.kpi-stage-value {
+  font-size: 19px;
+  font-weight: 800;
+  color: var(--charcoal);
+  letter-spacing: -0.01em;
+}
+
+.kpi-stage-label {
+  font-size: 10.5px;
+  font-weight: 700;
+  color: var(--charcoal-soft);
+}
+
 /* ---------- forms ---------- */
 
 .add-item-form,

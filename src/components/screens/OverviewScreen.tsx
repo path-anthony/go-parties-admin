@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { getItems, getLeads } from "../../lib/api";
-import type { Item } from "../../lib/types";
+import { LEAD_STATUSES, type Item, type Lead, type LeadStatus } from "../../lib/types";
 
 type Stats = {
   total: number;
@@ -8,13 +8,13 @@ type Stats = {
   tbd: number;
   categories: number;
   leadsCaptured: number;
+  leadsByStage: Record<LeadStatus, number>;
 };
 
 const PLACEHOLDER_CARDS = [
   { label: "Sales this month" },
   { label: "Upcoming events (30d)" },
   { label: "Bookings needing crew" },
-  { label: "Leads by stage" },
 ];
 
 function computeItemStats(items: Item[]) {
@@ -27,13 +27,19 @@ function computeItemStats(items: Item[]) {
   };
 }
 
+function computeLeadStats(leads: Lead[]) {
+  const leadsByStage = Object.fromEntries(LEAD_STATUSES.map((status) => [status, 0])) as Record<LeadStatus, number>;
+  for (const lead of leads) leadsByStage[lead.status] += 1;
+  return { leadsCaptured: leads.length, leadsByStage };
+}
+
 export function OverviewScreen() {
   const [stats, setStats] = useState<Stats | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     Promise.all([getItems(), getLeads()])
-      .then(([items, leads]) => setStats({ ...computeItemStats(items), leadsCaptured: leads.length }))
+      .then(([items, leads]) => setStats({ ...computeItemStats(items), ...computeLeadStats(leads) }))
       .catch((err) => setError(err instanceof Error ? err.message : "Failed to load"));
   }, []);
 
@@ -70,6 +76,17 @@ export function OverviewScreen() {
             <div className="kpi-card">
               <span className="kpi-label">Leads captured (total)</span>
               <span className="kpi-value">{stats.leadsCaptured}</span>
+            </div>
+            <div className="kpi-card kpi-card-wide">
+              <span className="kpi-label">Leads by stage</span>
+              <div className="kpi-stages">
+                {LEAD_STATUSES.map((status) => (
+                  <div key={status} className="kpi-stage">
+                    <span className="kpi-stage-value">{stats.leadsByStage[status]}</span>
+                    <span className="kpi-stage-label">{status}</span>
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
         </div>
