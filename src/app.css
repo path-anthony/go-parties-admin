@@ -1017,6 +1017,12 @@ select:focus {
   min-width: 220px;
 }
 
+.booking-row-error {
+  margin: 6px 0 0;
+  max-width: 320px;
+  line-height: 1.4;
+}
+
 .deposit-flag {
   flex-direction: row;
   align-items: center;

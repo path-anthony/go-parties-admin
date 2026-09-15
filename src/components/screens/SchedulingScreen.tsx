@@ -261,7 +261,7 @@ function UnitRow({ unit, item, onUpdated }: { unit: Unit; item: Item | undefined
           ))}
         </select>
         {saving && <span className="cell-status">Saving…</span>}
-        {error && <span className="cell-status cell-status-error">{error}</span>}
+        {error && <p className="form-error booking-row-error">{error}</p>}
       </td>
     </tr>
   );
@@ -533,7 +533,7 @@ function BookingRow({
           </details>
         </div>
         {saving && <span className="cell-status">Saving…</span>}
-        {error && <span className="cell-status cell-status-error">{error}</span>}
+        {error && <p className="form-error booking-row-error">{error}</p>}
       </td>
     </tr>
   );

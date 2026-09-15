@@ -106,18 +106,23 @@ model Booking {
   @@map("bookings")
 }
 
-// Which physical units are committed to which booking. The date lives on
-// the booking. This is what will eventually drive real availability.
+// Which physical units are committed to which booking. eventDate is copied
+// from the booking on purpose: the unique constraint on (unitId, eventDate)
+// is what makes double-booking impossible at the database level, no matter
+// which code path tries. Every writer keeps the copy in sync (see
+// server/routes/bookings.ts and directBookings.ts), and a cancelled booking
+// releases its rows so the constraint doesn't hold dates hostage.
 model BookingUnit {
   bookingId String   @map("booking_id")
   unitId    String   @map("unit_id")
+  eventDate DateTime @map("event_date") @db.Date
   createdAt DateTime @default(now()) @map("created_at")
 
   booking Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
   unit    Unit    @relation(fields: [unitId], references: [id], onDelete: Cascade)
 
   @@id([bookingId, unitId])
-  @@index([unitId])
+  @@unique([unitId, eventDate])
   @@map("booking_units")
 }
 

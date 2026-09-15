@@ -78,7 +78,9 @@ router.post("/", async (req, res) => {
           customerName: name,
           customerContact: contactText,
           status: "Confirmed",
-          units: { create: [{ unitId: unit.id }] },
+          // eventDate is copied onto the join row for the (unitId, eventDate)
+          // unique constraint, the database-level backstop behind the lock.
+          units: { create: [{ unitId: unit.id, eventDate: date }] },
         },
       });
       return { booking, lead, unit };
@@ -94,7 +96,10 @@ router.post("/", async (req, res) => {
       unit: { id: result.unit.id, label: result.unit.label },
     });
   } catch (err) {
-    if (err instanceof NoFreeUnit) {
+    // NoFreeUnit is the normal loser path. P2002 is the (unitId, eventDate)
+    // unique constraint firing anyway, which the lock should make
+    // impossible here; it's handled the same way rather than as a 500.
+    if (err instanceof NoFreeUnit || (err as { code?: unknown }).code === "P2002") {
       return res.status(409).json({
         error: "That date was just booked by someone else. Try another date.",
         reason: "unavailable",

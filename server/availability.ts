@@ -3,8 +3,9 @@ import { prisma } from "./db.js";
 
 // A unit is free on a date when its manual status is Available (Booked and
 // Maintenance are hand-set blocks that apply to every date) and no
-// non-cancelled booking has it committed for that date. The date lives on
-// the booking; booking_units only links the two.
+// booking_units row holds it for that date. The row carries the date
+// itself, backed by the (unit_id, event_date) unique index, and a
+// cancelled booking has no rows, so no status check is needed here.
 function freeUnitsWhere(itemId: string, date: string) {
   return Prisma.sql`
     u.item_id = ${itemId}
@@ -12,10 +13,8 @@ function freeUnitsWhere(itemId: string, date: string) {
     AND NOT EXISTS (
       SELECT 1
       FROM booking_units bu
-      JOIN bookings b ON b.id = bu.booking_id
       WHERE bu.unit_id = u.id
-        AND b.event_date = ${date}::date
-        AND b.status <> 'Cancelled'
+        AND bu.event_date = ${date}::date
     )`;
 }
 

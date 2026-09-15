@@ -16,6 +16,14 @@ function serialize<T extends { units: { unitId: string }[] }>(booking: T) {
   return { ...rest, unitIds: units.map((row) => row.unitId) };
 }
 
+function isUniqueViolation(err: unknown): boolean {
+  return (err as { code?: unknown }).code === "P2002";
+}
+
+function formatDay(date: Date): string {
+  return date.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", timeZone: "UTC" });
+}
+
 async function resolveLeadId(accountId: string, value: unknown): Promise<string | null | typeof INVALID> {
   if (value === undefined || value === null || value === "") return null;
   if (typeof value !== "string") return INVALID;
@@ -30,6 +38,22 @@ async function resolveUnitIds(accountId: string, value: unknown): Promise<string
   const owned = await prisma.unit.count({ where: { id: { in: ids }, item: { accountId } } });
   return owned === ids.length ? ids : INVALID;
 }
+
+// Names the units already committed elsewhere on a date, for a specific
+// message. This is only for wording: the (unitId, eventDate) unique
+// constraint is the guarantee, and the write below still handles it.
+async function describeConflicts(unitIds: string[], date: Date, excludeBookingId?: string): Promise<string | null> {
+  if (unitIds.length === 0) return null;
+  const taken = await prisma.bookingUnit.findMany({
+    where: { unitId: { in: unitIds }, eventDate: date, ...(excludeBookingId ? { NOT: { bookingId: excludeBookingId } } : {}) },
+    include: { unit: { include: { item: { select: { name: true } } } } },
+  });
+  if (taken.length === 0) return null;
+  const names = taken.map((row) => `${row.unit.item.name} · ${row.unit.label}`).join(", ");
+  return `${names} ${taken.length === 1 ? "is" : "are"} already booked for ${formatDay(date)}. Pick another unit or date.`;
+}
+
+const RACE_CONFLICT = "One of those units was just booked for that date by someone else. Pick another unit or date.";
 
 router.get("/", async (_req, res) => {
   const account = await getDefaultAccount();
@@ -65,20 +89,35 @@ router.post("/", async (req, res) => {
   if (resolvedUnits === INVALID) {
     return res.status(400).json({ error: "unitIds must be units on this account" });
   }
+  if (status === "Cancelled" && resolvedUnits.length > 0) {
+    return res.status(400).json({ error: "A cancelled booking can't hold units" });
+  }
 
-  const booking = await prisma.booking.create({
-    data: {
-      accountId: account.id,
-      leadId: resolvedLead,
-      eventDate: date,
-      customerName: name,
-      customerContact: contact,
-      status: status ?? "Confirmed",
-      units: { create: resolvedUnits.map((unitId) => ({ unitId })) },
-    },
-    include: WITH_UNITS,
-  });
-  res.status(201).json(serialize(booking));
+  const conflict = await describeConflicts(resolvedUnits, date);
+  if (conflict) {
+    return res.status(409).json({ error: conflict, reason: "unit-conflict" });
+  }
+
+  try {
+    const booking = await prisma.booking.create({
+      data: {
+        accountId: account.id,
+        leadId: resolvedLead,
+        eventDate: date,
+        customerName: name,
+        customerContact: contact,
+        status: status ?? "Confirmed",
+        units: { create: resolvedUnits.map((unitId) => ({ unitId, eventDate: date })) },
+      },
+      include: WITH_UNITS,
+    });
+    res.status(201).json(serialize(booking));
+  } catch (err) {
+    if (isUniqueViolation(err)) {
+      return res.status(409).json({ error: RACE_CONFLICT, reason: "unit-conflict" });
+    }
+    throw err;
+  }
 });
 
 router.patch("/:id", async (req, res) => {
@@ -86,7 +125,7 @@ router.patch("/:id", async (req, res) => {
   const body = req.body ?? {};
 
   const account = await getDefaultAccount();
-  const existing = await prisma.booking.findFirst({ where: { id, accountId: account.id } });
+  const existing = await prisma.booking.findFirst({ where: { id, accountId: account.id }, include: WITH_UNITS });
   if (!existing) {
     return res.status(404).json({ error: "booking not found" });
   }
@@ -146,16 +185,51 @@ router.patch("/:id", async (req, res) => {
     return res.status(400).json({ error: "no editable fields provided" });
   }
 
-  // unitIds replaces the whole set, so the join rows are rebuilt in the
-  // same transaction as the field update.
-  const ops = [];
-  if (unitIds !== null) {
-    ops.push(prisma.bookingUnit.deleteMany({ where: { bookingId: id } }));
-    if (unitIds.length > 0) {
-      ops.push(prisma.bookingUnit.createMany({ data: unitIds.map((unitId) => ({ bookingId: id, unitId })) }));
+  const nextDate = data.eventDate ?? existing.eventDate;
+  const nextStatus = data.status ?? existing.status;
+  const dateMoved = data.eventDate !== undefined && data.eventDate.getTime() !== existing.eventDate.getTime();
+
+  // A cancelled booking releases its units, so the unique constraint on
+  // (unitId, eventDate) never holds a date for something that isn't
+  // happening. Setting units on a cancelled booking is refused for the
+  // same reason.
+  const cancelling = nextStatus === "Cancelled";
+  if (cancelling && unitIds !== null && unitIds.length > 0) {
+    return res.status(400).json({ error: "A cancelled booking can't hold units. Set it back to Confirmed first." });
+  }
+
+  // Whatever set of units this booking will hold on its (possibly new)
+  // date, check them against everyone else's rows first for a specific
+  // message. The constraint still backs this up in the write below.
+  const effectiveUnits = cancelling ? [] : (unitIds ?? existing.units.map((row) => row.unitId));
+  if (unitIds !== null || dateMoved) {
+    const conflict = await describeConflicts(effectiveUnits, nextDate, id);
+    if (conflict) {
+      return res.status(409).json({ error: conflict, reason: "unit-conflict" });
     }
   }
-  await prisma.$transaction([...ops, prisma.booking.update({ where: { id }, data })]);
+
+  const ops = [];
+  if (cancelling) {
+    ops.push(prisma.bookingUnit.deleteMany({ where: { bookingId: id } }));
+  } else if (unitIds !== null) {
+    ops.push(prisma.bookingUnit.deleteMany({ where: { bookingId: id } }));
+    if (unitIds.length > 0) {
+      ops.push(prisma.bookingUnit.createMany({ data: unitIds.map((unitId) => ({ bookingId: id, unitId, eventDate: nextDate })) }));
+    }
+  } else if (dateMoved) {
+    // The join rows carry a copy of the date; moving the booking moves them.
+    ops.push(prisma.bookingUnit.updateMany({ where: { bookingId: id }, data: { eventDate: nextDate } }));
+  }
+
+  try {
+    await prisma.$transaction([...ops, prisma.booking.update({ where: { id }, data })]);
+  } catch (err) {
+    if (isUniqueViolation(err)) {
+      return res.status(409).json({ error: RACE_CONFLICT, reason: "unit-conflict" });
+    }
+    throw err;
+  }
 
   const booking = await prisma.booking.findUniqueOrThrow({ where: { id }, include: WITH_UNITS });
   res.json(serialize(booking));
