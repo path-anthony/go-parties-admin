@@ -11,3 +11,14 @@ export const recommendLimiter = rateLimit({
   legacyHeaders: false,
   message: { error: "Too many requests. Try again in a few minutes." },
 });
+
+// /api/leads/external is trusted server-to-server traffic from n8n, so the
+// cap is loose: real lead volume is nowhere near a lead a second, but a
+// misconfigured retry loop would be, and this stops it filling Bookings.
+export const externalLeadLimiter = rateLimit({
+  windowMs: 60 * 1000, // 1 minute
+  limit: 60,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many requests. Try again in a minute." },
+});

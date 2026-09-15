@@ -7,11 +7,13 @@ import cors from "cors";
 import express, { type ErrorRequestHandler } from "express";
 import { requireAuth } from "./auth.js";
 import { isOriginAllowed } from "./cors.js";
-import { recommendLimiter } from "./rateLimit.js";
+import { externalLeadLimiter, recommendLimiter } from "./rateLimit.js";
 import authRouter from "./routes/auth.js";
+import externalLeadsRouter from "./routes/externalLeads.js";
 import itemsRouter from "./routes/items.js";
 import leadsRouter from "./routes/leads.js";
 import recommendRouter from "./routes/recommend.js";
+import { requireWebhookSecret } from "./webhookAuth.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DIST_DIR = path.join(__dirname, "..", "dist");
@@ -54,13 +56,18 @@ app.use(express.json());
 // Signing secret is ADMIN_PASSWORD itself — see server/auth.ts.
 app.use(cookieParser(process.env.ADMIN_PASSWORD));
 
-// Everything below requires a session except /api/auth (you need to reach
-// login while logged out), /api/health (platform health checks), and
-// /api/recommend — that one is called by anonymous customers from the
-// public storefront, not the admin UI, so it's public by design and rate
-// limited instead of session-gated (each call costs real money).
+// Everything below requires a session except:
+// - /api/auth: you need to reach login while logged out.
+// - /api/health: platform health checks.
+// - /api/recommend: called by anonymous customers from the public
+//   storefront, so it's public by design and rate limited instead of
+//   session-gated (each call costs real money).
+// - /api/leads/external: n8n posting website leads, authenticated by a
+//   shared secret header instead of a cookie (see server/webhookAuth.ts).
+//   Mounted before /api/leads so the session gate never sees it.
 app.use("/api/auth", authRouter);
 app.use("/api/items", requireAuth, itemsRouter);
+app.use("/api/leads/external", externalLeadLimiter, requireWebhookSecret, externalLeadsRouter);
 app.use("/api/leads", requireAuth, leadsRouter);
 app.use("/api/recommend", recommendLimiter, recommendRouter);
 
