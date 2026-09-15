@@ -1,21 +1,18 @@
 import { useState } from "react";
-import { LEAD_STATUSES, type Lead, type LeadSource, type LeadStatus } from "../lib/types";
+import { SOURCE_LABEL, leadTitle } from "../lib/leads";
+import type { Lead, LeadStatus } from "../lib/types";
 import { formatDate, relativeTime } from "../lib/time";
-
-export const SOURCE_LABEL: Record<LeadSource, string> = { "ask-go": "Ask GO", manual: "Manual", website: "Website" };
 
 const usd = (n: number) => n.toLocaleString("en-US", { style: "currency", currency: "USD" });
 
-export function leadTitle(lead: Lead): string | null {
-  return lead.customerName ?? lead.occasion;
-}
-
 export function LeadCard({
   lead,
+  statuses,
   onOpen,
   onStatusChange,
 }: {
   lead: Lead;
+  statuses: LeadStatus[];
   onOpen: () => void;
   onStatusChange: (id: string, status: LeadStatus) => Promise<void>;
 }) {
@@ -56,6 +53,16 @@ export function LeadCard({
       {lead.contact && <div className="lead-card-line">{lead.contact}</div>}
       {detail && <div className="lead-card-line">{detail}</div>}
 
+      {lead.tags.length > 0 && (
+        <div className="tag-list">
+          {lead.tags.map((tag) => (
+            <span key={tag} className="tag-chip">
+              {tag}
+            </span>
+          ))}
+        </div>
+      )}
+
       {lead.theme && <p className="lead-card-theme">{lead.theme}</p>}
 
       {items && (
@@ -81,11 +88,11 @@ export function LeadCard({
       <div className="lead-card-foot" onClick={stop} onPointerDown={stop}>
         <select
           value={lead.status}
-          onChange={(e) => handleStatus(e.target.value as LeadStatus)}
+          onChange={(e) => handleStatus(e.target.value)}
           disabled={saving}
           aria-label={`Status for ${title ?? "lead"}`}
         >
-          {LEAD_STATUSES.map((status) => (
+          {statuses.map((status) => (
             <option key={status} value={status}>
               {status}
             </option>

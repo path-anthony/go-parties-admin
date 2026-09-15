@@ -1,11 +1,12 @@
 import { Router } from "express";
 import { getDefaultAccount } from "../account.js";
 import { prisma } from "../db.js";
-
-const LEAD_STATUSES = ["New", "Contacted", "Booked", "Lost"] as const;
-type LeadStatus = (typeof LEAD_STATUSES)[number];
+import { getDefaultStatus, statusExists } from "../leadStatuses.js";
 
 const EDITABLE_TEXT_FIELDS = ["customerName", "contact", "occasion", "notes"] as const;
+const MAX_TAGS = 20;
+const MAX_TAG_LENGTH = 40;
+const MAX_ACTIVITY_LENGTH = 2000;
 
 // sortOrder first, then newest first among ties. Rows that have never been
 // dragged all sit at 0, so an untouched column is simply newest first.
@@ -19,10 +20,6 @@ function normalizeText(value: unknown): string | null {
   return typeof value === "string" && value.trim() !== "" ? value.trim() : null;
 }
 
-function isStatus(value: unknown): value is LeadStatus {
-  return typeof value === "string" && (LEAD_STATUSES as readonly string[]).includes(value);
-}
-
 // Accepts "YYYY-MM-DD", which is what <input type="date"> sends. The column
 // is a plain DATE, so the value is pinned to UTC midnight both ways. Date
 // parsing rolls impossible days over (2026-02-31 becomes March 3) instead
@@ -33,6 +30,14 @@ function normalizeDate(value: unknown): Date | null | typeof INVALID {
   const date = new Date(`${value}T00:00:00Z`);
   if (Number.isNaN(date.getTime()) || date.toISOString().slice(0, 10) !== value) return INVALID;
   return date;
+}
+
+// Trimmed, non-empty, deduplicated, capped in count and length.
+function normalizeTags(value: unknown): string[] | typeof INVALID {
+  if (!Array.isArray(value) || !value.every((tag): tag is string => typeof tag === "string")) return INVALID;
+  const tags = [...new Set(value.map((tag) => tag.trim()).filter((tag) => tag !== ""))];
+  if (tags.length > MAX_TAGS || tags.some((tag) => tag.length > MAX_TAG_LENGTH)) return INVALID;
+  return tags;
 }
 
 router.get("/", async (_req, res) => {
@@ -59,16 +64,17 @@ router.post("/", async (req, res) => {
   if (date === INVALID) {
     return res.status(400).json({ error: "dateOfInterest must be a valid YYYY-MM-DD date" });
   }
-  if (status !== undefined && !isStatus(status)) {
-    return res.status(400).json({ error: `status must be one of ${LEAD_STATUSES.join(", ")}` });
-  }
 
   const account = await getDefaultAccount();
+  if (status !== undefined && !(await statusExists(account.id, status))) {
+    return res.status(400).json({ error: "status must be an existing column" });
+  }
+
   const lead = await prisma.lead.create({
     data: {
       accountId: account.id,
       source: "manual",
-      status: status ?? "New",
+      status: status ?? (await getDefaultStatus(account.id)),
       customerName: name,
       contact: contactText,
       occasion: normalizeText(occasion),
@@ -89,9 +95,6 @@ router.post("/", async (req, res) => {
 router.patch("/reorder", async (req, res) => {
   const { status, ids } = req.body ?? {};
 
-  if (!isStatus(status)) {
-    return res.status(400).json({ error: `status must be one of ${LEAD_STATUSES.join(", ")}` });
-  }
   if (
     !Array.isArray(ids) ||
     ids.length === 0 ||
@@ -102,6 +105,9 @@ router.patch("/reorder", async (req, res) => {
   }
 
   const account = await getDefaultAccount();
+  if (!(await statusExists(account.id, status))) {
+    return res.status(400).json({ error: "status must be an existing column" });
+  }
   const owned = await prisma.lead.count({ where: { id: { in: ids }, accountId: account.id } });
   if (owned !== ids.length) {
     return res.status(400).json({ error: "ids must all be leads on this account" });
@@ -134,8 +140,9 @@ router.patch("/:id", async (req, res) => {
     occasion?: string | null;
     notes?: string | null;
     dateOfInterest?: Date | null;
-    status?: LeadStatus;
+    status?: string;
     sortOrder?: number;
+    tags?: string[];
   } = {};
 
   for (const field of EDITABLE_TEXT_FIELDS) {
@@ -148,9 +155,18 @@ router.patch("/:id", async (req, res) => {
     }
     data.dateOfInterest = date;
   }
+  if ("tags" in body) {
+    const tags = normalizeTags(body.tags);
+    if (tags === INVALID) {
+      return res.status(400).json({
+        error: `tags must be an array of up to ${MAX_TAGS} strings, each up to ${MAX_TAG_LENGTH} characters`,
+      });
+    }
+    data.tags = tags;
+  }
   if ("status" in body) {
-    if (!isStatus(body.status)) {
-      return res.status(400).json({ error: `status must be one of ${LEAD_STATUSES.join(", ")}` });
+    if (!(await statusExists(account.id, body.status))) {
+      return res.status(400).json({ error: "status must be an existing column" });
     }
     data.status = body.status;
     // A status change that didn't come from a drag lands in the new
@@ -164,6 +180,35 @@ router.patch("/:id", async (req, res) => {
 
   const lead = await prisma.lead.update({ where: { id }, data });
   res.json(lead);
+});
+
+router.get("/:id/activity", async (req, res) => {
+  const { id } = req.params;
+  const account = await getDefaultAccount();
+  const lead = await prisma.lead.findFirst({ where: { id, accountId: account.id }, select: { id: true } });
+  if (!lead) {
+    return res.status(404).json({ error: "lead not found" });
+  }
+  const entries = await prisma.leadActivity.findMany({ where: { leadId: id }, orderBy: { createdAt: "desc" } });
+  res.json(entries);
+});
+
+// Append-only: there is deliberately no PATCH or DELETE for entries.
+router.post("/:id/activity", async (req, res) => {
+  const { id } = req.params;
+  const text = normalizeText(req.body?.text);
+  if (!text || text.length > MAX_ACTIVITY_LENGTH) {
+    return res.status(400).json({ error: `text is required (up to ${MAX_ACTIVITY_LENGTH} characters)` });
+  }
+
+  const account = await getDefaultAccount();
+  const lead = await prisma.lead.findFirst({ where: { id, accountId: account.id }, select: { id: true } });
+  if (!lead) {
+    return res.status(404).json({ error: "lead not found" });
+  }
+
+  const entry = await prisma.leadActivity.create({ data: { leadId: id, text } });
+  res.status(201).json(entry);
 });
 
 export default router;

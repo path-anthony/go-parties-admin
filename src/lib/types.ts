@@ -26,9 +26,18 @@ export type RecommendResponse =
   | { ready: false; message: string }
   | { ready: true; message: string; items: Item[]; total: number };
 
-export const LEAD_STATUSES = ["New", "Contacted", "Booked", "Lost"] as const;
-export type LeadStatus = (typeof LEAD_STATUSES)[number];
+// The name of a LeadStatusRow. Columns are configurable in Settings, so
+// this is a plain string, not a fixed union.
+export type LeadStatus = string;
 export type LeadSource = "ask-go" | "manual" | "website";
+
+export type LeadStatusRow = {
+  id: string;
+  accountId: string;
+  name: string;
+  position: number;
+  createdAt: string;
+};
 
 export type LeadItems = {
   items: { id: string; name: string; category: string; price: number | null; priceUnit: string | null }[];
@@ -41,6 +50,7 @@ export type Lead = {
   status: LeadStatus;
   source: LeadSource;
   sortOrder: number;
+  tags: string[];
   customerName: string | null;
   contact: string | null;
   occasion: string | null;
@@ -61,6 +71,13 @@ export type NewLead = {
   status: LeadStatus;
 };
 
-export type LeadPatch = Partial<Pick<Lead, "customerName" | "contact" | "occasion" | "notes" | "status">> & {
+export type LeadPatch = Partial<Pick<Lead, "customerName" | "contact" | "occasion" | "notes" | "status" | "tags">> & {
   dateOfInterest?: string | null; // "YYYY-MM-DD" or null to clear
+};
+
+export type LeadActivity = {
+  id: string;
+  leadId: string;
+  text: string;
+  createdAt: string;
 };

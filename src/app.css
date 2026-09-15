@@ -326,7 +326,8 @@
 
 .kpi-stages {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
   gap: 8px;
 }
 
@@ -630,20 +631,175 @@ select:focus {
   min-height: 160px;
 }
 
-.pipeline-col-new {
+/* Accents cycle by column position, since column names are configurable. */
+
+.pipeline-col-accent-0 {
   --col-accent: var(--orange);
 }
 
-.pipeline-col-contacted {
+.pipeline-col-accent-1 {
   --col-accent: var(--taupe);
 }
 
-.pipeline-col-booked {
+.pipeline-col-accent-2 {
   --col-accent: var(--good);
 }
 
-.pipeline-col-lost {
+.pipeline-col-accent-3 {
   --col-accent: var(--muted);
+}
+
+.pipeline-col-accent-4 {
+  --col-accent: var(--charcoal-soft);
+}
+
+/* tags */
+
+.tag-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.tag-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  font-size: 10.5px;
+  font-weight: 700;
+  line-height: 16px;
+  padding: 1px 7px;
+  border-radius: 10px;
+  background: var(--cream);
+  border: 1px solid var(--line);
+  color: var(--charcoal-soft);
+}
+
+.tag-chip-remove {
+  display: inline-flex;
+  align-items: center;
+  border: none;
+  background: none;
+  padding: 0 0 0 2px;
+  margin-right: -3px;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.tag-chip-remove:hover {
+  color: var(--bad);
+}
+
+.tag-editor {
+  display: flex;
+  gap: 6px;
+}
+
+.tag-editor input {
+  flex: 1;
+  min-width: 0;
+  padding: 5px 8px;
+  font-size: 12.5px;
+}
+
+/* activity log */
+
+.activity-form {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.activity-form textarea {
+  font: inherit;
+  font-size: 12.5px;
+  resize: vertical;
+}
+
+.activity-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.activity-entry {
+  font-size: 12.5px;
+  line-height: 1.4;
+  white-space: pre-wrap;
+  padding-left: 8px;
+  border-left: 2px solid var(--line);
+}
+
+.activity-time {
+  display: block;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+/* ---------- settings: lead columns ---------- */
+
+.settings-help {
+  margin: -4px 0 10px;
+  max-width: 560px;
+  line-height: 1.45;
+}
+
+.settings-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-width: 560px;
+}
+
+.settings-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.settings-row .editable-cell {
+  flex: 1;
+}
+
+.settings-row-actions {
+  display: flex;
+  gap: 0;
+}
+
+.settings-row-actions .icon-btn:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+
+.settings-row-count {
+  font-size: 12px;
+  color: var(--muted);
+  white-space: nowrap;
+  min-width: 56px;
+  text-align: right;
+}
+
+.settings-row-error {
+  margin: 0;
+  padding: 3px 0 8px 58px;
+  font-size: 12px;
+  color: var(--bad);
+}
+
+.settings-add {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+  max-width: 560px;
+}
+
+.settings-add input {
+  flex: 1;
 }
 
 .pipeline-col-head {

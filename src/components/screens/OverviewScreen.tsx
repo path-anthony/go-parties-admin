@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
-import { getItems, getLeads } from "../../lib/api";
-import { LEAD_STATUSES, type Item, type Lead, type LeadStatus } from "../../lib/types";
+import { getItems, getLeadStatuses, getLeads } from "../../lib/api";
+import type { Item, Lead } from "../../lib/types";
 
 type Stats = {
   total: number;
@@ -8,7 +8,7 @@ type Stats = {
   tbd: number;
   categories: number;
   leadsCaptured: number;
-  leadsByStage: Record<LeadStatus, number>;
+  leadsByStage: { name: string; count: number }[];
 };
 
 const PLACEHOLDER_CARDS = [
@@ -27,10 +27,13 @@ function computeItemStats(items: Item[]) {
   };
 }
 
-function computeLeadStats(leads: Lead[]) {
-  const leadsByStage = Object.fromEntries(LEAD_STATUSES.map((status) => [status, 0])) as Record<LeadStatus, number>;
-  for (const lead of leads) leadsByStage[lead.status] += 1;
-  return { leadsCaptured: leads.length, leadsByStage };
+function computeLeadStats(leads: Lead[], stages: string[]) {
+  const counts = new Map(stages.map((name) => [name, 0]));
+  for (const lead of leads) counts.set(lead.status, (counts.get(lead.status) ?? 0) + 1);
+  return {
+    leadsCaptured: leads.length,
+    leadsByStage: stages.map((name) => ({ name, count: counts.get(name) ?? 0 })),
+  };
 }
 
 export function OverviewScreen() {
@@ -38,8 +41,16 @@ export function OverviewScreen() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    Promise.all([getItems(), getLeads()])
-      .then(([items, leads]) => setStats({ ...computeItemStats(items), ...computeLeadStats(leads) }))
+    Promise.all([getItems(), getLeads(), getLeadStatuses()])
+      .then(([items, leads, statuses]) =>
+        setStats({
+          ...computeItemStats(items),
+          ...computeLeadStats(
+            leads,
+            statuses.map((row) => row.name),
+          ),
+        }),
+      )
       .catch((err) => setError(err instanceof Error ? err.message : "Failed to load"));
   }, []);
 
@@ -80,10 +91,10 @@ export function OverviewScreen() {
             <div className="kpi-card kpi-card-wide">
               <span className="kpi-label">Leads by stage</span>
               <div className="kpi-stages">
-                {LEAD_STATUSES.map((status) => (
-                  <div key={status} className="kpi-stage">
-                    <span className="kpi-stage-value">{stats.leadsByStage[status]}</span>
-                    <span className="kpi-stage-label">{status}</span>
+                {stats.leadsByStage.map(({ name, count }) => (
+                  <div key={name} className="kpi-stage">
+                    <span className="kpi-stage-value">{count}</span>
+                    <span className="kpi-stage-label">{name}</span>
                   </div>
                 ))}
               </div>

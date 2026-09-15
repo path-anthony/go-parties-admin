@@ -2,6 +2,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { Router } from "express";
 import { getDefaultAccount } from "../account.js";
 import { prisma } from "../db.js";
+import { getDefaultStatus } from "../leadStatuses.js";
 import type { Item } from "../../src/generated/prisma/client.js";
 
 const router = Router();
@@ -24,8 +25,10 @@ type LeadItem = { id: string; name: string; category: string; price: number | nu
 // thrown): a slow or failed insert must not add latency or block the
 // customer's answer.
 function logLead(accountId: string, theme: string, items: LeadItem[], total: number) {
-  prisma.lead
-    .create({ data: { accountId, source: "ask-go", theme, itemsReturned: { items, total } } })
+  getDefaultStatus(accountId)
+    .then((status) =>
+      prisma.lead.create({ data: { accountId, source: "ask-go", status, theme, itemsReturned: { items, total } } }),
+    )
     .catch((err: unknown) => {
       console.error("[lead] failed to log lead:", err);
     });

@@ -11,6 +11,7 @@ import { externalLeadLimiter, recommendLimiter } from "./rateLimit.js";
 import authRouter from "./routes/auth.js";
 import externalLeadsRouter from "./routes/externalLeads.js";
 import itemsRouter from "./routes/items.js";
+import leadStatusesRouter from "./routes/leadStatuses.js";
 import leadsRouter from "./routes/leads.js";
 import recommendRouter from "./routes/recommend.js";
 import { requireWebhookSecret } from "./webhookAuth.js";
@@ -69,6 +70,7 @@ app.use("/api/auth", authRouter);
 app.use("/api/items", requireAuth, itemsRouter);
 app.use("/api/leads/external", externalLeadLimiter, requireWebhookSecret, externalLeadsRouter);
 app.use("/api/leads", requireAuth, leadsRouter);
+app.use("/api/lead-statuses", requireAuth, leadStatusesRouter);
 app.use("/api/recommend", recommendLimiter, recommendRouter);
 
 app.get("/api/health", (_req, res) => {

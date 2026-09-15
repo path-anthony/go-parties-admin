@@ -1,5 +1,15 @@
 import type { LucideIcon } from "lucide-react";
-import { Box, Briefcase, ChartBar, Contact, Layers2, PanelLeftClose, PanelLeftOpen, Sparkles } from "lucide-react";
+import {
+  Box,
+  Briefcase,
+  ChartBar,
+  Contact,
+  Layers2,
+  PanelLeftClose,
+  PanelLeftOpen,
+  Settings,
+  Sparkles,
+} from "lucide-react";
 import type { ScreenKey } from "./AdminShell";
 
 const NAV_ITEMS: { key: ScreenKey; label: string; icon: LucideIcon }[] = [
@@ -8,6 +18,7 @@ const NAV_ITEMS: { key: ScreenKey; label: string; icon: LucideIcon }[] = [
   { key: "packages", label: "Packages & Themes", icon: Layers2 },
   { key: "bookings", label: "Bookings", icon: Contact },
   { key: "crew", label: "Crew & Gigs", icon: Briefcase },
+  { key: "settings", label: "Settings", icon: Settings },
 ];
 
 export function NavRail({

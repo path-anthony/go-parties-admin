@@ -20,15 +20,15 @@ import {
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { getLeads, reorderLeads, updateLead } from "../../lib/api";
-import { LEAD_STATUSES, type Lead, type LeadStatus } from "../../lib/types";
+import { getLeadStatuses, getLeads, reorderLeads, updateLead } from "../../lib/api";
+import type { Lead, LeadStatus } from "../../lib/types";
 import { AddLeadForm } from "../AddLeadForm";
 import { LeadCard } from "../LeadCard";
 import { LeadDetailPanel } from "../LeadDetailPanel";
 
-function isStatus(id: string): id is LeadStatus {
-  return (LEAD_STATUSES as readonly string[]).includes(id);
-}
+// Column top-bar colors cycle by position, since column names are whatever
+// Settings says they are.
+const ACCENT_COUNT = 5;
 
 function columnIds(leads: Lead[], status: LeadStatus): string[] {
   return leads.filter((lead) => lead.status === status).map((lead) => lead.id);
@@ -36,10 +36,12 @@ function columnIds(leads: Lead[], status: LeadStatus): string[] {
 
 function SortableLeadCard({
   lead,
+  statuses,
   onOpen,
   onStatusChange,
 }: {
   lead: Lead;
+  statuses: LeadStatus[];
   onOpen: () => void;
   onStatusChange: (id: string, status: LeadStatus) => Promise<void>;
 }) {
@@ -62,18 +64,22 @@ function SortableLeadCard({
         (listeners?.onKeyDown as ((event: KeyboardEvent) => void) | undefined)?.(e);
       }}
     >
-      <LeadCard lead={lead} onOpen={onOpen} onStatusChange={onStatusChange} />
+      <LeadCard lead={lead} statuses={statuses} onOpen={onOpen} onStatusChange={onStatusChange} />
     </div>
   );
 }
 
 function PipelineColumn({
   status,
+  accent,
+  statuses,
   leads,
   onOpen,
   onStatusChange,
 }: {
   status: LeadStatus;
+  accent: number;
+  statuses: LeadStatus[];
   leads: Lead[];
   onOpen: (id: string) => void;
   onStatusChange: (id: string, status: LeadStatus) => Promise<void>;
@@ -81,7 +87,7 @@ function PipelineColumn({
   // The column itself is a drop target so a card can be dropped into an
   // empty column, or below the last card, not only onto another card.
   const { setNodeRef, isOver } = useDroppable({ id: status });
-  const className = `pipeline-col pipeline-col-${status.toLowerCase()}${isOver ? " pipeline-col-over" : ""}`;
+  const className = `pipeline-col pipeline-col-accent-${accent}${isOver ? " pipeline-col-over" : ""}`;
   return (
     <section ref={setNodeRef} className={className}>
       <header className="pipeline-col-head">
@@ -97,6 +103,7 @@ function PipelineColumn({
               <SortableLeadCard
                 key={lead.id}
                 lead={lead}
+                statuses={statuses}
                 onOpen={() => onOpen(lead.id)}
                 onStatusChange={onStatusChange}
               />
@@ -109,6 +116,7 @@ function PipelineColumn({
 }
 
 export function BookingsScreen() {
+  const [statuses, setStatuses] = useState<LeadStatus[] | null>(null);
   const [leads, setLeads] = useState<Lead[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
@@ -131,10 +139,17 @@ export function BookingsScreen() {
   );
 
   useEffect(() => {
-    getLeads()
-      .then(setLeads)
+    Promise.all([getLeadStatuses(), getLeads()])
+      .then(([rows, list]) => {
+        setStatuses(rows.map((row) => row.name));
+        setLeads(list);
+      })
       .catch((err) => setError(err instanceof Error ? err.message : "Failed to load leads"));
   }, []);
+
+  function isStatus(id: string): boolean {
+    return statuses?.includes(id) ?? false;
+  }
 
   function columnOf(id: string): LeadStatus | undefined {
     if (isStatus(id)) return id;
@@ -265,6 +280,7 @@ export function BookingsScreen() {
 
   const activeLead = activeId ? leads?.find((lead) => lead.id === activeId) ?? null : null;
   const selected = selectedId ? leads?.find((lead) => lead.id === selectedId) ?? null : null;
+  const ready = statuses !== null && leads !== null;
 
   return (
     <div className="screen screen-wide">
@@ -273,17 +289,18 @@ export function BookingsScreen() {
           <h2>Bookings</h2>
           <p className="muted">Every lead, grouped by stage. Drag to reorder or move between stages, click to open.</p>
         </div>
-        {!adding && (
+        {!adding && ready && (
           <button type="button" className="btn-primary" onClick={() => setAdding(true)}>
             Add lead
           </button>
         )}
       </div>
 
-      {adding && (
+      {adding && statuses && (
         <section className="panel">
           <h2>New lead</h2>
           <AddLeadForm
+            statuses={statuses}
             onAdded={(lead) => {
               setLeads((prev) => [lead, ...(prev ?? [])]);
               setAdding(false);
@@ -294,9 +311,9 @@ export function BookingsScreen() {
       )}
 
       {error && <p className="form-error">{error}</p>}
-      {!leads && !error && <p className="muted">Loading…</p>}
+      {!ready && !error && <p className="muted">Loading…</p>}
 
-      {leads && (
+      {ready && (
         <DndContext
           sensors={sensors}
           collisionDetection={closestCorners}
@@ -308,11 +325,13 @@ export function BookingsScreen() {
             finishDrag();
           }}
         >
-          <div className="pipeline">
-            {LEAD_STATUSES.map((status) => (
+          <div className="pipeline" style={{ gridTemplateColumns: `repeat(${statuses.length}, minmax(230px, 1fr))` }}>
+            {statuses.map((status, index) => (
               <PipelineColumn
                 key={status}
                 status={status}
+                accent={index % ACCENT_COUNT}
+                statuses={statuses}
                 leads={leads.filter((lead) => lead.status === status)}
                 onOpen={handleOpen}
                 onStatusChange={handleStatusChange}
@@ -322,7 +341,7 @@ export function BookingsScreen() {
           <DragOverlay>
             {activeLead && (
               <div className="lead-sortable lead-sortable-overlay">
-                <LeadCard lead={activeLead} onOpen={() => {}} onStatusChange={async () => {}} />
+                <LeadCard lead={activeLead} statuses={statuses} onOpen={() => {}} onStatusChange={async () => {}} />
               </div>
             )}
           </DragOverlay>
@@ -331,6 +350,7 @@ export function BookingsScreen() {
 
       <LeadDetailPanel
         lead={selected}
+        statuses={statuses ?? []}
         onClose={() => setSelectedId(null)}
         onUpdated={(updated, movedColumns) => replaceLead(updated, movedColumns)}
       />

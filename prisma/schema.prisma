@@ -16,10 +16,45 @@ model Account {
   email     String   @unique
   createdAt DateTime @default(now()) @map("created_at")
 
-  items Item[]
-  leads Lead[]
+  items        Item[]
+  leads        Lead[]
+  leadStatuses LeadStatus[]
 
   @@map("accounts")
+}
+
+// The Bookings board's columns, editable in Settings. Lead.status stores
+// the column's name and is a real foreign key onto (account_id, name):
+// renaming a column cascades to its leads at the database level, and
+// deleting one that still has leads is refused by the database too (the
+// API checks first so the message is a useful one). New leads go to the
+// column with the lowest position.
+model LeadStatus {
+  id        String   @id @default(cuid())
+  accountId String   @map("account_id")
+  name      String
+  position  Int
+  createdAt DateTime @default(now()) @map("created_at")
+
+  account Account @relation(fields: [accountId], references: [id])
+  leads   Lead[]
+
+  @@unique([accountId, name])
+  @@index([accountId, position])
+  @@map("lead_statuses")
+}
+
+// Append-only log of what happened with a lead. No edits, no deletes.
+model LeadActivity {
+  id        String   @id @default(cuid())
+  leadId    String   @map("lead_id")
+  text      String
+  createdAt DateTime @default(now()) @map("created_at")
+
+  lead Lead @relation(fields: [leadId], references: [id], onDelete: Cascade)
+
+  @@index([leadId, createdAt])
+  @@map("lead_activities")
 }
 
 model Item {
@@ -54,12 +89,15 @@ model Item {
 model Lead {
   id             String    @id @default(cuid())
   accountId      String    @map("account_id")
-  status         String    @default("New")
+  // Name of a LeadStatus row on the same account (see statusRef).
+  status         String
   source         String    @default("ask-go")
   // Position within its status column on the Bookings board. New rows and
   // dropdown status changes get 0, which sorts them into the top group
   // (ties broken newest first); a drag renumbers the whole target column.
   sortOrder      Int       @default(0) @map("sort_order")
+  // Free-form labels, independent of status.
+  tags           String[]  @default([])
   customerName   String?   @map("customer_name")
   contact        String?
   occasion       String?
@@ -70,7 +108,9 @@ model Lead {
   createdAt      DateTime  @default(now()) @map("created_at")
   updatedAt      DateTime  @default(now()) @updatedAt @map("updated_at")
 
-  account Account @relation(fields: [accountId], references: [id])
+  account    Account        @relation(fields: [accountId], references: [id])
+  statusRef  LeadStatus     @relation(fields: [accountId, status], references: [accountId, name], onUpdate: Cascade, onDelete: Restrict)
+  activities LeadActivity[]
 
   @@index([accountId])
   @@index([accountId, status])

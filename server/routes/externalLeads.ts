@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { getDefaultAccount } from "../account.js";
 import { prisma } from "../db.js";
+import { getDefaultStatus } from "../leadStatuses.js";
 
 const router = Router();
 
@@ -28,7 +29,7 @@ router.post("/", async (req, res) => {
     data: {
       accountId: account.id,
       source: "website",
-      status: "New",
+      status: await getDefaultStatus(account.id),
       customerName: name,
       contact: contactText,
       occasion: normalizeText(occasion),

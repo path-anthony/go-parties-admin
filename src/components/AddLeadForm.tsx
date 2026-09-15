@@ -1,11 +1,20 @@
 import { type FormEvent, useState } from "react";
 import { createLead } from "../lib/api";
-import { LEAD_STATUSES, type Lead, type NewLead } from "../lib/types";
+import type { Lead, LeadStatus, NewLead } from "../lib/types";
 
-const EMPTY: NewLead = { customerName: "", contact: "", occasion: "", dateOfInterest: "", notes: "", status: "New" };
+const EMPTY_FIELDS = { customerName: "", contact: "", occasion: "", dateOfInterest: "", notes: "" };
 
-export function AddLeadForm({ onAdded, onCancel }: { onAdded: (lead: Lead) => void; onCancel: () => void }) {
-  const [form, setForm] = useState<NewLead>(EMPTY);
+export function AddLeadForm({
+  statuses,
+  onAdded,
+  onCancel,
+}: {
+  statuses: LeadStatus[];
+  onAdded: (lead: Lead) => void;
+  onCancel: () => void;
+}) {
+  const empty = (): NewLead => ({ ...EMPTY_FIELDS, status: statuses[0] ?? "" });
+  const [form, setForm] = useState<NewLead>(empty);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -20,7 +29,7 @@ export function AddLeadForm({ onAdded, onCancel }: { onAdded: (lead: Lead) => vo
     try {
       const lead = await createLead(form);
       onAdded(lead);
-      setForm(EMPTY);
+      setForm(empty());
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to add lead");
     } finally {
@@ -55,8 +64,8 @@ export function AddLeadForm({ onAdded, onCancel }: { onAdded: (lead: Lead) => vo
         </label>
         <label>
           Status
-          <select value={form.status} onChange={(e) => set("status", e.target.value as NewLead["status"])}>
-            {LEAD_STATUSES.map((status) => (
+          <select value={form.status} onChange={(e) => set("status", e.target.value)}>
+            {statuses.map((status) => (
               <option key={status} value={status}>
                 {status}
               </option>
