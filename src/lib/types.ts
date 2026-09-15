@@ -114,6 +114,7 @@ export type Booking = {
   email: string | null;
   status: BookingStatus;
   depositPaid: boolean;
+  customerId: string | null; // set when booked from a customer account
   unitIds: string[];
   createdAt: string;
   updatedAt: string;

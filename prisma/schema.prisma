@@ -20,6 +20,7 @@ model Account {
   leads        Lead[]
   leadStatuses LeadStatus[]
   bookings     Booking[]
+  customers    Customer[]
 
   @@map("accounts")
 }
@@ -103,17 +104,48 @@ model Booking {
   status       String   @default("Confirmed")
   // Placeholder for the deposit integration that isn't built yet. Nothing
   // sets this automatically; it's a flag Andy can tick by hand for now.
-  depositPaid     Boolean  @default(false) @map("deposit_paid")
-  createdAt       DateTime @default(now()) @map("created_at")
-  updatedAt       DateTime @default(now()) @updatedAt @map("updated_at")
+  depositPaid  Boolean  @default(false) @map("deposit_paid")
+  // Set when the booking was made from a logged-in customer account; null
+  // for admin-entered and anonymous storefront bookings. Deleting the
+  // account keeps the booking.
+  customerId   String?  @map("customer_id")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @default(now()) @updatedAt @map("updated_at")
 
-  account Account       @relation(fields: [accountId], references: [id])
-  lead    Lead?         @relation(fields: [leadId], references: [id], onDelete: SetNull)
-  units   BookingUnit[]
+  account  Account       @relation(fields: [accountId], references: [id])
+  lead     Lead?         @relation(fields: [leadId], references: [id], onDelete: SetNull)
+  customer Customer?     @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  units    BookingUnit[]
 
   @@index([accountId, eventDate])
   @@index([leadId])
+  @@index([customerId])
   @@map("bookings")
+}
+
+// A customer login for self-service booking management. Password-based
+// only: passwordHash is bcrypt, never plaintext. phone and email are
+// stored normalized (digits only; lowercased) and unique per account.
+// phoneVerifiedAt is structural prep for an SMS verification step that
+// isn't built; nothing sets it today. name is optional at signup and is
+// remembered from the first booking made while logged in.
+model Customer {
+  id              String    @id @default(cuid())
+  accountId       String    @map("account_id")
+  name            String?
+  phone           String
+  email           String
+  passwordHash    String    @map("password_hash")
+  phoneVerifiedAt DateTime? @map("phone_verified_at")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @default(now()) @updatedAt @map("updated_at")
+
+  account  Account   @relation(fields: [accountId], references: [id])
+  bookings Booking[]
+
+  @@unique([accountId, phone])
+  @@unique([accountId, email])
+  @@map("customers")
 }
 
 // Which physical units are committed to which booking. eventDate is copied

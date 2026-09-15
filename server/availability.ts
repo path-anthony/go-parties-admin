@@ -32,14 +32,20 @@ export async function countFreeUnits(itemId: string, date: string): Promise<numb
 // unsafe here: under READ COMMITTED the NOT EXISTS subquery keeps the
 // statement's original snapshot, so the waiter could still see the unit as
 // free after the winner committed.)
+//
+// excludeUnitIds matters when one transaction claims several units of the
+// same item: SKIP LOCKED only skips rows locked by other transactions, so
+// without it the same unit would be handed back a second time.
 export async function lockFreeUnit(
   tx: Prisma.TransactionClient,
   itemId: string,
   date: string,
+  excludeUnitIds: string[] = [],
 ): Promise<{ id: string; label: string } | null> {
   const rows = await tx.$queryRaw<{ id: string; label: string }[]>`
     SELECT u.id, u.label FROM units u
     WHERE ${freeUnitsWhere(itemId, date)}
+      AND NOT (u.id = ANY(${excludeUnitIds}::text[]))
     ORDER BY u.label ASC
     LIMIT 1
     FOR UPDATE OF u SKIP LOCKED`;

@@ -10,6 +10,7 @@ import { isOriginAllowed } from "./cors.js";
 import { directBookingLimiter, externalLeadLimiter, recommendLimiter } from "./rateLimit.js";
 import authRouter from "./routes/auth.js";
 import bookingsRouter from "./routes/bookings.js";
+import customerRouter from "./routes/customer.js";
 import directBookingsRouter from "./routes/directBookings.js";
 import externalLeadsRouter from "./routes/externalLeads.js";
 import itemsRouter from "./routes/items.js";
@@ -86,6 +87,10 @@ app.use("/api/lead-statuses", requireAuth, leadStatusesRouter);
 app.use("/api/units", requireAuth, unitsRouter);
 app.use("/api/bookings/direct", directBookingLimiter, directBookingsRouter);
 app.use("/api/bookings", requireAuth, bookingsRouter);
+// Customer accounts: signup and login are public (strictly rate limited
+// inside the router), everything else there requires the customer cookie,
+// which is a separate session from the admin's (see server/customerAuth.ts).
+app.use("/api/customer", customerRouter);
 app.use("/api/recommend", recommendLimiter, recommendRouter);
 
 app.get("/api/health", (_req, res) => {

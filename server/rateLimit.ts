@@ -33,6 +33,36 @@ export const availabilityLimiter = rateLimit({
   message: { error: "Too many requests. Try again in a minute." },
 });
 
+// Customer login is a public password endpoint, so it's the strictest cap
+// here: 5 failed attempts per 15 minutes per IP. Successful logins don't
+// count, so a customer who gets it right on the third try isn't punished.
+export const customerLoginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 5,
+  skipSuccessfulRequests: true,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many sign-in attempts. Try again in 15 minutes." },
+});
+
+export const customerSignupLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  limit: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many sign-ups from this connection. Try again in an hour." },
+});
+
+// Cancel, reschedule, change-item: signed-in only, but they write real
+// rows, so a loose cap still applies.
+export const customerActionLimiter = rateLimit({
+  windowMs: 10 * 60 * 1000,
+  limit: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many changes at once. Try again in a few minutes." },
+});
+
 // /api/leads/external is trusted server-to-server traffic from n8n, so the
 // cap is loose: real lead volume is nowhere near a lead a second, but a
 // misconfigured retry loop would be, and this stops it filling Bookings.

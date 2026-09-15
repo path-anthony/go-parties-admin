@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { getDefaultAccount } from "../account.js";
+import { releaseUnits } from "../bookingOps.js";
 import { prisma } from "../db.js";
 import { INVALID, isOneOf, normalizeDate, normalizeText } from "../validate.js";
 
@@ -253,7 +254,7 @@ router.patch("/:id", async (req, res) => {
 
   const ops = [];
   if (cancelling) {
-    ops.push(prisma.bookingUnit.deleteMany({ where: { bookingId: id } }));
+    ops.push(releaseUnits(prisma, id));
   } else if (unitIds !== null) {
     ops.push(prisma.bookingUnit.deleteMany({ where: { bookingId: id } }));
     if (unitIds.length > 0) {
