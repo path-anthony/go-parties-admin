@@ -56,6 +56,10 @@ model Lead {
   accountId      String    @map("account_id")
   status         String    @default("New")
   source         String    @default("ask-go")
+  // Position within its status column on the Bookings board. New rows and
+  // dropdown status changes get 0, which sorts them into the top group
+  // (ties broken newest first); a drag renumbers the whole target column.
+  sortOrder      Int       @default(0) @map("sort_order")
   customerName   String?   @map("customer_name")
   contact        String?
   occasion       String?

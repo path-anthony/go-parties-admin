@@ -794,7 +794,94 @@ select:focus {
   font-weight: 700;
 }
 
-/* ---------- Ask GO slide-over panel ---------- */
+/* drag and drop */
+
+.lead-card {
+  cursor: grab;
+}
+
+.lead-sortable {
+  border-radius: 6px;
+  outline: none;
+}
+
+.lead-sortable:focus-visible {
+  outline: 2px solid var(--orange);
+  outline-offset: 2px;
+}
+
+.lead-sortable-dragging {
+  opacity: 0.35;
+}
+
+.lead-sortable-overlay .lead-card {
+  cursor: grabbing;
+  box-shadow: 0 10px 28px rgba(33, 29, 28, 0.2);
+  transform: rotate(1deg);
+}
+
+.pipeline-col-over {
+  background: var(--orange-tint);
+}
+
+/* ---------- lead detail panel ---------- */
+
+.detail-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-size: 11.5px;
+}
+
+.detail-field {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.detail-field-label {
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.detail-field .editable-cell {
+  min-width: 0;
+}
+
+.detail-field .cell-input {
+  border-color: var(--line);
+}
+
+.detail-status {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: none;
+}
+
+.cell-textarea {
+  resize: vertical;
+  min-height: 64px;
+  font: inherit;
+  line-height: 1.4;
+}
+
+.detail-section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  border-top: 1px solid var(--line);
+  padding-top: 12px;
+}
+
+.detail-section .lead-card-theme {
+  font-size: 12.5px;
+}
+
+/* ---------- slide-over panels (Ask GO, lead detail) ---------- */
 
 .panel-backdrop {
   position: fixed;
@@ -803,7 +890,8 @@ select:focus {
   z-index: 40;
 }
 
-.askgo-panel {
+.askgo-panel,
+.side-panel {
   position: fixed;
   top: 0;
   right: 0;
@@ -823,17 +911,20 @@ select:focus {
   overflow-y: auto;
 }
 
-.askgo-panel-open {
+.askgo-panel-open,
+.side-panel-open {
   transform: translateX(0);
 }
 
-.askgo-panel-head {
+.askgo-panel-head,
+.side-panel-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
 }
 
-.askgo-panel-head h2 {
+.askgo-panel-head h2,
+.side-panel-head h2 {
   font-size: 15px;
 }
 

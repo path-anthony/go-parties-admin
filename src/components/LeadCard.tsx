@@ -2,15 +2,21 @@ import { useState } from "react";
 import { LEAD_STATUSES, type Lead, type LeadSource, type LeadStatus } from "../lib/types";
 import { formatDate, relativeTime } from "../lib/time";
 
-const SOURCE_LABEL: Record<LeadSource, string> = { "ask-go": "Ask GO", manual: "Manual", website: "Website" };
+export const SOURCE_LABEL: Record<LeadSource, string> = { "ask-go": "Ask GO", manual: "Manual", website: "Website" };
 
 const usd = (n: number) => n.toLocaleString("en-US", { style: "currency", currency: "USD" });
 
+export function leadTitle(lead: Lead): string | null {
+  return lead.customerName ?? lead.occasion;
+}
+
 export function LeadCard({
   lead,
+  onOpen,
   onStatusChange,
 }: {
   lead: Lead;
+  onOpen: () => void;
   onStatusChange: (id: string, status: LeadStatus) => Promise<void>;
 }) {
   const [saving, setSaving] = useState(false);
@@ -28,14 +34,19 @@ export function LeadCard({
     }
   }
 
-  const title = lead.customerName ?? lead.occasion;
+  const title = leadTitle(lead);
   const when = lead.dateOfInterest ? formatDate(lead.dateOfInterest) : null;
   // Occasion is the title when there's no name, so only repeat it here if it isn't.
   const detail = [lead.customerName ? lead.occasion : null, when].filter(Boolean).join(" · ");
   const items = lead.itemsReturned;
 
+  // The card body is both the drag surface and the click-to-open target.
+  // Controls inside it stop pointer and click events so using them never
+  // starts a drag or opens the detail panel.
+  const stop = (e: { stopPropagation: () => void }) => e.stopPropagation();
+
   return (
-    <article className="lead-card">
+    <article className="lead-card" onClick={onOpen}>
       <div className="lead-card-top">
         <span className={`lead-source lead-source-${lead.source}`}>{SOURCE_LABEL[lead.source]}</span>
         <span className="lead-time muted">{relativeTime(lead.createdAt)}</span>
@@ -48,7 +59,7 @@ export function LeadCard({
       {lead.theme && <p className="lead-card-theme">{lead.theme}</p>}
 
       {items && (
-        <details className="lead-card-items">
+        <details className="lead-card-items" onClick={stop} onPointerDown={stop}>
           <summary>
             {items.items.length} {items.items.length === 1 ? "item" : "items"} · {usd(items.total)}
           </summary>
@@ -67,7 +78,7 @@ export function LeadCard({
 
       {lead.notes && <p className="lead-card-notes muted">{lead.notes}</p>}
 
-      <div className="lead-card-foot">
+      <div className="lead-card-foot" onClick={stop} onPointerDown={stop}>
         <select
           value={lead.status}
           onChange={(e) => handleStatus(e.target.value as LeadStatus)}

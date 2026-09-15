@@ -40,6 +40,7 @@ export type Lead = {
   accountId: string;
   status: LeadStatus;
   source: LeadSource;
+  sortOrder: number;
   customerName: string | null;
   contact: string | null;
   occasion: string | null;
@@ -58,4 +59,8 @@ export type NewLead = {
   dateOfInterest: string;
   notes: string;
   status: LeadStatus;
+};
+
+export type LeadPatch = Partial<Pick<Lead, "customerName" | "contact" | "occasion" | "notes" | "status">> & {
+  dateOfInterest?: string | null; // "YYYY-MM-DD" or null to clear
 };

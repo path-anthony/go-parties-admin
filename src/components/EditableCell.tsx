@@ -6,12 +6,16 @@ export function EditableCell({
   value,
   onSave,
   type = "text",
+  multiline = false,
   placeholder,
+  ariaLabel,
 }: {
   value: string;
   onSave: (value: string) => Promise<void>;
-  type?: "text" | "number";
+  type?: "text" | "number" | "date";
+  multiline?: boolean;
   placeholder?: string;
+  ariaLabel?: string;
 }) {
   const [draft, setDraft] = useState(value);
   const [status, setStatus] = useState<Status>("idle");
@@ -43,17 +47,32 @@ export function EditableCell({
     }
   }
 
+  const className = status === "error" ? "cell-input cell-input-error" : "cell-input";
+
   return (
     <div className="editable-cell">
-      <input
-        type={type}
-        step={type === "number" ? "0.01" : undefined}
-        value={draft}
-        placeholder={placeholder}
-        onChange={(e) => setDraft(e.target.value)}
-        onBlur={handleBlur}
-        className={status === "error" ? "cell-input cell-input-error" : "cell-input"}
-      />
+      {multiline ? (
+        <textarea
+          rows={3}
+          value={draft}
+          placeholder={placeholder}
+          aria-label={ariaLabel}
+          onChange={(e) => setDraft(e.target.value)}
+          onBlur={handleBlur}
+          className={`${className} cell-textarea`}
+        />
+      ) : (
+        <input
+          type={type}
+          step={type === "number" ? "0.01" : undefined}
+          value={draft}
+          placeholder={placeholder}
+          aria-label={ariaLabel}
+          onChange={(e) => setDraft(e.target.value)}
+          onBlur={handleBlur}
+          className={className}
+        />
+      )}
       {status === "saving" && <span className="cell-status">Saving…</span>}
       {status === "saved" && <span className="cell-status cell-status-saved">Saved</span>}
       {status === "error" && (

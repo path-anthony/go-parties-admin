@@ -1,4 +1,4 @@
-import type { AskGoMessage, Item, Lead, LeadStatus, NewItem, NewLead, RecommendResponse } from "./types";
+import type { AskGoMessage, Item, Lead, LeadPatch, LeadStatus, NewItem, NewLead, RecommendResponse } from "./types";
 
 export const AUTH_EXPIRED_EVENT = "auth:expired";
 
@@ -68,12 +68,22 @@ export function createLead(lead: NewLead): Promise<Lead> {
   }).then(asJson<Lead>);
 }
 
-export function updateLeadStatus(id: string, status: LeadStatus): Promise<Lead> {
+export function updateLead(id: string, patch: LeadPatch): Promise<Lead> {
   return fetch(`/api/leads/${id}`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ status }),
+    body: JSON.stringify(patch),
   }).then(asJson<Lead>);
+}
+
+// Sends one column's ids in display order; the server sets status and
+// sortOrder for all of them. Returns that column, ordered.
+export function reorderLeads(status: LeadStatus, ids: string[]): Promise<Lead[]> {
+  return fetch("/api/leads/reorder", {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ status, ids }),
+  }).then(asJson<Lead[]>);
 }
 
 export function recommend(messages: AskGoMessage[], subOcc: string | null = null): Promise<RecommendResponse> {
