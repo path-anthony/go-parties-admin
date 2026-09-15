@@ -29,7 +29,7 @@ export type RecommendResponse =
 // The name of a LeadStatusRow. Columns are configurable in Settings, so
 // this is a plain string, not a fixed union.
 export type LeadStatus = string;
-export type LeadSource = "ask-go" | "manual" | "website";
+export type LeadSource = "ask-go" | "manual" | "website" | "storefront";
 
 export type LeadStatusRow = {
   id: string;
@@ -108,6 +108,7 @@ export type Booking = {
   customerName: string;
   customerContact: string;
   status: BookingStatus;
+  depositPaid: boolean;
   unitIds: string[];
   createdAt: string;
   updatedAt: string;
@@ -122,4 +123,4 @@ export type NewBooking = {
   unitIds: string[];
 };
 
-export type BookingPatch = Partial<NewBooking>;
+export type BookingPatch = Partial<NewBooking> & { depositPaid?: boolean };

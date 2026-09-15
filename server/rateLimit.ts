@@ -12,6 +12,27 @@ export const recommendLimiter = rateLimit({
   message: { error: "Too many requests. Try again in a few minutes." },
 });
 
+// POST /api/bookings/direct is public like /api/recommend and writes real
+// rows, so it gets the same tight per-IP cap, in its own bucket so a long
+// Ask GO conversation can't use up someone's booking attempts.
+export const directBookingLimiter = rateLimit({
+  windowMs: 10 * 60 * 1000, // 10 minutes
+  limit: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many requests. Try again in a few minutes." },
+});
+
+// GET /api/items/:id/availability is public and read-only; a storefront
+// date picker may call it once per date the customer hovers, so it's loose.
+export const availabilityLimiter = rateLimit({
+  windowMs: 60 * 1000, // 1 minute
+  limit: 120,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many requests. Try again in a minute." },
+});
+
 // /api/leads/external is trusted server-to-server traffic from n8n, so the
 // cap is loose: real lead volume is nowhere near a lead a second, but a
 // misconfigured retry loop would be, and this stops it filling Bookings.

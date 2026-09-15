@@ -97,8 +97,15 @@ router.patch("/:id", async (req, res) => {
     customerName?: string;
     customerContact?: string;
     status?: string;
+    depositPaid?: boolean;
   } = {};
 
+  if ("depositPaid" in body) {
+    if (typeof body.depositPaid !== "boolean") {
+      return res.status(400).json({ error: "depositPaid must be true or false" });
+    }
+    data.depositPaid = body.depositPaid;
+  }
   if ("customerName" in body) {
     const name = normalizeText(body.customerName);
     if (!name) return res.status(400).json({ error: "customerName is required" });

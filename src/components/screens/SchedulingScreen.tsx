@@ -131,6 +131,7 @@ export function SchedulingScreen() {
                       <th>Customer</th>
                       <th>Contact</th>
                       <th>Status</th>
+                      <th>Deposit</th>
                       <th>Lead</th>
                       <th>Units</th>
                     </tr>
@@ -480,6 +481,18 @@ function BookingRow({
             </option>
           ))}
         </select>
+      </td>
+      <td>
+        <label className="deposit-flag">
+          <input
+            type="checkbox"
+            checked={booking.depositPaid}
+            disabled={saving}
+            onChange={(e) => saveNow({ depositPaid: e.target.checked })}
+            aria-label={`Deposit paid for ${booking.customerName}`}
+          />
+          {booking.depositPaid ? "Paid" : "Not yet"}
+        </label>
       </td>
       <td>
         <select

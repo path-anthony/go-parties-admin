@@ -7,13 +7,15 @@ import cors from "cors";
 import express, { type ErrorRequestHandler } from "express";
 import { requireAuth } from "./auth.js";
 import { isOriginAllowed } from "./cors.js";
-import { externalLeadLimiter, recommendLimiter } from "./rateLimit.js";
+import { directBookingLimiter, externalLeadLimiter, recommendLimiter } from "./rateLimit.js";
 import authRouter from "./routes/auth.js";
 import bookingsRouter from "./routes/bookings.js";
+import directBookingsRouter from "./routes/directBookings.js";
 import externalLeadsRouter from "./routes/externalLeads.js";
 import itemsRouter from "./routes/items.js";
 import leadStatusesRouter from "./routes/leadStatuses.js";
 import leadsRouter from "./routes/leads.js";
+import publicItemsRouter from "./routes/publicItems.js";
 import recommendRouter from "./routes/recommend.js";
 import unitsRouter from "./routes/units.js";
 import { requireWebhookSecret } from "./webhookAuth.js";
@@ -71,12 +73,18 @@ app.use(cookieParser(process.env.ADMIN_PASSWORD));
 // - /api/leads/external: n8n posting website leads, authenticated by a
 //   shared secret header instead of a cookie (see server/webhookAuth.ts).
 //   Mounted before /api/leads so the session gate never sees it.
+// - GET /api/items/:id/availability and POST /api/bookings/direct: the
+//   storefront's direct single-item booking, public like /api/recommend and
+//   rate limited. Each is mounted ahead of the gated router for its path
+//   and defines only its own route, so everything else still hits the gate.
 app.use("/api/auth", authRouter);
+app.use("/api/items", publicItemsRouter);
 app.use("/api/items", requireAuth, itemsRouter);
 app.use("/api/leads/external", externalLeadLimiter, requireWebhookSecret, externalLeadsRouter);
 app.use("/api/leads", requireAuth, leadsRouter);
 app.use("/api/lead-statuses", requireAuth, leadStatusesRouter);
 app.use("/api/units", requireAuth, unitsRouter);
+app.use("/api/bookings/direct", directBookingLimiter, directBookingsRouter);
 app.use("/api/bookings", requireAuth, bookingsRouter);
 app.use("/api/recommend", recommendLimiter, recommendRouter);
 

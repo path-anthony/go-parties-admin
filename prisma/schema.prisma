@@ -91,6 +91,9 @@ model Booking {
   customerName    String   @map("customer_name")
   customerContact String   @map("customer_contact")
   status          String   @default("Confirmed")
+  // Placeholder for the deposit integration that isn't built yet. Nothing
+  // sets this automatically; it's a flag Andy can tick by hand for now.
+  depositPaid     Boolean  @default(false) @map("deposit_paid")
   createdAt       DateTime @default(now()) @map("created_at")
   updatedAt       DateTime @default(now()) @updatedAt @map("updated_at")
 
@@ -144,7 +147,10 @@ model Item {
 //   and itemsReturned hold what was asked and what came back.
 // - "manual": entered by hand in the admin. Has customer fields, no
 //   Ask GO data.
-// "website" is reserved for the n8n integration and unused for now.
+// - "website": posted by the n8n automation on the marketing site.
+// - "storefront": created alongside a direct single-item booking from the
+//   customer app (see server/routes/directBookings.ts); the Booking row
+//   points back at it through leadId.
 // status and source are plain strings validated at the API boundary
 // (see server/routes/leads.ts) rather than Postgres enums, so adding a
 // value later is a code change, not a migration.
