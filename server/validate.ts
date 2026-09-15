@@ -19,3 +19,15 @@ export function normalizeDate(value: unknown): Date | null | typeof INVALID {
 export function isOneOf<T extends string>(options: readonly T[], value: unknown): value is T {
   return typeof value === "string" && (options as readonly string[]).includes(value);
 }
+
+// Same basic shape the contact-split migration used, so a value sorts the
+// same way whether it arrived before or after the split.
+export function looksLikeEmail(value: string): boolean {
+  return /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(value);
+}
+
+// A single free-text "phone or email" becomes one side or the other; the
+// other side stays null rather than guessed.
+export function splitContact(contact: string): { phone: string | null; email: string | null } {
+  return looksLikeEmail(contact) ? { phone: null, email: contact } : { phone: contact, email: null };
+}

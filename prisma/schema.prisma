@@ -83,14 +83,24 @@ model Unit {
 // taken over the phone without a tracked lead behind it, and deleting a
 // lead leaves the booking in place. status is Confirmed, Completed, or
 // Cancelled, validated at the API.
+//
+// phone and email are both required for new bookings at the API, but the
+// columns are nullable: rows from before the split had one free-text
+// contact value, which the migration sorted into whichever field it
+// matched and left the other empty rather than guessing.
 model Booking {
-  id              String   @id @default(cuid())
-  accountId       String   @map("account_id")
-  leadId          String?  @map("lead_id")
-  eventDate       DateTime @map("event_date") @db.Date
-  customerName    String   @map("customer_name")
-  customerContact String   @map("customer_contact")
-  status          String   @default("Confirmed")
+  id           String   @id @default(cuid())
+  accountId    String   @map("account_id")
+  leadId       String?  @map("lead_id")
+  eventDate    DateTime @map("event_date") @db.Date
+  // Free text like "2 PM" or "noon to 4"; not parsed, the calendar pass
+  // decides what to do with it.
+  eventTime    String?  @map("event_time")
+  address      String?
+  customerName String   @map("customer_name")
+  phone        String?
+  email        String?
+  status       String   @default("Confirmed")
   // Placeholder for the deposit integration that isn't built yet. Nothing
   // sets this automatically; it's a flag Andy can tick by hand for now.
   depositPaid     Boolean  @default(false) @map("deposit_paid")

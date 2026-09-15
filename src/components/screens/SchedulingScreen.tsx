@@ -31,6 +31,10 @@ function leadLabel(lead: Lead): string {
   return leadTitle(lead) ?? (lead.theme ? lead.theme.slice(0, 40) : "Lead");
 }
 
+function looksLikeEmail(value: string): boolean {
+  return /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(value);
+}
+
 function sortItems(items: Item[]): Item[] {
   return [...items].sort((a, b) => a.category.localeCompare(b.category) || a.name.localeCompare(b.name));
 }
@@ -128,8 +132,11 @@ export function SchedulingScreen() {
                   <thead>
                     <tr>
                       <th>Date</th>
+                      <th>Time</th>
                       <th>Customer</th>
-                      <th>Contact</th>
+                      <th>Phone</th>
+                      <th>Email</th>
+                      <th>Address</th>
                       <th>Status</th>
                       <th>Deposit</th>
                       <th>Lead</th>
@@ -302,8 +309,11 @@ function UnitPicker({
 const EMPTY_BOOKING: NewBooking = {
   leadId: null,
   eventDate: "",
+  eventTime: "",
+  address: "",
   customerName: "",
-  customerContact: "",
+  phone: "",
+  email: "",
   status: "Confirmed",
   unitIds: [],
 };
@@ -328,14 +338,18 @@ function AddBookingForm({
   }
 
   // Picking a lead fills in whatever it already knows, without overwriting
-  // anything typed by hand.
+  // anything typed by hand. A lead's single contact goes to whichever side
+  // it looks like.
   function pickLead(leadId: string) {
     const lead = leads.find((l) => l.id === leadId) ?? null;
+    const contact = lead?.contact ?? "";
+    const contactIsEmail = looksLikeEmail(contact);
     setForm((f) => ({
       ...f,
       leadId: lead ? lead.id : null,
       customerName: f.customerName || lead?.customerName || "",
-      customerContact: f.customerContact || lead?.contact || "",
+      email: f.email || (contactIsEmail ? contact : ""),
+      phone: f.phone || (!contactIsEmail ? contact : ""),
       eventDate: f.eventDate || lead?.dateOfInterest?.slice(0, 10) || "",
     }));
   }
@@ -372,12 +386,29 @@ function AddBookingForm({
         <input type="date" value={form.eventDate} onChange={(e) => set("eventDate", e.target.value)} required />
       </label>
       <label>
+        Time
+        <input value={form.eventTime} onChange={(e) => set("eventTime", e.target.value)} placeholder="e.g. 2 PM" />
+      </label>
+      <label>
         Customer name*
         <input value={form.customerName} onChange={(e) => set("customerName", e.target.value)} required />
       </label>
       <label>
-        Phone or email*
-        <input value={form.customerContact} onChange={(e) => set("customerContact", e.target.value)} required />
+        Phone*
+        <input type="tel" value={form.phone} onChange={(e) => set("phone", e.target.value)} required />
+      </label>
+      <label>
+        Email*
+        <input type="email" value={form.email} onChange={(e) => set("email", e.target.value)} required />
+      </label>
+      <label className="inline-form-grow">
+        Address
+        <input
+          value={form.address}
+          onChange={(e) => set("address", e.target.value)}
+          placeholder="Where the party is"
+          autoComplete="street-address"
+        />
       </label>
       <label>
         Status
@@ -443,6 +474,7 @@ function BookingRow({
   }
 
   const linkedUnits = booking.unitIds.map((id) => units.find((u) => u.id === id)).filter((u): u is Unit => !!u);
+  const who = booking.customerName;
 
   return (
     <tr>
@@ -450,22 +482,43 @@ function BookingRow({
         <EditableCell
           type="date"
           value={booking.eventDate.slice(0, 10)}
-          ariaLabel={`Event date for ${booking.customerName}`}
+          ariaLabel={`Event date for ${who}`}
           onSave={(eventDate) => save({ eventDate })}
         />
       </td>
       <td>
         <EditableCell
-          value={booking.customerName}
-          ariaLabel={`Customer name for ${booking.customerName}`}
-          onSave={(customerName) => save({ customerName })}
+          value={booking.eventTime ?? ""}
+          placeholder="Add time"
+          ariaLabel={`Event time for ${who}`}
+          onSave={(eventTime) => save({ eventTime: eventTime === "" ? null : eventTime })}
+        />
+      </td>
+      <td>
+        <EditableCell value={who} ariaLabel={`Customer name for ${who}`} onSave={(customerName) => save({ customerName })} />
+      </td>
+      <td>
+        <EditableCell
+          value={booking.phone ?? ""}
+          placeholder="Add phone"
+          ariaLabel={`Phone for ${who}`}
+          onSave={(phone) => save({ phone })}
         />
       </td>
       <td>
         <EditableCell
-          value={booking.customerContact}
-          ariaLabel={`Contact for ${booking.customerName}`}
-          onSave={(customerContact) => save({ customerContact })}
+          value={booking.email ?? ""}
+          placeholder="Add email"
+          ariaLabel={`Email for ${who}`}
+          onSave={(email) => save({ email })}
+        />
+      </td>
+      <td>
+        <EditableCell
+          value={booking.address ?? ""}
+          placeholder="Add address"
+          ariaLabel={`Address for ${who}`}
+          onSave={(address) => save({ address: address === "" ? null : address })}
         />
       </td>
       <td>
@@ -473,7 +526,7 @@ function BookingRow({
           value={booking.status}
           onChange={(e) => saveNow({ status: e.target.value as BookingStatus })}
           disabled={saving}
-          aria-label={`Status for ${booking.customerName}`}
+          aria-label={`Status for ${who}`}
         >
           {BOOKING_STATUSES.map((status) => (
             <option key={status} value={status}>
@@ -489,7 +542,7 @@ function BookingRow({
             checked={booking.depositPaid}
             disabled={saving}
             onChange={(e) => saveNow({ depositPaid: e.target.checked })}
-            aria-label={`Deposit paid for ${booking.customerName}`}
+            aria-label={`Deposit paid for ${who}`}
           />
           {booking.depositPaid ? "Paid" : "Not yet"}
         </label>
@@ -499,7 +552,7 @@ function BookingRow({
           value={booking.leadId ?? ""}
           onChange={(e) => saveNow({ leadId: e.target.value || null })}
           disabled={saving}
-          aria-label={`Lead for ${booking.customerName}`}
+          aria-label={`Lead for ${who}`}
         >
           <option value="">No lead</option>
           {leads.map((lead) => (

@@ -4,6 +4,8 @@ import { prisma } from "../db.js";
 import { INVALID, isOneOf, normalizeDate, normalizeText } from "../validate.js";
 
 const BOOKING_STATUSES = ["Confirmed", "Completed", "Cancelled"] as const;
+const MAX_ADDRESS_LENGTH = 300;
+const MAX_TIME_LENGTH = 60;
 
 const router = Router();
 
@@ -22,6 +24,15 @@ function isUniqueViolation(err: unknown): boolean {
 
 function formatDay(date: Date): string {
   return date.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", timeZone: "UTC" });
+}
+
+// Optional free text: absent, null, or blank all mean "none".
+function optionalText(value: unknown, max: number): string | null | typeof INVALID {
+  if (value === undefined || value === null) return null;
+  if (typeof value !== "string") return INVALID;
+  const text = value.trim();
+  if (text === "") return null;
+  return text.length <= max ? text : INVALID;
 }
 
 async function resolveLeadId(accountId: string, value: unknown): Promise<string | null | typeof INVALID> {
@@ -62,19 +73,28 @@ router.get("/", async (_req, res) => {
 });
 
 router.post("/", async (req, res) => {
-  const { leadId, eventDate, customerName, customerContact, status, unitIds } = req.body ?? {};
+  const { leadId, eventDate, eventTime, address, customerName, phone, email, status, unitIds } = req.body ?? {};
 
   const name = normalizeText(customerName);
   if (!name) {
     return res.status(400).json({ error: "customerName is required" });
   }
-  const contact = normalizeText(customerContact);
-  if (!contact) {
-    return res.status(400).json({ error: "customerContact is required" });
+  const phoneText = normalizeText(phone);
+  const emailText = normalizeText(email);
+  if (!phoneText || !emailText) {
+    return res.status(400).json({ error: "phone and email are both required" });
   }
   const date = normalizeDate(eventDate);
   if (date === null || date === INVALID) {
     return res.status(400).json({ error: "eventDate is required and must be a valid YYYY-MM-DD date" });
+  }
+  const timeText = optionalText(eventTime, MAX_TIME_LENGTH);
+  if (timeText === INVALID) {
+    return res.status(400).json({ error: `eventTime must be text up to ${MAX_TIME_LENGTH} characters` });
+  }
+  const addressText = optionalText(address, MAX_ADDRESS_LENGTH);
+  if (addressText === INVALID) {
+    return res.status(400).json({ error: `address must be text up to ${MAX_ADDRESS_LENGTH} characters` });
   }
   if (status !== undefined && !isOneOf(BOOKING_STATUSES, status)) {
     return res.status(400).json({ error: `status must be one of ${BOOKING_STATUSES.join(", ")}` });
@@ -104,8 +124,11 @@ router.post("/", async (req, res) => {
         accountId: account.id,
         leadId: resolvedLead,
         eventDate: date,
+        eventTime: timeText,
+        address: addressText,
         customerName: name,
-        customerContact: contact,
+        phone: phoneText,
+        email: emailText,
         status: status ?? "Confirmed",
         units: { create: resolvedUnits.map((unitId) => ({ unitId, eventDate: date })) },
       },
@@ -133,8 +156,11 @@ router.patch("/:id", async (req, res) => {
   const data: {
     leadId?: string | null;
     eventDate?: Date;
+    eventTime?: string | null;
+    address?: string | null;
     customerName?: string;
-    customerContact?: string;
+    phone?: string;
+    email?: string;
     status?: string;
     depositPaid?: boolean;
   } = {};
@@ -150,10 +176,16 @@ router.patch("/:id", async (req, res) => {
     if (!name) return res.status(400).json({ error: "customerName is required" });
     data.customerName = name;
   }
-  if ("customerContact" in body) {
-    const contact = normalizeText(body.customerContact);
-    if (!contact) return res.status(400).json({ error: "customerContact is required" });
-    data.customerContact = contact;
+  // Both stay required once set: an edit can change them, not blank them.
+  if ("phone" in body) {
+    const phoneText = normalizeText(body.phone);
+    if (!phoneText) return res.status(400).json({ error: "phone is required" });
+    data.phone = phoneText;
+  }
+  if ("email" in body) {
+    const emailText = normalizeText(body.email);
+    if (!emailText) return res.status(400).json({ error: "email is required" });
+    data.email = emailText;
   }
   if ("eventDate" in body) {
     const date = normalizeDate(body.eventDate);
@@ -161,6 +193,16 @@ router.patch("/:id", async (req, res) => {
       return res.status(400).json({ error: "eventDate must be a valid YYYY-MM-DD date" });
     }
     data.eventDate = date;
+  }
+  if ("eventTime" in body) {
+    const timeText = optionalText(body.eventTime, MAX_TIME_LENGTH);
+    if (timeText === INVALID) return res.status(400).json({ error: `eventTime must be text up to ${MAX_TIME_LENGTH} characters` });
+    data.eventTime = timeText;
+  }
+  if ("address" in body) {
+    const addressText = optionalText(body.address, MAX_ADDRESS_LENGTH);
+    if (addressText === INVALID) return res.status(400).json({ error: `address must be text up to ${MAX_ADDRESS_LENGTH} characters` });
+    data.address = addressText;
   }
   if ("status" in body) {
     if (!isOneOf(BOOKING_STATUSES, body.status)) {

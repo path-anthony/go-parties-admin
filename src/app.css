@@ -974,6 +974,10 @@ select:focus {
   align-self: flex-end;
 }
 
+.inline-form-grow {
+  flex: 1 1 240px;
+}
+
 .inline-form-wide {
   flex-basis: 100%;
   display: flex;

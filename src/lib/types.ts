@@ -105,8 +105,13 @@ export type Booking = {
   accountId: string;
   leadId: string | null;
   eventDate: string; // serialized DATE, "YYYY-MM-DDT00:00:00.000Z"
+  eventTime: string | null;
+  address: string | null;
   customerName: string;
-  customerContact: string;
+  // Both required for new bookings; either can be null on rows from before
+  // the contact split, which sorted the old single value into one side.
+  phone: string | null;
+  email: string | null;
   status: BookingStatus;
   depositPaid: boolean;
   unitIds: string[];
@@ -117,10 +122,17 @@ export type Booking = {
 export type NewBooking = {
   leadId: string | null;
   eventDate: string; // "YYYY-MM-DD"
+  eventTime: string;
+  address: string;
   customerName: string;
-  customerContact: string;
+  phone: string;
+  email: string;
   status: BookingStatus;
   unitIds: string[];
 };
 
-export type BookingPatch = Partial<NewBooking> & { depositPaid?: boolean };
+export type BookingPatch = Partial<Omit<NewBooking, "eventTime" | "address">> & {
+  eventTime?: string | null;
+  address?: string | null;
+  depositPaid?: boolean;
+};
