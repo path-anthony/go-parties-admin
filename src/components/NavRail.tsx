@@ -17,7 +17,7 @@ const NAV_ITEMS: { key: ScreenKey; label: string; icon: LucideIcon }[] = [
   { key: "overview", label: "Overview", icon: ChartBar },
   { key: "inventory", label: "Inventory", icon: Box },
   { key: "packages", label: "Packages & Themes", icon: Layers2 },
-  { key: "bookings", label: "Bookings", icon: Contact },
+  { key: "leads", label: "Leads", icon: Contact },
   { key: "scheduling", label: "Scheduling", icon: CalendarDays },
   { key: "crew", label: "Crew & Gigs", icon: Briefcase },
   { key: "settings", label: "Settings", icon: Settings },

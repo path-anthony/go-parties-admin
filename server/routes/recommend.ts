@@ -20,7 +20,7 @@ type LeadItem = { id: string; name: string; category: string; price: number | nu
 
 // Fire-and-forget: logs a Lead only once a turn commits to a real
 // recommendation, never on a clarifying-question turn — an abandoned or
-// still-in-progress conversation must never show up in Bookings. Never
+// still-in-progress conversation must never show up in Leads. Never
 // awaited on the response path, and errors are swallowed (logged, not
 // thrown): a slow or failed insert must not add latency or block the
 // customer's answer.

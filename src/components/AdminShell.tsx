@@ -1,20 +1,20 @@
 import { useState } from "react";
 import { AskGoPanel } from "./AskGoPanel";
 import { NavRail } from "./NavRail";
-import { BookingsScreen } from "./screens/BookingsScreen";
+import { LeadsScreen } from "./screens/LeadsScreen";
 import { EmptyScreen } from "./screens/EmptyScreen";
 import { InventoryScreen } from "./screens/InventoryScreen";
 import { OverviewScreen } from "./screens/OverviewScreen";
 import { SchedulingScreen } from "./screens/SchedulingScreen";
 import { SettingsScreen } from "./screens/SettingsScreen";
 
-export type ScreenKey = "overview" | "inventory" | "packages" | "bookings" | "scheduling" | "crew" | "settings";
+export type ScreenKey = "overview" | "inventory" | "packages" | "leads" | "scheduling" | "crew" | "settings";
 
 const SCREEN_TITLES: Record<ScreenKey, string> = {
   overview: "Overview",
   inventory: "Inventory",
   packages: "Packages & Themes",
-  bookings: "Bookings",
+  leads: "Leads",
   scheduling: "Scheduling",
   crew: "Crew & Gigs",
   settings: "Settings",
@@ -26,8 +26,8 @@ function ScreenBody({ screen }: { screen: ScreenKey }) {
       return <OverviewScreen />;
     case "inventory":
       return <InventoryScreen />;
-    case "bookings":
-      return <BookingsScreen />;
+    case "leads":
+      return <LeadsScreen />;
     case "scheduling":
       return <SchedulingScreen />;
     case "settings":

@@ -103,7 +103,7 @@ export function SettingsScreen() {
       <section className="panel">
         <h2>Lead columns</h2>
         <p className="muted settings-help">
-          The stages on the Bookings board, in order. New leads land in the first one. Renaming a column moves its
+          The stages on the Leads board, in order. New leads land in the first one. Renaming a column moves its
           leads with it. A column can't be deleted while it still has leads.
         </p>
 

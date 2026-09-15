@@ -115,7 +115,7 @@ function PipelineColumn({
   );
 }
 
-export function BookingsScreen() {
+export function LeadsScreen() {
   const [statuses, setStatuses] = useState<LeadStatus[] | null>(null);
   const [leads, setLeads] = useState<Lead[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -286,7 +286,7 @@ export function BookingsScreen() {
     <div className="screen screen-wide">
       <div className="screen-head screen-head-row">
         <div>
-          <h2>Bookings</h2>
+          <h2>Leads</h2>
           <p className="muted">Every lead, grouped by stage. Drag to reorder or move between stages, click to open.</p>
         </div>
         {!adding && ready && (
