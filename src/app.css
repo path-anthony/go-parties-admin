@@ -236,6 +236,19 @@
   gap: 12px;
 }
 
+.screen-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.screen-head-actions .btn-secondary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
 .panel {
   background: var(--white);
   border: 1px solid var(--line);

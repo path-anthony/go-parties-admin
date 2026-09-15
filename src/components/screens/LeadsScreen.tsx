@@ -20,10 +20,12 @@ import {
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
+import { Settings2, X } from "lucide-react";
 import { getLeadStatuses, getLeads, reorderLeads, updateLead } from "../../lib/api";
-import type { Lead, LeadStatus } from "../../lib/types";
+import type { Lead, LeadStatus, LeadStatusRow } from "../../lib/types";
 import { AddLeadForm } from "../AddLeadForm";
 import { LeadCard } from "../LeadCard";
+import { type ColumnsChange, LeadColumnsEditor } from "../LeadColumnsEditor";
 import { LeadDetailPanel } from "../LeadDetailPanel";
 
 // Column top-bar colors cycle by position, since column names are whatever
@@ -122,6 +124,19 @@ export function LeadsScreen() {
   const [adding, setAdding] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [activeId, setActiveId] = useState<string | null>(null);
+  const [managingColumns, setManagingColumns] = useState(false);
+
+  // Mirrors what the column editor did on the server. A rename cascades to
+  // leads in the database, so the cards have to follow it here too or they
+  // would drop off the board until the next load.
+  function handleColumnsChange(columns: LeadStatusRow[], change: ColumnsChange) {
+    setStatuses(columns.map((row) => row.name));
+    if (change.type === "rename") {
+      setLeads((prev) =>
+        (prev ?? []).map((lead) => (lead.status === change.from ? { ...lead, status: change.to } : lead)),
+      );
+    }
+  }
   // Board state as it was when the drag started, to snap back to if the
   // drop is cancelled or the save fails.
   const dragSnapshot = useRef<Lead[] | null>(null);
@@ -289,12 +304,44 @@ export function LeadsScreen() {
           <h2>Leads</h2>
           <p className="muted">Every lead, grouped by stage. Drag to reorder or move between stages, click to open.</p>
         </div>
-        {!adding && ready && (
-          <button type="button" className="btn-primary" onClick={() => setAdding(true)}>
-            Add lead
-          </button>
+        {ready && (
+          <div className="screen-head-actions">
+            <button type="button" className="btn-secondary" onClick={() => setManagingColumns(true)}>
+              <Settings2 size={14} />
+              Manage columns
+            </button>
+            {!adding && (
+              <button type="button" className="btn-primary" onClick={() => setAdding(true)}>
+                Add lead
+              </button>
+            )}
+          </div>
         )}
       </div>
+
+      {managingColumns && <div className="panel-backdrop" onClick={() => setManagingColumns(false)} />}
+      <aside className={managingColumns ? "side-panel side-panel-open" : "side-panel"} aria-hidden={!managingColumns}>
+        {managingColumns && (
+          <>
+            <div className="side-panel-head">
+              <h2>Lead columns</h2>
+              <button
+                type="button"
+                className="icon-btn"
+                onClick={() => setManagingColumns(false)}
+                aria-label="Close column settings"
+              >
+                <X size={16} />
+              </button>
+            </div>
+            <p className="muted">
+              Same controls as Settings. Renames and reorders show on the board behind this panel as you make
+              them.
+            </p>
+            <LeadColumnsEditor onColumnsChange={handleColumnsChange} />
+          </>
+        )}
+      </aside>
 
       {adding && statuses && (
         <section className="panel">
