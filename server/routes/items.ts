@@ -22,6 +22,13 @@ function normalizePrice(value: unknown): number | null | typeof INVALID {
 
 const INVALID = Symbol("invalid");
 
+// A compressed upload is a few hundred KB; anything near this is not one.
+const MAX_PHOTO_URL_LENGTH = 2_000_000;
+
+function photoUrlTooLong(value: unknown): boolean {
+  return typeof value === "string" && value.length > MAX_PHOTO_URL_LENGTH;
+}
+
 router.get("/", async (_req, res) => {
   const account = await getDefaultAccount();
   const items = await prisma.item.findMany({
@@ -38,13 +45,16 @@ router.get("/export.csv", async (_req, res) => {
     orderBy: [{ category: "asc" }, { name: "asc" }],
   });
 
+  // Uploaded photos live in photoUrl as data URLs of a few hundred KB each;
+  // dumping those into a spreadsheet would make it unusable, and the
+  // template format expects a link, so they're marked instead.
   const rows = items.map((item) => [
     item.name,
     item.category,
     item.price?.toString() ?? "",
     item.priceUnit ?? "",
     item.notes ?? "",
-    item.photoUrl ?? "",
+    item.photoUrl?.startsWith("data:") ? "(uploaded photo)" : (item.photoUrl ?? ""),
   ]);
 
   res.setHeader("Content-Type", "text/csv; charset=utf-8");
@@ -64,6 +74,9 @@ router.post("/", async (req, res) => {
   const normalizedPrice = normalizePrice(price);
   if (normalizedPrice === INVALID) {
     return res.status(400).json({ error: "price must be a number" });
+  }
+  if (photoUrlTooLong(photoUrl)) {
+    return res.status(400).json({ error: "photoUrl is too large" });
   }
 
   const account = await getDefaultAccount();
@@ -89,6 +102,10 @@ router.patch("/:id", async (req, res) => {
   const existing = await prisma.item.findUnique({ where: { id } });
   if (!existing) {
     return res.status(404).json({ error: "item not found" });
+  }
+
+  if (photoUrlTooLong(body.photoUrl)) {
+    return res.status(400).json({ error: "photoUrl is too large" });
   }
 
   const data: Record<string, string | number | null> = {};

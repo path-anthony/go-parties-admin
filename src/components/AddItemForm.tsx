@@ -4,7 +4,7 @@ import type { Item, NewItem } from "../lib/types";
 
 const EMPTY: NewItem = { name: "", category: "", price: "", priceUnit: "", notes: "", photoUrl: "" };
 
-export function AddItemForm({ onAdded }: { onAdded: (item: Item) => void }) {
+export function AddItemForm({ onAdded, onCancel }: { onAdded: (item: Item) => void; onCancel?: () => void }) {
   const [form, setForm] = useState<NewItem>(EMPTY);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -33,7 +33,7 @@ export function AddItemForm({ onAdded }: { onAdded: (item: Item) => void }) {
       <div className="field-row">
         <label>
           Name*
-          <input value={form.name} onChange={(e) => set("name", e.target.value)} required />
+          <input value={form.name} onChange={(e) => set("name", e.target.value)} required autoFocus />
         </label>
         <label>
           Category*
@@ -69,9 +69,16 @@ export function AddItemForm({ onAdded }: { onAdded: (item: Item) => void }) {
         <input value={form.photoUrl} onChange={(e) => set("photoUrl", e.target.value)} placeholder="https://..." />
       </label>
       {error && <p className="form-error">{error}</p>}
-      <button type="submit" className="btn-primary" disabled={saving}>
-        {saving ? "Adding…" : "Add item"}
-      </button>
+      <div className="form-actions">
+        <button type="submit" className="btn-primary" disabled={saving}>
+          {saving ? "Adding…" : "Add item"}
+        </button>
+        {onCancel && (
+          <button type="button" className="btn-secondary" onClick={onCancel} disabled={saving}>
+            Cancel
+          </button>
+        )}
+      </div>
     </form>
   );
 }

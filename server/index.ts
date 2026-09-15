@@ -55,7 +55,10 @@ app.use("/api", (req, res, next) => {
     credentials: true,
   })(req, res, next);
 });
-app.use(express.json());
+// Item photos are stored as compressed data URLs in photoUrl (see
+// src/lib/photo.ts), so a PATCH can carry a few hundred KB. The default
+// 100kb limit would reject them.
+app.use(express.json({ limit: "4mb" }));
 // Signing secret is ADMIN_PASSWORD itself — see server/auth.ts.
 app.use(cookieParser(process.env.ADMIN_PASSWORD));
 

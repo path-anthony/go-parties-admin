@@ -47,14 +47,19 @@
 
 /* ---------- admin shell: rail + main ---------- */
 
+/* Fixed to the viewport so .admin-content is the element that scrolls
+   (its overflow-y: auto never engaged while the shell could grow), which
+   keeps the rail and topbar in place and lets sticky elements inside the
+   content, like Inventory's quick-add bar, pin to the top. */
 .admin-shell {
   display: flex;
-  min-height: 100svh;
+  height: 100svh;
 }
 
 .admin-main {
   flex: 1;
   min-width: 0;
+  min-height: 0;
   display: flex;
   flex-direction: column;
 }
@@ -737,6 +742,165 @@ select:focus {
   display: block;
   font-size: 11px;
   color: var(--muted);
+}
+
+/* ---------- inventory: quick add + expandable rows ---------- */
+
+/* Sticks to the top of the scrolling content area (.admin-content), so
+   adding an item never means scrolling back up. Negative margins pull it
+   flush with the panel's edges; the background covers rows scrolling under. */
+.quick-add {
+  position: sticky;
+  /* Cancels .admin-content's 20px top padding so nothing peeks above the bar. */
+  top: -20px;
+  z-index: 5;
+  background: var(--white);
+  margin: 0 -16px 8px;
+  padding: 6px 16px;
+  border-bottom: 1px solid var(--line);
+}
+
+.quick-add-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  border: 1.5px dashed var(--line);
+  border-radius: 6px;
+  background: var(--cream);
+  color: var(--charcoal-soft);
+  padding: 6px 12px;
+  font-size: 12.5px;
+  font-weight: 700;
+  cursor: pointer;
+  text-align: left;
+}
+
+.quick-add-toggle:hover {
+  border-color: var(--charcoal-soft);
+  color: var(--charcoal);
+}
+
+.quick-add-form {
+  padding: 6px 0 4px;
+}
+
+.catalog-table {
+  width: 100%;
+}
+
+.catalog-row {
+  cursor: pointer;
+}
+
+.catalog-row:hover td {
+  background: var(--cream);
+}
+
+.catalog-row:focus-visible {
+  outline: 2px solid var(--orange);
+  outline-offset: -2px;
+}
+
+.catalog-row td {
+  padding-top: 5px;
+  padding-bottom: 5px;
+}
+
+.catalog-thumb-cell {
+  width: 34px;
+}
+
+.catalog-thumb {
+  display: block;
+  width: 28px;
+  height: 28px;
+  border-radius: 4px;
+  object-fit: cover;
+  background: var(--cream);
+  border: 1px solid var(--line);
+}
+
+.catalog-thumb-empty {
+  border-style: dashed;
+}
+
+.catalog-name {
+  font-weight: 600;
+}
+
+.catalog-chevron {
+  width: 24px;
+  color: var(--muted);
+}
+
+.catalog-detail-row > td {
+  padding: 0 0 12px 34px;
+}
+
+.catalog-detail {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(200px, 1fr));
+  gap: 10px 16px;
+  padding: 8px 0 4px;
+  max-width: 760px;
+}
+
+.catalog-detail .detail-field-span {
+  grid-column: 1 / -1;
+}
+
+.catalog-detail .editable-cell {
+  min-width: 0;
+}
+
+.catalog-detail .cell-input {
+  border-color: var(--line);
+  width: 100%;
+}
+
+.photo-drop {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 110px;
+  padding: 10px;
+  border: 1.5px dashed var(--line);
+  border-radius: 6px;
+  background: var(--cream);
+  cursor: pointer;
+  text-align: center;
+}
+
+.photo-drop:focus-visible {
+  outline: 2px solid var(--orange);
+  outline-offset: 1px;
+}
+
+.photo-drop-active {
+  border-color: var(--orange);
+  background: var(--orange-tint);
+}
+
+.photo-preview {
+  max-width: 100%;
+  max-height: 180px;
+  border-radius: 4px;
+}
+
+.photo-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.photo-actions .editable-cell {
+  flex: 1;
+  min-width: 200px;
 }
 
 /* ---------- scheduling: units and bookings ---------- */
