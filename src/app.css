@@ -215,9 +215,20 @@
   max-width: 1080px;
 }
 
+.screen-wide {
+  max-width: none;
+}
+
 .screen-head h2 {
   font-size: 17px;
   margin-bottom: 2px;
+}
+
+.screen-head-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
 }
 
 .panel {
@@ -311,10 +322,17 @@
 
 /* ---------- forms ---------- */
 
-.add-item-form {
+.add-item-form,
+.add-lead-form {
   display: flex;
   flex-direction: column;
   gap: 10px;
+}
+
+.form-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
 }
 
 .field-row {
@@ -336,7 +354,8 @@ label {
 }
 
 input,
-textarea {
+textarea,
+select {
   border: 1.5px solid var(--line);
   border-radius: 6px;
   padding: 8px 10px;
@@ -346,7 +365,8 @@ textarea {
 }
 
 input:focus,
-textarea:focus {
+textarea:focus,
+select:focus {
   outline: 2px solid var(--orange);
   outline-offset: 1px;
 }
@@ -560,6 +580,189 @@ textarea:focus {
   font-weight: 800;
   font-size: 15px;
   color: var(--charcoal);
+}
+
+/* ---------- bookings: lead pipeline ---------- */
+
+.pipeline {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(230px, 1fr));
+  gap: 12px;
+  align-items: start;
+  overflow-x: auto;
+}
+
+.pipeline-col {
+  background: var(--cream);
+  border-radius: 6px;
+  border-top: 3px solid var(--col-accent, var(--line));
+  display: flex;
+  flex-direction: column;
+  min-height: 160px;
+}
+
+.pipeline-col-new {
+  --col-accent: var(--orange);
+}
+
+.pipeline-col-contacted {
+  --col-accent: var(--taupe);
+}
+
+.pipeline-col-booked {
+  --col-accent: var(--good);
+}
+
+.pipeline-col-lost {
+  --col-accent: var(--muted);
+}
+
+.pipeline-col-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 10px 6px;
+}
+
+.pipeline-col-title {
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--charcoal-soft);
+}
+
+.pipeline-col-count {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--muted);
+  background: var(--white);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 0 7px;
+  line-height: 18px;
+}
+
+.pipeline-col-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 0 8px 8px;
+}
+
+.pipeline-empty {
+  padding: 4px 2px 10px;
+  font-size: 12px;
+}
+
+.lead-card {
+  background: var(--white);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 9px 10px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12.5px;
+  line-height: 1.4;
+}
+
+.lead-card-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 2px;
+}
+
+.lead-source {
+  font-size: 9.5px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 1px 6px;
+  border-radius: 3px;
+  background: var(--cream);
+  border: 1px solid var(--line);
+  color: var(--charcoal-soft);
+}
+
+.lead-source-ask-go {
+  background: var(--orange-tint);
+  border-color: transparent;
+  color: var(--orange-deep);
+}
+
+.lead-time {
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.lead-card-name {
+  font-size: 13.5px;
+  font-weight: 700;
+  color: var(--charcoal);
+}
+
+.lead-card-name.muted {
+  font-weight: 600;
+}
+
+.lead-card-line {
+  color: var(--charcoal-soft);
+}
+
+.lead-card-theme {
+  margin: 2px 0;
+  padding: 5px 8px;
+  background: var(--cream);
+  border-left: 2px solid var(--line);
+  border-radius: 0 4px 4px 0;
+  color: var(--charcoal);
+}
+
+.lead-card-items summary {
+  cursor: pointer;
+  font-weight: 700;
+  color: var(--charcoal);
+}
+
+.lead-card-items ul {
+  list-style: none;
+  margin: 5px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.lead-card-items li {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--charcoal-soft);
+}
+
+.lead-card-notes {
+  margin: 0;
+  font-size: 12px;
+  white-space: pre-wrap;
+}
+
+.lead-card-foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 3px;
+  padding-top: 7px;
+  border-top: 1px solid var(--line);
+}
+
+.lead-card-foot select {
+  padding: 4px 6px;
+  font-size: 12px;
+  font-weight: 700;
 }
 
 /* ---------- Ask GO slide-over panel ---------- */

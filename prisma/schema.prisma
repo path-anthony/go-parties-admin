@@ -40,20 +40,35 @@ model Item {
   @@map("items")
 }
 
-// Raw captured interest from /api/recommend, the first piece of the CRM
-// pipeline (see GO-PRODUCT.md: Booking, Client, Contract, Payment sit on
-// top of this). No stage field yet — cold/warm/hot needs real follow-up
-// tracking, which isn't built yet. This just records what was typed and
-// what came back, every time, regardless of outcome.
+// A lead is the top of the CRM pipeline (see GO-PRODUCT.md: Booking,
+// Client, Contract, Payment sit on top of this). Two ways in today:
+// - "ask-go": captured from /api/recommend when a storefront conversation
+//   commits to a recommendation. Anonymous, so no customer fields; theme
+//   and itemsReturned hold what was asked and what came back.
+// - "manual": entered by hand in the admin. Has customer fields, no
+//   Ask GO data.
+// "website" is reserved for the n8n integration and unused for now.
+// status and source are plain strings validated at the API boundary
+// (see server/routes/leads.ts) rather than Postgres enums, so adding a
+// value later is a code change, not a migration.
 model Lead {
-  id            String   @id @default(cuid())
-  accountId     String   @map("account_id")
-  theme         String
-  itemsReturned Json     @map("items_returned")
-  createdAt     DateTime @default(now()) @map("created_at")
+  id             String    @id @default(cuid())
+  accountId      String    @map("account_id")
+  status         String    @default("New")
+  source         String    @default("ask-go")
+  customerName   String?   @map("customer_name")
+  contact        String?
+  occasion       String?
+  dateOfInterest DateTime? @map("date_of_interest") @db.Date
+  notes          String?
+  theme          String?
+  itemsReturned  Json?     @map("items_returned")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @default(now()) @updatedAt @map("updated_at")
 
   account Account @relation(fields: [accountId], references: [id])
 
   @@index([accountId])
+  @@index([accountId, status])
   @@map("leads")
 }

@@ -25,7 +25,7 @@ type LeadItem = { id: string; name: string; category: string; price: number | nu
 // customer's answer.
 function logLead(accountId: string, theme: string, items: LeadItem[], total: number) {
   prisma.lead
-    .create({ data: { accountId, theme, itemsReturned: { items, total } } })
+    .create({ data: { accountId, source: "ask-go", theme, itemsReturned: { items, total } } })
     .catch((err: unknown) => {
       console.error("[lead] failed to log lead:", err);
     });
