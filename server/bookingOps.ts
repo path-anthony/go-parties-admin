@@ -13,6 +13,18 @@ export class NoFreeUnit extends Error {
   }
 }
 
+// Same idea for a request that asked for several items at once: every
+// item that couldn't be locked is named, so the customer knows what to
+// drop, and the transaction still rolls back as a whole.
+export class NoFreeUnits extends Error {
+  readonly itemNames: string[];
+
+  constructor(itemNames: string[]) {
+    super(`No free unit of ${itemNames.join(", ")}`);
+    this.itemNames = itemNames;
+  }
+}
+
 type Tx = Prisma.TransactionClient;
 
 const WITH_UNIT_DETAILS = {

@@ -1,13 +1,14 @@
 import { Router } from "express";
 import { getDefaultAccount } from "../account.js";
 import { leadStatusForStorefrontBooking, lockFreeUnit } from "../availability.js";
-import { NoFreeUnit } from "../bookingOps.js";
+import { NoFreeUnits } from "../bookingOps.js";
 import { currentCustomer } from "../customerAuth.js";
 import { prisma } from "../db.js";
 import { INVALID, normalizeDate, normalizeText, splitContact } from "../validate.js";
 
 const MAX_ADDRESS_LENGTH = 300;
 const MAX_TIME_LENGTH = 60;
+const MAX_ITEMS_PER_BOOKING = 10;
 
 const router = Router();
 
@@ -41,15 +42,34 @@ function optionalText(value: unknown, max: number): string | null | typeof INVAL
   return text.length <= max ? text : INVALID;
 }
 
+// itemId (one item) is the original contract and keeps working as is.
+// itemIds (several) is additive. Sending both is ambiguous, so it's
+// refused rather than merged.
+function resolveItemIds(body: Record<string, unknown>): string[] | string {
+  const { itemId, itemIds } = body;
+  if (itemIds !== undefined && itemId !== undefined) return "send itemId or itemIds, not both";
+  if (itemIds !== undefined) {
+    if (!Array.isArray(itemIds) || itemIds.length === 0 || !itemIds.every((id): id is string => typeof id === "string" && id !== "")) {
+      return "itemIds must be a non-empty array of item ids";
+    }
+    const unique = [...new Set(itemIds)];
+    if (unique.length > MAX_ITEMS_PER_BOOKING) return `itemIds can hold at most ${MAX_ITEMS_PER_BOOKING} items`;
+    return unique;
+  }
+  if (typeof itemId === "string" && itemId !== "") return [itemId];
+  return "itemId or itemIds is required";
+}
+
 // Public, no session required, rate limited where it's mounted. A customer
-// books one specific item for one date. The unit is picked and locked
-// inside the same transaction that writes the Booking, its BookingUnit,
-// and the CRM Lead, so two requests racing for the last unit can't both
-// succeed. If a customer session is present the booking is attached to
-// that account and name, phone, and email default from it.
+// books one or more specific items for one date. One free unit per item is
+// picked and locked (SKIP LOCKED) inside the same transaction that writes
+// the Booking, its BookingUnit rows, and the CRM Lead: either every item
+// gets a unit or the whole request rolls back with nothing booked, and two
+// requests racing for the last unit of any item can't both succeed. If a
+// customer session is present the booking is attached to that account and
+// name, phone, and email default from it.
 router.post("/", async (req, res) => {
   const body = (req.body ?? {}) as Record<string, unknown>;
-  const { itemId, eventDate } = body;
 
   const customer = await currentCustomer(req);
   const name = normalizeText(body.customerName) ?? customer?.name ?? null;
@@ -62,7 +82,11 @@ router.post("/", async (req, res) => {
   if (typeof contact === "string") {
     return res.status(400).json({ error: contact });
   }
-  const date = normalizeDate(eventDate);
+  const itemIds = resolveItemIds(body);
+  if (typeof itemIds === "string") {
+    return res.status(400).json({ error: itemIds });
+  }
+  const date = normalizeDate(body.eventDate);
   if (date === null || date === INVALID) {
     return res.status(400).json({ error: "eventDate is required and must be a valid YYYY-MM-DD date" });
   }
@@ -80,16 +104,24 @@ router.post("/", async (req, res) => {
   }
 
   const account = await getDefaultAccount();
-  const item = typeof itemId === "string" ? await prisma.item.findFirst({ where: { id: itemId, accountId: account.id } }) : null;
-  if (!item) {
-    return res.status(404).json({ error: "item not found" });
+  const found = await prisma.item.findMany({
+    where: { id: { in: itemIds }, accountId: account.id },
+    include: { _count: { select: { units: true } } },
+  });
+  // Keep the caller's order so the response lines up with the request.
+  const items = itemIds.map((id) => found.find((item) => item.id === id)).filter((item) => item !== undefined);
+  if (items.length !== itemIds.length) {
+    return res.status(404).json({ error: itemIds.length === 1 ? "item not found" : "One or more items were not found" });
   }
-
-  const totalUnits = await prisma.unit.count({ where: { itemId: item.id } });
-  if (totalUnits === 0) {
+  const untracked = items.filter((item) => item._count.units === 0);
+  if (untracked.length > 0) {
     return res.status(409).json({
-      error: "This item isn't available for direct booking yet.",
+      error:
+        untracked.length === 1
+          ? "This item isn't available for direct booking yet."
+          : `${untracked.map((item) => item.name).join(", ")} aren't available for direct booking yet.`,
       reason: "not-tracked",
+      itemIds: untracked.map((item) => item.id),
     });
   }
 
@@ -100,9 +132,18 @@ router.post("/", async (req, res) => {
 
   try {
     const result = await prisma.$transaction(async (tx) => {
-      const unit = await lockFreeUnit(tx, item.id, dateText);
-      if (!unit) throw new NoFreeUnit(item.name);
+      // Lock a unit for every item before writing anything. Every item that
+      // has nothing free is collected so the message can name all of them.
+      const claimed: { item: (typeof items)[number]; unit: { id: string; label: string } }[] = [];
+      const missing: string[] = [];
+      for (const item of items) {
+        const unit = await lockFreeUnit(tx, item.id, dateText);
+        if (unit) claimed.push({ item, unit });
+        else missing.push(item.name);
+      }
+      if (missing.length > 0) throw new NoFreeUnits(missing);
 
+      const summary = claimed.map(({ item, unit }) => `${item.name} (${unit.label})`).join(", ");
       const lead = await tx.lead.create({
         data: {
           accountId: account.id,
@@ -110,13 +151,13 @@ router.post("/", async (req, res) => {
           status: leadStatus,
           customerName: name,
           contact: leadContact,
-          occasion: item.name,
+          occasion: claimed.map(({ item }) => item.name).join(", "),
           dateOfInterest: date,
-          notes: `Direct booking of ${item.name} (${unit.label}) from the storefront, ${when}.${where}`,
+          notes: `Direct booking of ${summary} from the storefront, ${when}.${where}`,
         },
       });
       await tx.leadActivity.create({
-        data: { leadId: lead.id, text: `Booked ${item.name} (${unit.label}) for ${when} from the storefront.` },
+        data: { leadId: lead.id, text: `Booked ${summary} for ${when} from the storefront.` },
       });
       const booking = await tx.booking.create({
         data: {
@@ -130,9 +171,9 @@ router.post("/", async (req, res) => {
           phone: contact.phone,
           email: contact.email,
           status: "Confirmed",
-          // eventDate is copied onto the join row for the (unitId, eventDate)
+          // eventDate is copied onto each join row for the (unitId, eventDate)
           // unique constraint, the database-level backstop behind the lock.
-          units: { create: [{ unitId: unit.id, eventDate: date }] },
+          units: { create: claimed.map(({ unit }) => ({ unitId: unit.id, eventDate: date })) },
         },
       });
       // First booking from an account that signed up without a name: keep
@@ -140,9 +181,14 @@ router.post("/", async (req, res) => {
       if (customer && !customer.name) {
         await tx.customer.update({ where: { id: customer.id }, data: { name } });
       }
-      return { booking, lead, unit };
+      return { booking, lead, claimed };
     });
 
+    const bookedItems = result.claimed.map(({ item, unit }) => ({
+      id: item.id,
+      name: item.name,
+      unit: { id: unit.id, label: unit.label },
+    }));
     res.status(201).json({
       bookingId: result.booking.id,
       leadId: result.lead.id,
@@ -154,14 +200,28 @@ router.post("/", async (req, res) => {
       email: result.booking.email,
       status: result.booking.status,
       depositPaid: result.booking.depositPaid,
-      item: { id: item.id, name: item.name },
-      unit: { id: result.unit.id, label: result.unit.label },
+      // item and unit are the first entry, kept for single-item callers;
+      // items has every one.
+      item: { id: bookedItems[0].id, name: bookedItems[0].name },
+      unit: bookedItems[0].unit,
+      items: bookedItems,
     });
   } catch (err) {
-    // NoFreeUnit is the normal loser path. P2002 is the (unitId, eventDate)
+    // NoFreeUnits is the normal loser path. P2002 is the (unitId, eventDate)
     // unique constraint firing anyway, which the lock should make
     // impossible here; it's handled the same way rather than as a 500.
-    if (err instanceof NoFreeUnit || (err as { code?: unknown }).code === "P2002") {
+    if (err instanceof NoFreeUnits) {
+      const names = err.itemNames;
+      return res.status(409).json({
+        error:
+          items.length === 1
+            ? "That date was just booked by someone else. Try another date."
+            : `${names.join(", ")} ${names.length === 1 ? "isn't" : "aren't"} available that date, so nothing was booked. Drop ${names.length === 1 ? "it" : "them"} or try another date.`,
+        reason: "unavailable",
+        unavailable: names,
+      });
+    }
+    if ((err as { code?: unknown }).code === "P2002") {
       return res.status(409).json({
         error: "That date was just booked by someone else. Try another date.",
         reason: "unavailable",
