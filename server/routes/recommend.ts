@@ -14,6 +14,9 @@ const MODEL = process.env.CLAUDE_MODEL ?? "claude-sonnet-5";
 // than show that to the user.
 const MIN_MESSAGE_LENGTH = 20;
 const MAX_ATTEMPTS = 3;
+// The prompt asks for at most this many; the cap is enforced here too so
+// a generous no-budget pick can't turn into an unmanageable list.
+const MAX_RECOMMENDED_ITEMS = 20;
 
 type ConversationMessage = { role: "user" | "assistant"; content: string };
 type LeadItem = { id: string; name: string; category: string; price: number | null; priceUnit: string | null };
@@ -68,21 +71,24 @@ const RESPOND_TOOL: Anthropic.Tool = {
       ready: {
         type: "boolean",
         description:
-          "True the moment you have occasion type, a rough guest count, and a budget signal, nothing else is " +
-          "required. False only when one of those three is genuinely missing.",
+          "True the moment you have the occasion type and a rough guest count, nothing else is required. Budget " +
+          "is never required: if it's missing, or the customer says they don't have one or that money isn't an " +
+          "issue, go ready anyway. False only when occasion or guest count is genuinely missing.",
       },
       message: {
         type: "string",
         description:
           "If ready is false: one short, casual clarifying question, 1-3 sentences, asking for exactly one " +
-          "missing thing. If ready is true: a short closing line, 1-3 sentences, on why these items fit.",
+          "missing thing, never the budget. If ready is true: a short closing line, 1-3 sentences, on why " +
+          "these items fit.",
       },
       item_ids: {
         type: "array",
         items: { type: "string" },
         description:
-          "Only used when ready is true: IDs of recommended items, taken only from the catalog provided. Leave " +
-          "empty when ready is false.",
+          "Only used when ready is true: IDs of recommended items, taken only from the catalog provided, at most " +
+          "20. With no budget, lean toward the highest-value items across categories, this is 'show me what's " +
+          "possible', not a safe middle. Leave empty when ready is false.",
       },
     },
     required: ["ready", "message", "item_ids"],
@@ -142,12 +148,15 @@ router.post("/", async (req, res) => {
   const system =
     "You are Ask GO, a knowledgeable crew member at The Go Event Group, not a chatbot. You help a customer build " +
     "a real party from a real catalog over a short back-and-forth conversation.\n\n" +
-    "The bar for ready is exactly three things: occasion type, a rough guest count, and a budget signal. The " +
-    "moment all three are present in the conversation, go ready immediately and recommend, even on the first " +
-    "message. Do not ask about logistics, venue, colors, preferences, or anything else once you have those " +
-    "three, that's a detail you can reasonably assume or the customer can adjust later, not a reason to hold " +
-    "back a recommendation. Ask at most one clarifying question per turn, and only when one of the three is " +
-    "genuinely missing, never a list of questions.\n\n" +
+    "The bar for ready is exactly two things: occasion type and a rough guest count. The moment both are " +
+    "present in the conversation, go ready immediately and recommend, even on the first message. Budget is " +
+    "welcome but never required and never asked for: if the customer gives one, build to it; if they say they " +
+    "don't have one, that money's not an issue, or simply never mention it, treat that as 'show me what's " +
+    "possible' and lean toward the highest-value items in the catalog across categories, not a safe modest " +
+    "set. Do not ask about budget, logistics, venue, colors, preferences, or anything else once you have " +
+    "occasion and guest count; those are details you can reasonably assume or the customer can adjust later, " +
+    "not a reason to hold back a recommendation. Ask at most one clarifying question per turn, only when " +
+    "occasion or guest count is genuinely missing, never a list of questions. Recommend at most 20 items.\n\n" +
     "Voice: short, sure, chill. 1-3 sentences. No exclamation points, no emoji, no 'Great question', no hype " +
     "words ('unforgettable', 'elevate', 'seamless', 'magical'). Matter-of-fact, then a little warmth. No em " +
     "dashes, use a period or comma instead.\n\n" +
@@ -183,7 +192,9 @@ router.post("/", async (req, res) => {
     const input = toolUse.input as { ready?: unknown; message?: unknown; item_ids?: unknown };
     ready = input.ready === true;
     message = typeof input.message === "string" ? input.message : "";
-    requestedIds = Array.isArray(input.item_ids) ? input.item_ids.filter((id): id is string => typeof id === "string") : [];
+    requestedIds = Array.isArray(input.item_ids)
+      ? input.item_ids.filter((id): id is string => typeof id === "string").slice(0, MAX_RECOMMENDED_ITEMS)
+      : [];
 
     if (message.trim().length >= MIN_MESSAGE_LENGTH) {
       break;
