@@ -97,6 +97,10 @@ export type Unit = {
 export type NewUnit = { itemId: string; label: string; status: UnitStatus };
 export type UnitPatch = Partial<Pick<Unit, "label" | "status">>;
 
+// "Cart #1" numbers from 1; a pattern without "#n" numbers from 1 too.
+export type BulkUnitsRequest = { itemIds: string[]; labelPattern: string; quantity: number; status: UnitStatus };
+export type BulkUnitsResult = { created: number; items: { itemId: string; labels: string[] }[] };
+
 export const BOOKING_STATUSES = ["Confirmed", "Completed", "Cancelled"] as const;
 export type BookingStatus = (typeof BOOKING_STATUSES)[number];
 

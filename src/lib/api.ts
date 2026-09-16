@@ -2,6 +2,8 @@ import type {
   AskGoMessage,
   Booking,
   BookingPatch,
+  BulkUnitsRequest,
+  BulkUnitsResult,
   Item,
   Lead,
   LeadActivity,
@@ -125,6 +127,10 @@ export function createUnit(unit: NewUnit): Promise<Unit> {
 
 export function updateUnit(id: string, patch: UnitPatch): Promise<Unit> {
   return fetch(`/api/units/${id}`, jsonRequest("PATCH", patch)).then(asJson<Unit>);
+}
+
+export function createUnitsBulk(request: BulkUnitsRequest): Promise<BulkUnitsResult> {
+  return fetch("/api/units/bulk", jsonRequest("POST", request)).then(asJson<BulkUnitsResult>);
 }
 
 export function getBookings(): Promise<Booking[]> {

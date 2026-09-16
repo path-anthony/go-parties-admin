@@ -17,20 +17,44 @@ export function ItemsTable({
   expanded,
   onToggle,
   onItemUpdated,
+  selected,
+  onToggleSelect,
+  onSelectAll,
+  unitCounts,
 }: {
   items: Item[];
   expanded: Set<string>;
   onToggle: (id: string) => void;
   onItemUpdated: (item: Item) => void;
+  selected: Set<string>;
+  onToggleSelect: (id: string, checked: boolean) => void;
+  onSelectAll: (ids: string[], checked: boolean) => void;
+  unitCounts: Map<string, number>;
 }) {
+  const visibleIds = items.map((item) => item.id);
+  const allSelected = visibleIds.length > 0 && visibleIds.every((id) => selected.has(id));
+  const someSelected = !allSelected && visibleIds.some((id) => selected.has(id));
+
   return (
     <table className="items-table catalog-table">
       <thead>
         <tr>
+          <th className="catalog-select-cell">
+            <input
+              type="checkbox"
+              checked={allSelected}
+              ref={(el) => {
+                if (el) el.indeterminate = someSelected;
+              }}
+              onChange={(e) => onSelectAll(visibleIds, e.target.checked)}
+              aria-label="Select all listed items"
+            />
+          </th>
           <th aria-label="Photo" />
           <th>Name</th>
           <th>Category</th>
           <th>Price</th>
+          <th>Units</th>
           <th aria-label="Expand" />
         </tr>
       </thead>
@@ -42,6 +66,9 @@ export function ItemsTable({
             expanded={expanded.has(item.id)}
             onToggle={() => onToggle(item.id)}
             onItemUpdated={onItemUpdated}
+            isSelected={selected.has(item.id)}
+            onToggleSelect={(checked) => onToggleSelect(item.id, checked)}
+            unitCount={unitCounts.get(item.id) ?? 0}
           />
         ))}
       </tbody>
@@ -54,11 +81,17 @@ function ItemRows({
   expanded,
   onToggle,
   onItemUpdated,
+  isSelected,
+  onToggleSelect,
+  unitCount,
 }: {
   item: Item;
   expanded: boolean;
   onToggle: () => void;
   onItemUpdated: (item: Item) => void;
+  isSelected: boolean;
+  onToggleSelect: (checked: boolean) => void;
+  unitCount: number;
 }) {
   function handleKey(e: KeyboardEvent<HTMLTableRowElement>) {
     if (e.target !== e.currentTarget) return;
@@ -70,7 +103,23 @@ function ItemRows({
 
   return (
     <>
-      <tr className="catalog-row" onClick={onToggle} onKeyDown={handleKey} tabIndex={0} aria-expanded={expanded}>
+      <tr
+        className={isSelected ? "catalog-row catalog-row-selected" : "catalog-row"}
+        onClick={onToggle}
+        onKeyDown={handleKey}
+        tabIndex={0}
+        aria-expanded={expanded}
+      >
+        {/* The checkbox sits inside the click-to-expand row, so it stops the
+            click from reaching the row. */}
+        <td className="catalog-select-cell" onClick={(e) => e.stopPropagation()}>
+          <input
+            type="checkbox"
+            checked={isSelected}
+            onChange={(e) => onToggleSelect(e.target.checked)}
+            aria-label={`Select ${item.name}`}
+          />
+        </td>
         <td className="catalog-thumb-cell">
           {item.photoUrl ? (
             <img className="catalog-thumb" src={item.photoUrl} alt="" />
@@ -81,11 +130,12 @@ function ItemRows({
         <td className="catalog-name">{item.name}</td>
         <td className="muted">{item.category}</td>
         <td>{priceLabel(item)}</td>
+        <td className={unitCount === 0 ? "muted" : ""}>{unitCount === 0 ? "None" : unitCount}</td>
         <td className="catalog-chevron">{expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}</td>
       </tr>
       {expanded && (
         <tr className="catalog-detail-row">
-          <td colSpan={5}>
+          <td colSpan={7}>
             <ItemDetail item={item} onItemUpdated={onItemUpdated} />
           </td>
         </tr>

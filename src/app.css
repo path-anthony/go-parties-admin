@@ -847,6 +847,50 @@ select:focus {
   padding-bottom: 5px;
 }
 
+.catalog-select-cell {
+  width: 26px;
+}
+
+.catalog-select-cell input {
+  margin: 0;
+  display: block;
+}
+
+.catalog-row-selected td {
+  background: var(--orange-tint);
+}
+
+.bulk-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.bulk-form {
+  border: 1.5px solid var(--line);
+  border-radius: 6px;
+  background: var(--white);
+  padding: 10px 12px 8px;
+  margin-bottom: 10px;
+}
+
+.bulk-form .inline-form {
+  margin-bottom: 4px;
+}
+
+.bulk-help {
+  margin: 0;
+  font-size: 12px;
+}
+
+.bulk-result {
+  margin: 0 0 8px;
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--good);
+}
+
 .catalog-thumb-cell {
   width: 34px;
 }
