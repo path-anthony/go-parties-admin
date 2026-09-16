@@ -5,6 +5,7 @@ import { LeadsScreen } from "./screens/LeadsScreen";
 import { EmptyScreen } from "./screens/EmptyScreen";
 import { InventoryScreen } from "./screens/InventoryScreen";
 import { OverviewScreen } from "./screens/OverviewScreen";
+import { PackagesScreen } from "./screens/PackagesScreen";
 import { SchedulingScreen } from "./screens/SchedulingScreen";
 import { SettingsScreen } from "./screens/SettingsScreen";
 
@@ -33,6 +34,7 @@ function ScreenBody({ screen }: { screen: ScreenKey }) {
     case "settings":
       return <SettingsScreen />;
     case "packages":
+      return <PackagesScreen />;
     case "crew":
       return <EmptyScreen title={SCREEN_TITLES[screen]} />;
   }

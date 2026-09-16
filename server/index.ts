@@ -16,7 +16,9 @@ import externalLeadsRouter from "./routes/externalLeads.js";
 import itemsRouter from "./routes/items.js";
 import leadStatusesRouter from "./routes/leadStatuses.js";
 import leadsRouter from "./routes/leads.js";
+import packagesRouter from "./routes/packages.js";
 import publicItemsRouter from "./routes/publicItems.js";
+import publicPackagesRouter from "./routes/publicPackages.js";
 import recommendRouter from "./routes/recommend.js";
 import unitsRouter from "./routes/units.js";
 import { requireWebhookSecret } from "./webhookAuth.js";
@@ -85,6 +87,8 @@ app.use("/api/leads/external", externalLeadLimiter, requireWebhookSecret, extern
 app.use("/api/leads", requireAuth, leadsRouter);
 app.use("/api/lead-statuses", requireAuth, leadStatusesRouter);
 app.use("/api/units", requireAuth, unitsRouter);
+app.use("/api/packages", publicPackagesRouter);
+app.use("/api/packages", requireAuth, packagesRouter);
 app.use("/api/bookings/direct", directBookingLimiter, directBookingsRouter);
 app.use("/api/bookings", requireAuth, bookingsRouter);
 // Customer accounts: signup and login are public (strictly rate limited

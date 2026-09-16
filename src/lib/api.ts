@@ -14,6 +14,8 @@ import type {
   NewItem,
   NewLead,
   NewUnit,
+  Package,
+  PackageInput,
   RecommendResponse,
   Unit,
   UnitPatch,
@@ -131,6 +133,31 @@ export function updateUnit(id: string, patch: UnitPatch): Promise<Unit> {
 
 export function createUnitsBulk(request: BulkUnitsRequest): Promise<BulkUnitsResult> {
   return fetch("/api/units/bulk", jsonRequest("POST", request)).then(asJson<BulkUnitsResult>);
+}
+
+export function getPackages(): Promise<Package[]> {
+  return fetch("/api/packages").then(asJson<Package[]>);
+}
+
+// Always lands as Draft; publishing is a separate call.
+export function createPackage(input: PackageInput): Promise<Package> {
+  return fetch("/api/packages", jsonRequest("POST", input)).then(asJson<Package>);
+}
+
+export function updatePackage(id: string, input: Partial<PackageInput>): Promise<Package> {
+  return fetch(`/api/packages/${id}`, jsonRequest("PATCH", input)).then(asJson<Package>);
+}
+
+export function publishPackage(id: string): Promise<Package> {
+  return fetch(`/api/packages/${id}/publish`, jsonRequest("POST")).then(asJson<Package>);
+}
+
+export function unpublishPackage(id: string): Promise<Package> {
+  return fetch(`/api/packages/${id}/unpublish`, jsonRequest("POST")).then(asJson<Package>);
+}
+
+export function deletePackage(id: string): Promise<{ ok: true }> {
+  return fetch(`/api/packages/${id}`, jsonRequest("DELETE")).then(asJson<{ ok: true }>);
 }
 
 export function getBookings(): Promise<Booking[]> {

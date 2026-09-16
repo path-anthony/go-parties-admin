@@ -101,6 +101,41 @@ export type UnitPatch = Partial<Pick<Unit, "label" | "status">>;
 export type BulkUnitsRequest = { itemIds: string[]; labelPattern: string; quantity: number; status: UnitStatus };
 export type BulkUnitsResult = { created: number; items: { itemId: string; labels: string[] }[] };
 
+export const PACKAGE_STATUSES = ["Draft", "Published"] as const;
+export type PackageStatus = (typeof PACKAGE_STATUSES)[number];
+
+export type PackageItemRow = {
+  packageId: string;
+  itemId: string;
+  quantity: number;
+  item: { id: string; name: string; category: string; price: string | null; priceUnit: string | null };
+};
+
+export type Package = {
+  id: string;
+  accountId: string;
+  name: string;
+  description: string | null;
+  price: string; // serialized Decimal, the manual bundle price
+  status: PackageStatus;
+  theme: string | null;
+  occasion: string | null;
+  photoUrl: string | null;
+  items: PackageItemRow[];
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type PackageInput = {
+  name: string;
+  description: string;
+  theme: string;
+  occasion: string;
+  price: string;
+  photoUrl: string;
+  items: { itemId: string; quantity: number }[];
+};
+
 export const BOOKING_STATUSES = ["Confirmed", "Completed", "Cancelled"] as const;
 export type BookingStatus = (typeof BOOKING_STATUSES)[number];
 

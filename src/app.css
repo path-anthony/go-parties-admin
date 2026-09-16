@@ -1117,6 +1117,182 @@ select:focus {
   font-size: 12px;
 }
 
+/* ---------- packages: list and modal builder ---------- */
+
+.status-pill {
+  display: inline-block;
+  font-size: 10.5px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 2px 8px;
+  border-radius: 10px;
+  background: var(--cream);
+  border: 1px solid var(--line);
+  color: var(--charcoal-soft);
+}
+
+.status-pill-live {
+  background: #e8f2e9;
+  border-color: transparent;
+  color: var(--good);
+}
+
+.row-actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.btn-danger {
+  color: var(--bad);
+}
+
+.btn-danger:hover {
+  border-color: var(--bad);
+}
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  background: rgba(33, 29, 28, 0.35);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 32px 24px;
+  overflow-y: auto;
+}
+
+.modal {
+  width: min(760px, 100%);
+  background: var(--white);
+  border-radius: 8px;
+  box-shadow: 0 16px 48px rgba(33, 29, 28, 0.22);
+  padding: 18px 20px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.modal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.modal-head h2 {
+  font-size: 16px;
+}
+
+.modal-form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.modal-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px 14px;
+}
+
+.modal-span {
+  grid-column: 1 / -1;
+}
+
+.picker-results,
+.chosen-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border: 1.5px solid var(--line);
+  border-radius: 6px;
+  max-height: 200px;
+  overflow-y: auto;
+  background: var(--white);
+}
+
+.picker-results {
+  background: var(--cream);
+}
+
+.picker-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 5px 8px;
+  border-bottom: 1px solid var(--line);
+  font-size: 12.5px;
+}
+
+.picker-row:last-child {
+  border-bottom: none;
+}
+
+.picker-row-side {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+}
+
+.picker-row-side .btn-secondary {
+  padding: 3px 10px;
+  font-size: 11.5px;
+}
+
+.qty-field {
+  flex-direction: row;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+}
+
+.qty-field input {
+  width: 52px;
+  padding: 3px 6px;
+  font-size: 12px;
+}
+
+.price-compare {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 14px;
+  font-size: 13px;
+  color: var(--charcoal-soft);
+  padding-top: 4px;
+}
+
+.price-compare strong {
+  font-size: 15px;
+  color: var(--charcoal);
+}
+
+.price-diff {
+  font-weight: 700;
+}
+
+.price-diff-below {
+  color: var(--good);
+}
+
+.price-diff-above {
+  color: var(--bad);
+}
+
+.modal-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  border-top: 1px solid var(--line);
+  padding-top: 12px;
+}
+
 /* ---------- settings: lead columns ---------- */
 
 .settings-help {

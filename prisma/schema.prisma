@@ -21,6 +21,7 @@ model Account {
   leadStatuses LeadStatus[]
   bookings     Booking[]
   customers    Customer[]
+  packages     Package[]
 
   @@map("accounts")
 }
@@ -148,6 +149,45 @@ model Customer {
   @@map("customers")
 }
 
+// A Package is a curated bundle of real catalog items with one manual
+// price (not a sum; the gap is Andy's discount). theme is a plain tag for
+// now, not the approval layer GO-PRODUCT.md describes. occasion matches
+// one of the storefront's sub-occasion strings so the public endpoint can
+// serve packages by occasion. status is Draft or Published, validated at
+// the API; only Published packages are public.
+model Package {
+  id          String   @id @default(cuid())
+  accountId   String   @map("account_id")
+  name        String
+  description String?
+  price       Decimal  @db.Decimal(10, 2)
+  status      String   @default("Draft")
+  theme       String?
+  occasion    String?
+  photoUrl    String?  @map("photo_url")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @default(now()) @updatedAt @map("updated_at")
+
+  account Account       @relation(fields: [accountId], references: [id])
+  items   PackageItem[]
+
+  @@index([accountId, status, occasion])
+  @@map("packages")
+}
+
+model PackageItem {
+  packageId String @map("package_id")
+  itemId    String @map("item_id")
+  quantity  Int    @default(1)
+
+  package Package @relation(fields: [packageId], references: [id], onDelete: Cascade)
+  item    Item    @relation(fields: [itemId], references: [id], onDelete: Cascade)
+
+  @@id([packageId, itemId])
+  @@index([itemId])
+  @@map("package_items")
+}
+
 // Which physical units are committed to which booking. eventDate is copied
 // from the booking on purpose: the unique constraint on (unitId, eventDate)
 // is what makes double-booking impossible at the database level, no matter
@@ -180,8 +220,9 @@ model Item {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  account Account @relation(fields: [accountId], references: [id])
-  units   Unit[]
+  account      Account       @relation(fields: [accountId], references: [id])
+  units        Unit[]
+  packageItems PackageItem[]
 
   @@index([accountId])
   @@map("items")
