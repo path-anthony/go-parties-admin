@@ -24,6 +24,27 @@ export async function countFreeUnits(itemId: string, date: string): Promise<numb
   return row?.free ?? 0;
 }
 
+// Free unit counts for every item on one date in a single query, for the
+// storefront's date-first browse (asking per item would be one request per
+// catalog row per date change). Same definition of free as above. Items
+// with no free unit are simply absent from the map.
+export async function freeUnitsByItem(accountId: string, date: string): Promise<Map<string, number>> {
+  const rows = await prisma.$queryRaw<{ item_id: string; free: number }[]>`
+    SELECT u.item_id, count(*)::int AS free
+    FROM units u
+    JOIN items i ON i.id = u.item_id
+    WHERE i.account_id = ${accountId}
+      AND u.status = 'Available'
+      AND NOT EXISTS (
+        SELECT 1
+        FROM booking_units bu
+        WHERE bu.unit_id = u.id
+          AND bu.event_date = ${date}::date
+      )
+    GROUP BY u.item_id`;
+  return new Map(rows.map((row) => [row.item_id, row.free]));
+}
+
 // Locks and returns one free unit, or null. Must run inside a transaction:
 // FOR UPDATE holds the unit row until that transaction ends, and SKIP
 // LOCKED makes a concurrent caller pass over it instead of waiting, so two

@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { getDefaultAccount } from "../account.js";
-import { countFreeUnits } from "../availability.js";
+import { countFreeUnits, freeUnitsByItem } from "../availability.js";
 import { prisma } from "../db.js";
 import { availabilityLimiter } from "../rateLimit.js";
 import { INVALID, normalizeDate } from "../validate.js";
@@ -14,11 +14,20 @@ const router = Router();
 // notes are internal, and a public search over them would leak their
 // contents one query at a time. Category is an exact match, and the
 // distinct category list comes back so a filter can be built from it.
+// With a date (YYYY-MM-DD), only items with at least one free unit on that
+// date come back, each with freeUnits; the storefront browses date first
+// and never shows something it can't book.
 router.get("/public", availabilityLimiter, async (req, res) => {
   const q = typeof req.query.q === "string" ? req.query.q.trim() : "";
   const category = typeof req.query.category === "string" ? req.query.category.trim() : "";
+  const date = normalizeDate(req.query.date);
+  if (date === INVALID) {
+    return res.status(400).json({ error: "date must be YYYY-MM-DD" });
+  }
+  const dateText = date ? date.toISOString().slice(0, 10) : null;
 
   const account = await getDefaultAccount();
+  const free = dateText ? await freeUnitsByItem(account.id, dateText) : null;
   const [items, categoryRows] = await Promise.all([
     prisma.item.findMany({
       where: {
@@ -40,12 +49,16 @@ router.get("/public", availabilityLimiter, async (req, res) => {
     prisma.item.findMany({ where: { accountId: account.id }, distinct: ["category"], select: { category: true }, orderBy: { category: "asc" } }),
   ]);
 
+  const shaped = items.map(({ _count, price, ...item }) => ({
+    ...item,
+    price: price === null ? null : Number(price),
+    hasUnits: _count.units > 0,
+    ...(free ? { freeUnits: free.get(item.id) ?? 0 } : {}),
+  }));
+
   res.json({
-    items: items.map(({ _count, price, ...item }) => ({
-      ...item,
-      price: price === null ? null : Number(price),
-      hasUnits: _count.units > 0,
-    })),
+    date: dateText,
+    items: free ? shaped.filter((item) => (free.get(item.id) ?? 0) > 0) : shaped,
     categories: categoryRows.map((row) => row.category),
   });
 });
