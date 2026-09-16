@@ -9,6 +9,7 @@ import { INVALID, normalizeDate, normalizeText, splitContact } from "../validate
 const MAX_ADDRESS_LENGTH = 300;
 const MAX_TIME_LENGTH = 60;
 const MAX_ITEMS_PER_BOOKING = 10;
+const MAX_UNITS_PER_BOOKING = 50;
 
 const router = Router();
 
@@ -60,14 +61,38 @@ function resolveItemIds(body: Record<string, unknown>): string[] | string {
   return "itemId or itemIds is required";
 }
 
+// Optional. When present it has to be a real Published package on the
+// account, and the items being booked have to be exactly the package's
+// items (no extras, none missing), so the bundle price can't be applied
+// to a different cart. The package's quantities then decide how many
+// units of each item are held, and its price is the booking's total.
+function resolvePackageId(body: Record<string, unknown>): string | null | typeof INVALID {
+  const { packageId } = body;
+  if (packageId === undefined || packageId === null) return null;
+  return typeof packageId === "string" && packageId !== "" ? packageId : INVALID;
+}
+
+// The price a direct booking is quoted at: the package's bundle price, or
+// each priced item times its quantity. Null when nothing has a price.
+function quotedTotal(
+  pkg: { price: unknown } | null,
+  wanted: { item: { price: unknown }; quantity: number }[],
+): number | null {
+  if (pkg) return Number(pkg.price);
+  const priced = wanted.filter(({ item }) => item.price !== null);
+  if (priced.length === 0) return null;
+  return Math.round(priced.reduce((sum, { item, quantity }) => sum + Number(item.price) * quantity, 0) * 100) / 100;
+}
+
 // Public, no session required, rate limited where it's mounted. A customer
-// books one or more specific items for one date. One free unit per item is
-// picked and locked (SKIP LOCKED) inside the same transaction that writes
-// the Booking, its BookingUnit rows, and the CRM Lead: either every item
-// gets a unit or the whole request rolls back with nothing booked, and two
-// requests racing for the last unit of any item can't both succeed. If a
-// customer session is present the booking is attached to that account and
-// name, phone, and email default from it.
+// books one or more specific items for one date. One free unit per item
+// (or, from a package, the package's quantity of each) is picked and locked
+// (SKIP LOCKED) inside the same transaction that writes the Booking, its
+// BookingUnit rows, and the CRM Lead: either every item gets its units or
+// the whole request rolls back with nothing booked, and two requests racing
+// for the last unit of any item can't both succeed. If a customer session
+// is present the booking is attached to that account and name, phone, and
+// email default from it.
 router.post("/", async (req, res) => {
   const body = (req.body ?? {}) as Record<string, unknown>;
 
@@ -102,8 +127,28 @@ router.post("/", async (req, res) => {
   if (eventTime === INVALID) {
     return res.status(400).json({ error: `eventTime must be text up to ${MAX_TIME_LENGTH} characters` });
   }
+  const packageId = resolvePackageId(body);
+  if (packageId === INVALID) {
+    return res.status(400).json({ error: "packageId must be a package id" });
+  }
 
   const account = await getDefaultAccount();
+  const pkg = packageId
+    ? await prisma.package.findFirst({
+        where: { id: packageId, accountId: account.id, status: "Published" },
+        include: { items: { select: { itemId: true, quantity: true } } },
+      })
+    : null;
+  if (packageId && !pkg) {
+    return res.status(404).json({ error: "package not found or not published" });
+  }
+  if (pkg) {
+    const packageIds = new Set(pkg.items.map((row) => row.itemId));
+    const same = packageIds.size === itemIds.length && itemIds.every((id) => packageIds.has(id));
+    if (!same) {
+      return res.status(400).json({ error: "The items don't match the package. Book the package as it is, or book the items on their own." });
+    }
+  }
   const found = await prisma.item.findMany({
     where: { id: { in: itemIds }, accountId: account.id },
     include: { _count: { select: { units: true } } },
@@ -124,6 +169,15 @@ router.post("/", async (req, res) => {
       itemIds: untracked.map((item) => item.id),
     });
   }
+  // How many units of each item to hold: the package's quantities, or one.
+  const wanted = items.map((item) => ({
+    item,
+    quantity: pkg ? (pkg.items.find((row) => row.itemId === item.id)?.quantity ?? 1) : 1,
+  }));
+  if (wanted.reduce((sum, w) => sum + w.quantity, 0) > MAX_UNITS_PER_BOOKING) {
+    return res.status(400).json({ error: `A booking can hold at most ${MAX_UNITS_PER_BOOKING} units` });
+  }
+  const total = quotedTotal(pkg, wanted);
 
   const leadStatus = await leadStatusForStorefrontBooking(account.id);
   const leadContact = [contact.phone, contact.email].filter(Boolean).join(" · ");
@@ -132,18 +186,26 @@ router.post("/", async (req, res) => {
 
   try {
     const result = await prisma.$transaction(async (tx) => {
-      // Lock a unit for every item before writing anything. Every item that
-      // has nothing free is collected so the message can name all of them.
+      // Lock every unit before writing anything: the wanted quantity of
+      // each item, each lock skipping the units this transaction already
+      // holds. An item short by even one unit is collected so the message
+      // can name all of them.
       const claimed: { item: (typeof items)[number]; unit: { id: string; label: string } }[] = [];
       const missing: string[] = [];
-      for (const item of items) {
-        const unit = await lockFreeUnit(tx, item.id, dateText);
-        if (unit) claimed.push({ item, unit });
-        else missing.push(item.name);
+      for (const { item, quantity } of wanted) {
+        const held: string[] = [];
+        for (let n = 0; n < quantity; n++) {
+          const unit = await lockFreeUnit(tx, item.id, dateText, held);
+          if (!unit) break;
+          held.push(unit.id);
+          claimed.push({ item, unit });
+        }
+        if (held.length < quantity) missing.push(item.name);
       }
       if (missing.length > 0) throw new NoFreeUnits(missing);
 
       const summary = claimed.map(({ item, unit }) => `${item.name} (${unit.label})`).join(", ");
+      const packageNote = pkg ? ` Package: ${pkg.name}, $${Number(pkg.price)}.` : "";
       const lead = await tx.lead.create({
         data: {
           accountId: account.id,
@@ -151,9 +213,9 @@ router.post("/", async (req, res) => {
           status: leadStatus,
           customerName: name,
           contact: leadContact,
-          occasion: claimed.map(({ item }) => item.name).join(", "),
+          occasion: pkg ? pkg.name : claimed.map(({ item }) => item.name).join(", "),
           dateOfInterest: date,
-          notes: `Direct booking of ${summary} from the storefront, ${when}.${where}`,
+          notes: `Direct booking of ${summary} from the storefront, ${when}.${where}${packageNote}`,
         },
       });
       await tx.leadActivity.create({
@@ -171,6 +233,8 @@ router.post("/", async (req, res) => {
           phone: contact.phone,
           email: contact.email,
           status: "Confirmed",
+          packageId: pkg?.id ?? null,
+          total,
           // eventDate is copied onto each join row for the (unitId, eventDate)
           // unique constraint, the database-level backstop behind the lock.
           units: { create: claimed.map(({ unit }) => ({ unitId: unit.id, eventDate: date })) },
@@ -200,8 +264,11 @@ router.post("/", async (req, res) => {
       email: result.booking.email,
       status: result.booking.status,
       depositPaid: result.booking.depositPaid,
+      total,
+      packageId: pkg?.id ?? null,
+      package: pkg ? { id: pkg.id, name: pkg.name, price: Number(pkg.price) } : null,
       // item and unit are the first entry, kept for single-item callers;
-      // items has every one.
+      // items has every unit held, so an item wanted twice appears twice.
       item: { id: bookedItems[0].id, name: bookedItems[0].name },
       unit: bookedItems[0].unit,
       items: bookedItems,

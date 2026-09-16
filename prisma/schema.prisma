@@ -110,17 +110,27 @@ model Booking {
   // for admin-entered and anonymous storefront bookings. Deleting the
   // account keeps the booking.
   customerId   String?  @map("customer_id")
+  // Set when the booking came from a published package. The package's
+  // bundle price is then the total, and its item quantities decide how
+  // many units are held. Deleting the package keeps the booking.
+  packageId    String?  @map("package_id")
+  // What the customer was quoted, as a number of dollars: the package's
+  // bundle price, or the item prices times quantity for a direct booking.
+  // Null for admin-entered bookings, which carry no price yet.
+  total        Decimal? @db.Decimal(10, 2)
   createdAt    DateTime @default(now()) @map("created_at")
   updatedAt    DateTime @default(now()) @updatedAt @map("updated_at")
 
   account  Account       @relation(fields: [accountId], references: [id])
   lead     Lead?         @relation(fields: [leadId], references: [id], onDelete: SetNull)
   customer Customer?     @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  package  Package?      @relation(fields: [packageId], references: [id], onDelete: SetNull)
   units    BookingUnit[]
 
   @@index([accountId, eventDate])
   @@index([leadId])
   @@index([customerId])
+  @@index([packageId])
   @@map("bookings")
 }
 
@@ -168,8 +178,9 @@ model Package {
   createdAt   DateTime @default(now()) @map("created_at")
   updatedAt   DateTime @default(now()) @updatedAt @map("updated_at")
 
-  account Account       @relation(fields: [accountId], references: [id])
-  items   PackageItem[]
+  account  Account       @relation(fields: [accountId], references: [id])
+  items    PackageItem[]
+  bookings Booking[]
 
   @@index([accountId, status, occasion])
   @@map("packages")
