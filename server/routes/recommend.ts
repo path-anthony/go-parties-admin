@@ -71,24 +71,26 @@ const RESPOND_TOOL: Anthropic.Tool = {
       ready: {
         type: "boolean",
         description:
-          "True the moment you have the occasion type and a rough guest count, nothing else is required. Budget " +
-          "is never required: if it's missing, or the customer says they don't have one or that money isn't an " +
-          "issue, go ready anyway. False only when occasion or guest count is genuinely missing.",
+          "True once you have three signals: the occasion type, a rough guest count, and a budget signal. A " +
+          "budget signal is either a real number or an explicit decline ('no budget', 'money's not an issue', " +
+          "'whatever it costs'). If budget has simply never come up in the conversation, that is a missing " +
+          "signal, so ready is false and you ask about it. False whenever any of the three is missing.",
       },
       message: {
         type: "string",
         description:
           "If ready is false: one short, casual clarifying question, 1-3 sentences, asking for exactly one " +
-          "missing thing, never the budget. If ready is true: a short closing line, 1-3 sentences, on why " +
-          "these items fit.",
+          "missing signal (occasion, guest count, or budget, in that order). If ready is true: a short " +
+          "closing line, 1-3 sentences, on why these items fit.",
       },
       item_ids: {
         type: "array",
         items: { type: "string" },
         description:
           "Only used when ready is true: IDs of recommended items, taken only from the catalog provided, at most " +
-          "20. With no budget, lean toward the highest-value items across categories, this is 'show me what's " +
-          "possible', not a safe middle. Leave empty when ready is false.",
+          "20. With a real budget, build within or close to it. When the customer explicitly declined to give " +
+          "one, lean toward the highest-value items across categories, this is 'show me what's possible', not " +
+          "a safe middle. Leave empty when ready is false.",
       },
     },
     required: ["ready", "message", "item_ids"],
@@ -148,15 +150,21 @@ router.post("/", async (req, res) => {
   const system =
     "You are Ask GO, a knowledgeable crew member at The Go Event Group, not a chatbot. You help a customer build " +
     "a real party from a real catalog over a short back-and-forth conversation.\n\n" +
-    "The bar for ready is exactly two things: occasion type and a rough guest count. The moment both are " +
-    "present in the conversation, go ready immediately and recommend, even on the first message. Budget is " +
-    "welcome but never required and never asked for: if the customer gives one, build to it; if they say they " +
-    "don't have one, that money's not an issue, or simply never mention it, treat that as 'show me what's " +
-    "possible' and lean toward the highest-value items in the catalog across categories, not a safe modest " +
-    "set. Do not ask about budget, logistics, venue, colors, preferences, or anything else once you have " +
-    "occasion and guest count; those are details you can reasonably assume or the customer can adjust later, " +
-    "not a reason to hold back a recommendation. Ask at most one clarifying question per turn, only when " +
-    "occasion or guest count is genuinely missing, never a list of questions. Recommend at most 20 items.\n\n" +
+    "The bar for ready is exactly three signals: occasion type, a rough guest count, and a budget signal. The " +
+    "moment all three are present in the conversation, go ready immediately and recommend, even on the first " +
+    "message. Budget has three distinct states, keep them apart:\n" +
+    "1. Never addressed: nobody has mentioned money yet. This is a missing signal, exactly like a missing " +
+    "occasion or guest count. Once you have occasion and guest count, ask about budget with one short casual " +
+    "question. Do not skip this and do not assume 'no budget' from silence.\n" +
+    "2. Explicitly declined: the customer says something like 'no budget', 'money's not an issue', 'whatever " +
+    "it costs', 'don't worry about price'. Only then stop asking about it, treat it as 'show me what's " +
+    "possible', and lean toward the highest-value items in the catalog across categories, not a safe modest " +
+    "set. Never ask about budget again after a decline.\n" +
+    "3. A real number or range: build within or close to it.\n" +
+    "Do not ask about logistics, venue, colors, preferences, or anything beyond those three signals; those " +
+    "are details you can reasonably assume or the customer can adjust later, not a reason to hold back a " +
+    "recommendation. Ask at most one clarifying question per turn, for exactly one missing signal, never a " +
+    "list of questions. Recommend at most 20 items.\n\n" +
     "Voice: short, sure, chill. 1-3 sentences. No exclamation points, no emoji, no 'Great question', no hype " +
     "words ('unforgettable', 'elevate', 'seamless', 'magical'). Matter-of-fact, then a little warmth. No em " +
     "dashes, use a period or comma instead.\n\n" +
@@ -174,7 +182,8 @@ router.post("/", async (req, res) => {
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
     const response = await anthropic.messages.create({
       model: MODEL,
-      max_tokens: 1024,
+      // Room for a 1-3 sentence line plus 20 catalog ids; the ids are long.
+      max_tokens: 2048,
       system,
       messages: messages.map((m) => ({ role: m.role, content: m.content })),
       tools: [RESPOND_TOOL],
@@ -196,13 +205,19 @@ router.post("/", async (req, res) => {
       ? input.item_ids.filter((id): id is string => typeof id === "string").slice(0, MAX_RECOMMENDED_ITEMS)
       : [];
 
-    if (message.trim().length >= MIN_MESSAGE_LENGTH) {
+    // A ready answer with no item ids is as useless to the customer as an
+    // empty message: the closing line describes a lineup that never arrives.
+    // Both are retried rather than passed through.
+    const usable = message.trim().length >= MIN_MESSAGE_LENGTH && (!ready || requestedIds.length > 0);
+    if (usable) {
       break;
     }
-    console.warn(`[recommend] attempt ${attempt}: degenerate message ("${message}"), retrying`);
+    console.warn(
+      `[recommend] attempt ${attempt}: degenerate response (ready=${ready}, ids=${requestedIds.length}, stop=${response.stop_reason}, message="${message}"), retrying`,
+    );
   }
 
-  if (message.trim().length < MIN_MESSAGE_LENGTH) {
+  if (message.trim().length < MIN_MESSAGE_LENGTH || (ready && requestedIds.length === 0)) {
     return res.status(502).json({ error: "Model did not return a usable response" });
   }
 
