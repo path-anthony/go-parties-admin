@@ -1,9 +1,9 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { Router } from "express";
 import { getDefaultAccount } from "../account.js";
-import { ADDON_GROUPS_INCLUDE, publicAddonGroups } from "../addons.js";
 import { prisma } from "../db.js";
 import { getDefaultStatus } from "../leadStatuses.js";
+import { PUBLIC_ITEM_RELATIONS, toPublicItem } from "../publicItem.js";
 import type { Item } from "../../src/generated/prisma/client.js";
 
 const router = Router();
@@ -126,7 +126,7 @@ router.post("/", async (req, res) => {
   const catalogItems = await prisma.item.findMany({
     where: { accountId: account.id, price: { not: null } },
     orderBy: [{ category: "asc" }, { name: "asc" }],
-    include: ADDON_GROUPS_INCLUDE,
+    include: PUBLIC_ITEM_RELATIONS,
   });
 
   if (catalogItems.length === 0) {
@@ -241,10 +241,11 @@ router.post("/", async (req, res) => {
 
   logLead(account.id, theme, toLeadItems(recommended), total);
 
-  // Each recommended item carries its add-on groups in the public shape,
-  // so the storefront can offer them straight from this response. The
-  // total stays the base prices: nothing has been chosen yet.
-  const items = recommended.map(({ addonGroups, ...item }) => ({ ...item, addonGroups: publicAddonGroups(addonGroups) }));
+  // The full rows were loaded because the prompt needs the notes. What
+  // goes back to the customer is the same allowlist the public catalog
+  // uses, nothing internal. The total stays the base prices: no add-on has
+  // been chosen yet.
+  const items = recommended.map(toPublicItem);
 
   res.json({ ready: true, message, items, total });
 });

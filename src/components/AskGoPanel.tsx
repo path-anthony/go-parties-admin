@@ -1,11 +1,11 @@
 import { type FormEvent, useState } from "react";
 import { X } from "lucide-react";
 import { recommend } from "../lib/api";
-import type { AskGoMessage, Item } from "../lib/types";
+import type { AskGoMessage, RecommendItem } from "../lib/types";
 
 const EXAMPLE = "Bluey birthday, 20 kids, $2000 budget";
 
-type Result = { message: string; items: Item[]; total: number };
+type Result = { message: string; items: RecommendItem[]; total: number };
 
 export function AskGoPanel({ open, onClose }: { open: boolean; onClose: () => void }) {
   const [input, setInput] = useState("");

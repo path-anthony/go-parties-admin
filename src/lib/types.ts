@@ -60,9 +60,22 @@ export type NewItem = {
 
 export type AskGoMessage = { role: "user" | "assistant"; content: string };
 
+// An item as customers see it: the same allowlist the public catalog uses.
+// No notes, no account, no timestamps.
+export type RecommendItem = {
+  id: string;
+  name: string;
+  category: string;
+  price: number | null;
+  priceUnit: string | null;
+  photoUrl: string | null;
+  hasUnits: boolean;
+  addonGroups: { id: string; name: string; required: boolean; addons: { id: string; name: string; priceDelta: number }[] }[];
+};
+
 export type RecommendResponse =
   | { ready: false; message: string }
-  | { ready: true; message: string; items: Item[]; total: number };
+  | { ready: true; message: string; items: RecommendItem[]; total: number };
 
 // The name of a LeadStatusRow. Columns are configurable in Settings, so
 // this is a plain string, not a fixed union.

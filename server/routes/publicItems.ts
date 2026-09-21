@@ -1,8 +1,8 @@
 import { Router } from "express";
 import { getDefaultAccount } from "../account.js";
-import { ADDON_GROUPS_INCLUDE, publicAddonGroups } from "../addons.js";
 import { countFreeUnits, freeUnitsByItem } from "../availability.js";
 import { prisma } from "../db.js";
+import { PUBLIC_ITEM_RELATIONS, toPublicItem } from "../publicItem.js";
 import { availabilityLimiter } from "../rateLimit.js";
 import { INVALID, normalizeDate } from "../validate.js";
 
@@ -44,20 +44,16 @@ router.get("/public", availabilityLimiter, async (req, res) => {
         price: true,
         priceUnit: true,
         photoUrl: true,
-        _count: { select: { units: true } },
-        // Each item's add-on groups and options ride along, so the
-        // storefront can offer them without a second request.
-        addonGroups: ADDON_GROUPS_INCLUDE.addonGroups,
+        // Unit count and each item's add-on groups and options ride along,
+        // so the storefront can offer them without a second request.
+        ...PUBLIC_ITEM_RELATIONS,
       },
     }),
     prisma.item.findMany({ where: { accountId: account.id }, distinct: ["category"], select: { category: true }, orderBy: { category: "asc" } }),
   ]);
 
-  const shaped = items.map(({ _count, price, addonGroups, ...item }) => ({
-    ...item,
-    price: price === null ? null : Number(price),
-    addonGroups: publicAddonGroups(addonGroups),
-    hasUnits: _count.units > 0,
+  const shaped = items.map((item) => ({
+    ...toPublicItem(item),
     ...(free ? { freeUnits: free.get(item.id) ?? 0 } : {}),
   }));
 

@@ -32,7 +32,15 @@ router.get("/public", availabilityLimiter, async (req, res) => {
         select: {
           quantity: true,
           item: {
-            select: { id: true, name: true, category: true, price: true, priceUnit: true, addonGroups: ADDON_GROUPS_INCLUDE.addonGroups },
+            select: {
+              id: true,
+              name: true,
+              category: true,
+              price: true,
+              priceUnit: true,
+              photoUrl: true,
+              addonGroups: ADDON_GROUPS_INCLUDE.addonGroups,
+            },
           },
         },
         orderBy: { item: { name: "asc" } },
@@ -51,6 +59,9 @@ router.get("/public", availabilityLimiter, async (req, res) => {
         category: item.category,
         price: item.price === null ? null : Number(item.price),
         priceUnit: item.priceUnit,
+        // So a cart row that came from a package shows the item's real
+        // photo, the same as one added from the catalog.
+        photoUrl: item.photoUrl,
         quantity,
         // A package is booked as a cart of these items, so their add-on
         // groups come along the same way they do on the public catalog.
