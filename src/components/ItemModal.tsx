@@ -262,6 +262,12 @@ function AddonsSection({ item, onItemUpdated }: { item: Item; onItemUpdated: (it
   );
 }
 
+// Advisory only. A customer picks one option from this list, usually on a
+// phone, and past about eight it stops being something you can scan. The
+// note shows once a group goes over this; nothing is blocked (the server's
+// own hard cap is far higher and is a separate thing).
+const SOFT_MAX_OPTIONS = 8;
+
 function AddonGroupCard({
   group,
   itemName,
@@ -390,6 +396,14 @@ function AddonGroupCard({
             </li>
           ))}
         </ul>
+      )}
+
+      {group.addons.length > SOFT_MAX_OPTIONS && (
+        <p className="addon-advice" role="note">
+          {group.addons.length} options is a long list to pick one from, especially on a phone. {group.name} might work
+          better split into two groups, or with a few options trimmed. This is only a suggestion, everything here still
+          saves.
+        </p>
       )}
 
       <form className="addon-new-option" onSubmit={handleAddOption}>

@@ -1873,3 +1873,14 @@ select:focus {
   gap: 10px;
   font-size: 13px;
 }
+
+.addon-advice {
+  margin: 0;
+  padding: 7px 10px;
+  border-left: 3px solid var(--orange);
+  background: var(--white);
+  border-radius: 0 6px 6px 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--charcoal-soft);
+}
