@@ -1,12 +1,11 @@
-import { type FormEvent, useEffect, useState } from "react";
-import { createBooking, createUnit, getBookings, getItems, getLeads, getUnits, updateBooking, updateUnit } from "../../lib/api";
-import { describeAddon } from "../../lib/addons";
+import { type FormEvent, type KeyboardEvent, useEffect, useState } from "react";
+import { ChevronRight } from "lucide-react";
+import { createBooking, createUnit, getBookings, getItems, getLeads, getUnits, updateUnit } from "../../lib/api";
 import { leadTitle } from "../../lib/leads";
 import {
   BOOKING_STATUSES,
   UNIT_STATUSES,
   type Booking,
-  type BookingPatch,
   type BookingStatus,
   type Item,
   type Lead,
@@ -16,6 +15,7 @@ import {
   type UnitPatch,
   type UnitStatus,
 } from "../../lib/types";
+import { BookingModal } from "../BookingModal";
 import { EditableCell } from "../EditableCell";
 
 type ItemsById = Map<string, Item>;
@@ -58,6 +58,9 @@ export function SchedulingScreen() {
   const [bookings, setBookings] = useState<Booking[] | null>(null);
   const [leads, setLeads] = useState<Lead[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // The booking popup, by id: looked up in bookings on each render so a
+  // save inside the popup shows in it and in the row behind it.
+  const [openId, setOpenId] = useState<string | null>(null);
 
   useEffect(() => {
     Promise.all([getItems(), getUnits(), getBookings(), getLeads()])
@@ -70,6 +73,7 @@ export function SchedulingScreen() {
       .catch((err) => setError(err instanceof Error ? err.message : "Failed to load"));
   }, []);
 
+  const openBooking = openId ? (bookings ?? []).find((b) => b.id === openId) : undefined;
   const ready = items !== null && units !== null && bookings !== null && leads !== null;
   const itemsById: ItemsById = new Map((items ?? []).map((item) => [item.id, item]));
 
@@ -135,26 +139,19 @@ export function SchedulingScreen() {
                       <th>Date</th>
                       <th>Time</th>
                       <th>Customer</th>
-                      <th>Phone</th>
-                      <th>Email</th>
-                      <th>Address</th>
                       <th>Status</th>
-                      <th>Deposit</th>
-                      <th>Lead</th>
-                      <th>Units</th>
+                      <th>Items</th>
+                      <th aria-label="Open" />
                     </tr>
                   </thead>
                   <tbody>
                     {bookings.map((booking) => (
-                      <BookingRow
+                      <BookingSummaryRow
                         key={booking.id}
                         booking={booking}
-                        leads={leads}
                         units={units}
                         itemsById={itemsById}
-                        onUpdated={(updated) =>
-                          setBookings((prev) => sortBookings((prev ?? []).map((b) => (b.id === updated.id ? updated : b))))
-                        }
+                        onOpen={() => setOpenId(booking.id)}
                       />
                     ))}
                   </tbody>
@@ -162,9 +159,89 @@ export function SchedulingScreen() {
               </div>
             )}
           </section>
+
+          {openBooking && (
+            <BookingModal
+              booking={openBooking}
+              leads={leads}
+              units={units}
+              items={items}
+              bookings={bookings}
+              onUpdated={(updated) =>
+                setBookings((prev) => sortBookings((prev ?? []).map((b) => (b.id === updated.id ? updated : b))))
+              }
+              onClose={() => setOpenId(null)}
+            />
+          )}
         </>
       )}
     </div>
+  );
+}
+
+function formatDay(eventDate: string): string {
+  return new Date(eventDate).toLocaleDateString("en-US", {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    timeZone: "UTC",
+  });
+}
+
+// One line per booking. Everything else, and all editing, is in the popup.
+function BookingSummaryRow({
+  booking,
+  units,
+  itemsById,
+  onOpen,
+}: {
+  booking: Booking;
+  units: Unit[];
+  itemsById: ItemsById;
+  onOpen: () => void;
+}) {
+  const held = booking.unitIds.map((id) => units.find((u) => u.id === id)).filter((u): u is Unit => !!u);
+  const names = [...new Set(held.map((u) => itemsById.get(u.itemId)?.name ?? "Unknown item"))];
+  const count = held.length;
+
+  function handleKey(e: KeyboardEvent<HTMLTableRowElement>) {
+    if (e.target !== e.currentTarget) return;
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      onOpen();
+    }
+  }
+
+  return (
+    <tr
+      className="catalog-row"
+      onClick={onOpen}
+      onKeyDown={handleKey}
+      tabIndex={0}
+      aria-haspopup="dialog"
+      aria-label={`Open the booking for ${booking.customerName} on ${formatDay(booking.eventDate)}`}
+    >
+      <td className="booking-date">{formatDay(booking.eventDate)}</td>
+      <td className={booking.eventTime ? "booking-time" : "booking-time muted"}>{booking.eventTime ?? "No time"}</td>
+      <td className="catalog-name">{booking.customerName}</td>
+      <td>
+        <span className={booking.status === "Cancelled" ? "status-pill" : "status-pill status-pill-live"}>{booking.status}</span>
+      </td>
+      <td className={count === 0 ? "muted" : ""}>
+        {count === 0 ? "None" : `${count} ${count === 1 ? "unit" : "units"}`}
+        {names.length > 0 && <span className="muted booking-item-names"> · {names.join(", ")}</span>}
+        {booking.addons.length > 0 && (
+          <span className="muted booking-item-names">
+            {" "}
+            · {booking.addons.length} {booking.addons.length === 1 ? "add-on" : "add-ons"}
+          </span>
+        )}
+      </td>
+      <td className="catalog-chevron">
+        <ChevronRight size={14} />
+      </td>
+    </tr>
   );
 }
 
@@ -437,175 +514,5 @@ function AddBookingForm({
       </button>
       {error && <p className="form-error inline-form-wide">{error}</p>}
     </form>
-  );
-}
-
-function BookingRow({
-  booking,
-  leads,
-  units,
-  itemsById,
-  onUpdated,
-}: {
-  booking: Booking;
-  leads: Lead[];
-  units: Unit[];
-  itemsById: ItemsById;
-  onUpdated: (booking: Booking) => void;
-}) {
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  async function save(patch: BookingPatch) {
-    onUpdated(await updateBooking(booking.id, patch));
-  }
-
-  // For the controls that save on change (selects, checkboxes); the text
-  // fields use EditableCell, which carries its own saving state.
-  async function saveNow(patch: BookingPatch) {
-    setSaving(true);
-    setError(null);
-    try {
-      await save(patch);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Save failed");
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  const linkedUnits = booking.unitIds.map((id) => units.find((u) => u.id === id)).filter((u): u is Unit => !!u);
-  const who = booking.customerName;
-
-  return (
-    <tr>
-      <td>
-        <EditableCell
-          type="date"
-          value={booking.eventDate.slice(0, 10)}
-          ariaLabel={`Event date for ${who}`}
-          onSave={(eventDate) => save({ eventDate })}
-        />
-      </td>
-      <td>
-        <EditableCell
-          value={booking.eventTime ?? ""}
-          placeholder="Add time"
-          ariaLabel={`Event time for ${who}`}
-          onSave={(eventTime) => save({ eventTime: eventTime === "" ? null : eventTime })}
-        />
-      </td>
-      <td>
-        <EditableCell value={who} ariaLabel={`Customer name for ${who}`} onSave={(customerName) => save({ customerName })} />
-      </td>
-      <td>
-        <EditableCell
-          value={booking.phone ?? ""}
-          placeholder="Add phone"
-          ariaLabel={`Phone for ${who}`}
-          onSave={(phone) => save({ phone })}
-        />
-      </td>
-      <td>
-        <EditableCell
-          value={booking.email ?? ""}
-          placeholder="Add email"
-          ariaLabel={`Email for ${who}`}
-          onSave={(email) => save({ email })}
-        />
-      </td>
-      <td>
-        <EditableCell
-          value={booking.address ?? ""}
-          placeholder="Add address"
-          ariaLabel={`Address for ${who}`}
-          onSave={(address) => save({ address: address === "" ? null : address })}
-        />
-      </td>
-      <td>
-        <select
-          value={booking.status}
-          onChange={(e) => saveNow({ status: e.target.value as BookingStatus })}
-          disabled={saving}
-          aria-label={`Status for ${who}`}
-        >
-          {BOOKING_STATUSES.map((status) => (
-            <option key={status} value={status}>
-              {status}
-            </option>
-          ))}
-        </select>
-      </td>
-      <td>
-        <label className="deposit-flag">
-          <input
-            type="checkbox"
-            checked={booking.depositPaid}
-            disabled={saving}
-            onChange={(e) => saveNow({ depositPaid: e.target.checked })}
-            aria-label={`Deposit paid for ${who}`}
-          />
-          {booking.depositPaid ? "Paid" : "Not yet"}
-        </label>
-      </td>
-      <td>
-        <select
-          value={booking.leadId ?? ""}
-          onChange={(e) => saveNow({ leadId: e.target.value || null })}
-          disabled={saving}
-          aria-label={`Lead for ${who}`}
-        >
-          <option value="">No lead</option>
-          {leads.map((lead) => (
-            <option key={lead.id} value={lead.id}>
-              {leadLabel(lead)}
-            </option>
-          ))}
-        </select>
-      </td>
-      <td>
-        <div className="booking-units">
-          {linkedUnits.length === 0 && <span className="muted">None</span>}
-          {linkedUnits.map((unit) => (
-            <span key={unit.id} className="tag-chip">
-              {unitLabel(unit, itemsById)}
-            </span>
-          ))}
-          {/* What the customer chose for each item, spelled out, and what
-              they were quoted with those choices included. */}
-          {booking.addons.length > 0 && (
-            <ul className="booking-addons" aria-label={`Add-ons for ${who}`}>
-              {booking.addons.map((addon) => (
-                <li key={addon.id}>
-                  <span className="muted">{addon.itemName}</span> {describeAddon(addon)}
-                  {addon.quantity > 1 ? ` x ${addon.quantity}` : ""}
-                </li>
-              ))}
-            </ul>
-          )}
-          {booking.total !== null && (
-            <span className="booking-total muted">
-              Quoted {Number(booking.total).toLocaleString("en-US", { style: "currency", currency: "USD" })}
-            </span>
-          )}
-          <details>
-            <summary>Edit</summary>
-            <UnitPicker
-              units={units}
-              itemsById={itemsById}
-              selected={booking.unitIds}
-              disabled={saving}
-              onToggle={(unitId, checked) =>
-                saveNow({
-                  unitIds: checked ? [...booking.unitIds, unitId] : booking.unitIds.filter((id) => id !== unitId),
-                })
-              }
-            />
-          </details>
-        </div>
-        {saving && <span className="cell-status">Saving…</span>}
-        {error && <p className="form-error booking-row-error">{error}</p>}
-      </td>
-    </tr>
   );
 }

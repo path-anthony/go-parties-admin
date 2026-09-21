@@ -24,6 +24,10 @@ export type AddonGroup = {
 // What a booking chose, with the names and price copied at booking time.
 export type BookingAddon = {
   id: string;
+  // The live rows this choice was made from; null once either is deleted.
+  // Only present on a booking's own addons, not on a lead's slim view.
+  itemId?: string | null;
+  addonId?: string | null;
   itemName: string;
   groupName: string;
   addonName: string;

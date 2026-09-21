@@ -67,9 +67,12 @@ export function parseAddonSelections(value: unknown, itemIds: string[]): Map<str
 // booked: each addon has to belong to the item it was sent under, a group
 // takes at most one choice, and every required group has to be answered.
 // Throws AddonSelectionError with a message a customer can act on.
+// enforceRequired is on for customers; the admin turns it off so Andy can
+// correct a booking's choices without being forced to answer everything.
 export async function resolveAddons(
   items: { id: string; name: string }[],
   selections: Map<string, string[]>,
+  { enforceRequired = true }: { enforceRequired?: boolean } = {},
 ): Promise<ChosenAddon[]> {
   const groups = await prisma.addonGroup.findMany({
     where: { itemId: { in: items.map((item) => item.id) } },
@@ -106,7 +109,7 @@ export async function resolveAddons(
     // A required group with no options can't be answered; it's skipped
     // rather than making the item unbookable.
     const missing = itemGroups.filter((g) => g.required && g.addons.length > 0 && !answered.has(g.id));
-    if (missing.length > 0) {
+    if (enforceRequired && missing.length > 0) {
       throw new AddonSelectionError(
         "addon-required",
         `${item.name} needs a choice for ${missing.map((g) => g.name).join(", ")}.`,

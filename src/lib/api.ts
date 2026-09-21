@@ -35,7 +35,7 @@ async function asJson<T>(res: Response): Promise<T> {
   return body as T;
 }
 
-function jsonRequest(method: "POST" | "PATCH" | "DELETE", body?: unknown): RequestInit {
+function jsonRequest(method: "POST" | "PATCH" | "PUT" | "DELETE", body?: unknown): RequestInit {
   return {
     method,
     headers: { "Content-Type": "application/json" },
@@ -197,6 +197,20 @@ export function createBooking(booking: NewBooking): Promise<Booking> {
 // unitIds, when present, replaces the booking's whole unit set.
 export function updateBooking(id: string, patch: BookingPatch): Promise<Booking> {
   return fetch(`/api/bookings/${id}`, jsonRequest("PATCH", patch)).then(asJson<Booking>);
+}
+
+// One more unit of an item for the booking's date; the server picks and
+// locks a free one, or refuses with 409.
+export function addBookingUnit(id: string, itemId: string): Promise<Booking> {
+  return fetch(`/api/bookings/${id}/units`, jsonRequest("POST", { itemId })).then(asJson<Booking>);
+}
+
+export function removeBookingUnit(id: string, unitId: string): Promise<Booking> {
+  return fetch(`/api/bookings/${id}/units/${unitId}`, jsonRequest("DELETE")).then(asJson<Booking>);
+}
+
+export function setBookingAddons(id: string, itemId: string, addonIds: string[]): Promise<Booking> {
+  return fetch(`/api/bookings/${id}/addons`, jsonRequest("PUT", { itemId, addonIds })).then(asJson<Booking>);
 }
 
 export function recommend(messages: AskGoMessage[], subOcc: string | null = null): Promise<RecommendResponse> {

@@ -1059,11 +1059,6 @@ select:focus {
   min-width: 220px;
 }
 
-.booking-row-error {
-  margin: 6px 0 0;
-  max-width: 320px;
-  line-height: 1.4;
-}
 
 .deposit-flag {
   flex-direction: row;
@@ -1855,10 +1850,6 @@ select:focus {
   line-height: 1.5;
 }
 
-.booking-total {
-  flex-basis: 100%;
-  font-size: 12px;
-}
 
 .lead-booking {
   display: flex;
@@ -1883,4 +1874,82 @@ select:focus {
   font-size: 12px;
   line-height: 1.45;
   color: var(--charcoal-soft);
+}
+
+/* ---------- scheduling: booking rows and popup ---------- */
+
+.booking-date {
+  white-space: nowrap;
+  font-weight: 600;
+}
+
+.booking-time {
+  white-space: nowrap;
+}
+
+.booking-item-names {
+  font-size: 12px;
+}
+
+.booking-pill {
+  margin-left: 10px;
+  vertical-align: middle;
+}
+
+.booking-notice {
+  margin: 0;
+  padding: 8px 10px;
+  border: 1.5px solid var(--bad);
+  border-radius: 6px;
+  background: var(--white);
+  line-height: 1.45;
+}
+
+.booking-quote {
+  align-self: center;
+  font-size: 13px;
+}
+
+.booking-item {
+  background: var(--cream);
+}
+
+.booking-item-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 13.5px;
+}
+
+.booking-item-addons {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px 12px;
+}
+
+.booking-addon-label {
+  font-size: 11.5px;
+}
+
+.booking-addon-missing {
+  color: var(--bad);
+  font-weight: 700;
+}
+
+.booking-add-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+}
+
+.booking-help {
+  margin: 0;
+  font-size: 12px;
+  max-width: 640px;
+}
+
+.booking-row-error {
+  margin: 6px 0 0;
+  max-width: 320px;
+  line-height: 1.4;
 }

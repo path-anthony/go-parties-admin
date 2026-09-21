@@ -1,4 +1,5 @@
 import { Prisma } from "../src/generated/prisma/client.js";
+import { describeAddon, resolveAddons } from "./addons.js";
 import { lockFreeUnit } from "./availability.js";
 import { prisma } from "./db.js";
 
@@ -28,7 +29,7 @@ export class NoFreeUnits extends Error {
 type Tx = Prisma.TransactionClient;
 
 const WITH_UNIT_DETAILS = {
-  units: { include: { unit: { include: { item: { select: { id: true, name: true } } } } } },
+  units: { include: { unit: { include: { item: { select: { id: true, name: true, price: true } } } } } },
   addons: { orderBy: { createdAt: "asc" } },
 } as const;
 
@@ -133,6 +134,124 @@ export async function changeBookingItem(
     const updated = await tx.booking.findUniqueOrThrow({ where: { id: bookingId }, include: WITH_UNIT_DETAILS });
     await logActivity(tx, updated.leadId, activity(updated, unit.label));
     return { booking: updated, unit };
+  });
+}
+
+// Thrown for an admin edit that can't apply to the booking as it stands.
+export class BookingEditError extends Error {}
+
+const cents = (n: number) => Math.round(n * 100) / 100;
+
+// The quoted total follows admin edits by the amount of the edit, and only
+// when there is a quote to follow: an admin-entered booking has no total
+// and keeps none.
+async function adjustTotal(tx: Tx, booking: { id: string; total: unknown }, by: number) {
+  if (booking.total === null || by === 0) return;
+  await tx.booking.update({ where: { id: booking.id }, data: { total: cents(Number(booking.total) + by) } });
+}
+
+// Adds one unit of an item to a booking for the booking's own date, the
+// way a direct booking claims one: a free unit is locked (SKIP LOCKED)
+// inside the transaction, so it can't also be handed to a customer who is
+// booking the same date at that moment, and NoFreeUnit means nothing was
+// written. Add-on choices already made for that item cover the new unit.
+export async function addBookingUnit(
+  bookingId: string,
+  item: { id: string; name: string; price: unknown },
+): Promise<BookingWithUnits> {
+  return prisma.$transaction(async (tx) => {
+    const booking = await tx.booking.findUniqueOrThrow({ where: { id: bookingId }, include: WITH_UNIT_DETAILS });
+    if (booking.status === "Cancelled") {
+      throw new BookingEditError("A cancelled booking can't hold units. Set it back to Confirmed first.");
+    }
+    const dateText = booking.eventDate.toISOString().slice(0, 10);
+    const unit = await lockFreeUnit(tx, item.id, dateText);
+    if (!unit) throw new NoFreeUnit(item.name);
+
+    await tx.bookingUnit.create({ data: { bookingId, unitId: unit.id, eventDate: booking.eventDate } });
+    const itemAddons = booking.addons.filter((a) => a.itemId === item.id);
+    if (itemAddons.length > 0) {
+      await tx.bookingAddon.updateMany({ where: { bookingId, itemId: item.id }, data: { quantity: { increment: 1 } } });
+    }
+    const addonsPerUnit = itemAddons.reduce((sum, a) => sum + Number(a.priceDelta), 0);
+    await adjustTotal(tx, booking, (item.price === null ? 0 : Number(item.price)) + addonsPerUnit);
+    await logActivity(tx, booking.leadId, `Added ${item.name} (${unit.label}) to the booking from the admin.`);
+    return tx.booking.findUniqueOrThrow({ where: { id: bookingId }, include: WITH_UNIT_DETAILS });
+  });
+}
+
+// Takes one unit off a booking, which frees it for that date. Add-on
+// choices for the item shrink with it, and go entirely with its last unit.
+export async function removeBookingUnit(bookingId: string, unitId: string): Promise<BookingWithUnits> {
+  return prisma.$transaction(async (tx) => {
+    const booking = await tx.booking.findUniqueOrThrow({ where: { id: bookingId }, include: WITH_UNIT_DETAILS });
+    const row = booking.units.find((u) => u.unitId === unitId);
+    if (!row) throw new BookingEditError("That unit isn't on this booking.");
+    const item = row.unit.item;
+    const remaining = booking.units.filter((u) => u.unit.item.id === item.id).length - 1;
+
+    await tx.bookingUnit.delete({ where: { bookingId_unitId: { bookingId, unitId } } });
+    const itemAddons = booking.addons.filter((a) => a.itemId === item.id);
+    if (itemAddons.length > 0) {
+      if (remaining === 0) await tx.bookingAddon.deleteMany({ where: { bookingId, itemId: item.id } });
+      else await tx.bookingAddon.updateMany({ where: { bookingId, itemId: item.id }, data: { quantity: { decrement: 1 } } });
+    }
+    const addonsPerUnit = itemAddons.reduce((sum, a) => sum + Number(a.priceDelta), 0);
+    await adjustTotal(tx, booking, -((item.price === null ? 0 : Number(item.price)) + addonsPerUnit));
+    await logActivity(tx, booking.leadId, `Removed ${item.name} (${row.unit.label}) from the booking from the admin.`);
+    return tx.booking.findUniqueOrThrow({ where: { id: bookingId }, include: WITH_UNIT_DETAILS });
+  });
+}
+
+// Replaces the add-on choices for one item on a booking. Same rules as a
+// customer's choices (the option belongs to the item, one per group),
+// except a required group may be left open: this is Andy correcting a
+// booking, not a customer checking out. Fresh copies of the names and
+// price are stored, and the quoted total moves by the difference.
+export async function setBookingItemAddons(
+  bookingId: string,
+  item: { id: string; name: string },
+  addonIds: string[],
+): Promise<BookingWithUnits> {
+  const chosen = await resolveAddons([item], new Map([[item.id, addonIds]]), { enforceRequired: false });
+  return prisma.$transaction(async (tx) => {
+    const booking = await tx.booking.findUniqueOrThrow({ where: { id: bookingId }, include: WITH_UNIT_DETAILS });
+    const quantity = booking.units.filter((u) => u.unit.item.id === item.id).length;
+    if (quantity === 0) throw new BookingEditError(`${item.name} isn't on this booking.`);
+
+    // Only what changed is touched. A choice that stays keeps the name and
+    // price it was sold at, even if the option has been repriced since. A
+    // choice whose option has been deleted can't be re-picked, so it stays
+    // as the record of what was sold until its unit is removed.
+    const wanted = new Set(chosen.map((a) => a.addonId));
+    const current = booking.addons.filter((a) => a.itemId === item.id && a.addonId !== null);
+    const dropped = current.filter((a) => !wanted.has(a.addonId as string));
+    const kept = new Set(current.filter((a) => wanted.has(a.addonId as string)).map((a) => a.addonId));
+    const added = chosen.filter((a) => !kept.has(a.addonId));
+    const beforeSum = dropped.reduce((sum, a) => sum + Number(a.priceDelta) * a.quantity, 0);
+    const afterSum = added.reduce((sum, a) => sum + a.priceDelta * quantity, 0);
+    if (dropped.length > 0) {
+      await tx.bookingAddon.deleteMany({ where: { id: { in: dropped.map((a) => a.id) } } });
+    }
+    if (added.length > 0) {
+      await tx.bookingAddon.createMany({
+        data: added.map((a) => ({
+          bookingId,
+          itemId: a.itemId,
+          addonId: a.addonId,
+          itemName: a.itemName,
+          groupName: a.groupName,
+          addonName: a.addonName,
+          priceDelta: a.priceDelta,
+          quantity,
+        })),
+      });
+    }
+    await adjustTotal(tx, booking, afterSum - beforeSum);
+    if (dropped.length === 0 && added.length === 0) return booking;
+    const text = chosen.length > 0 ? chosen.map(describeAddon).join("; ") : "none";
+    await logActivity(tx, booking.leadId, `Add-ons for ${item.name} set from the admin: ${text}.`);
+    return tx.booking.findUniqueOrThrow({ where: { id: bookingId }, include: WITH_UNIT_DETAILS });
   });
 }
 

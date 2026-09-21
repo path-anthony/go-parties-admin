@@ -1,6 +1,15 @@
-import { Router } from "express";
+import { Router, type Response } from "express";
 import { getDefaultAccount } from "../account.js";
-import { releaseUnits } from "../bookingOps.js";
+import { AddonSelectionError } from "../addons.js";
+import {
+  BookingEditError,
+  NoFreeUnit,
+  addBookingUnit,
+  releaseUnits,
+  removeBookingUnit,
+  rescheduleBooking,
+  setBookingItemAddons,
+} from "../bookingOps.js";
 import { prisma } from "../db.js";
 import { INVALID, isOneOf, normalizeDate, normalizeText } from "../validate.js";
 
@@ -69,6 +78,11 @@ async function describeConflicts(unitIds: string[], date: Date, excludeBookingId
   if (taken.length === 0) return null;
   const names = taken.map((row) => `${row.unit.item.name} · ${row.unit.label}`).join(", ");
   return `${names} ${taken.length === 1 ? "is" : "are"} already booked for ${formatDay(date)}. Pick another unit or date.`;
+}
+
+// The same refusal the portal gives, worded for the admin: nothing moved.
+function noFreeUnitMessage(itemName: string, date: Date): string {
+  return `${itemName} has no free unit on ${formatDay(date)}, so nothing was changed. Pick another date, or free up a unit first.`;
 }
 
 const RACE_CONFLICT = "One of those units was just booked for that date by someone else. Pick another unit or date.";
@@ -251,11 +265,32 @@ router.patch("/:id", async (req, res) => {
   // date, check them against everyone else's rows first for a specific
   // message. The constraint still backs this up in the write below.
   const effectiveUnits = cancelling ? [] : (unitIds ?? existing.units.map((row) => row.unitId));
-  if (unitIds !== null || dateMoved) {
+  if (unitIds !== null) {
     const conflict = await describeConflicts(effectiveUnits, nextDate, id);
     if (conflict) {
       return res.status(409).json({ error: conflict, reason: "unit-conflict" });
     }
+  }
+
+  // A plain date move (no explicit unit list alongside it) goes through
+  // the same path as the portal's reschedule: for every item the booking
+  // holds, one free unit on the new date is locked before anything is
+  // released, so it lands on whichever units are free that day, and if
+  // any item has none the booking is left exactly as it was.
+  if (dateMoved && unitIds === null && !cancelling && data.eventDate) {
+    const moveTo = data.eventDate;
+    try {
+      await rescheduleBooking(id, { date: moveTo }, () => `Rescheduled to ${formatDay(moveTo)} from the admin.`);
+    } catch (err) {
+      if (err instanceof NoFreeUnit) {
+        return res.status(409).json({ error: noFreeUnitMessage(err.itemName, moveTo), reason: "unavailable" });
+      }
+      if (isUniqueViolation(err)) {
+        return res.status(409).json({ error: RACE_CONFLICT, reason: "unavailable" });
+      }
+      throw err;
+    }
+    delete data.eventDate;
   }
 
   const ops = [];
@@ -266,13 +301,12 @@ router.patch("/:id", async (req, res) => {
     if (unitIds.length > 0) {
       ops.push(prisma.bookingUnit.createMany({ data: unitIds.map((unitId) => ({ bookingId: id, unitId, eventDate: nextDate })) }));
     }
-  } else if (dateMoved) {
-    // The join rows carry a copy of the date; moving the booking moves them.
-    ops.push(prisma.bookingUnit.updateMany({ where: { bookingId: id }, data: { eventDate: nextDate } }));
   }
 
   try {
-    await prisma.$transaction([...ops, prisma.booking.update({ where: { id }, data })]);
+    if (ops.length > 0 || Object.keys(data).length > 0) {
+      await prisma.$transaction([...ops, prisma.booking.update({ where: { id }, data })]);
+    }
   } catch (err) {
     if (isUniqueViolation(err)) {
       return res.status(409).json({ error: RACE_CONFLICT, reason: "unit-conflict" });
@@ -282,6 +316,80 @@ router.patch("/:id", async (req, res) => {
 
   const booking = await prisma.booking.findUniqueOrThrow({ where: { id }, include: WITH_UNITS });
   res.json(serialize(booking));
+});
+
+async function findOwn(id: string) {
+  const account = await getDefaultAccount();
+  return { account, booking: await prisma.booking.findFirst({ where: { id, accountId: account.id }, select: { id: true } }) };
+}
+
+async function sendBooking(res: Response, id: string) {
+  const booking = await prisma.booking.findUniqueOrThrow({ where: { id }, include: WITH_UNITS });
+  res.json(serialize(booking));
+}
+
+// Adds one unit of an item for the booking's date. Which unit is decided
+// by the lock, the same way a direct booking gets one.
+router.post("/:id/units", async (req, res) => {
+  const id = String(req.params.id);
+  const { account, booking } = await findOwn(id);
+  if (!booking) return res.status(404).json({ error: "booking not found" });
+  const itemId = (req.body ?? {}).itemId;
+  const item =
+    typeof itemId === "string"
+      ? await prisma.item.findFirst({ where: { id: itemId, accountId: account.id }, select: { id: true, name: true, price: true } })
+      : null;
+  if (!item) return res.status(404).json({ error: "item not found" });
+
+  try {
+    await addBookingUnit(id, item);
+  } catch (err) {
+    if (err instanceof NoFreeUnit) {
+      const date = (await prisma.booking.findUniqueOrThrow({ where: { id }, select: { eventDate: true } })).eventDate;
+      return res.status(409).json({ error: noFreeUnitMessage(item.name, date), reason: "unavailable" });
+    }
+    if (err instanceof BookingEditError) return res.status(400).json({ error: err.message });
+    if (isUniqueViolation(err)) return res.status(409).json({ error: RACE_CONFLICT, reason: "unavailable" });
+    throw err;
+  }
+  await sendBooking(res, id);
+});
+
+router.delete("/:id/units/:unitId", async (req, res) => {
+  const id = String(req.params.id);
+  const { booking } = await findOwn(id);
+  if (!booking) return res.status(404).json({ error: "booking not found" });
+  try {
+    await removeBookingUnit(id, String(req.params.unitId));
+  } catch (err) {
+    if (err instanceof BookingEditError) return res.status(404).json({ error: err.message });
+    throw err;
+  }
+  await sendBooking(res, id);
+});
+
+// Replaces the add-on choices for one item on the booking.
+router.put("/:id/addons", async (req, res) => {
+  const id = String(req.params.id);
+  const { account, booking } = await findOwn(id);
+  if (!booking) return res.status(404).json({ error: "booking not found" });
+  const { itemId, addonIds } = (req.body ?? {}) as { itemId?: unknown; addonIds?: unknown };
+  if (!Array.isArray(addonIds) || !addonIds.every((a): a is string => typeof a === "string" && a !== "")) {
+    return res.status(400).json({ error: "addonIds must be a list of addon ids" });
+  }
+  const item =
+    typeof itemId === "string"
+      ? await prisma.item.findFirst({ where: { id: itemId, accountId: account.id }, select: { id: true, name: true } })
+      : null;
+  if (!item) return res.status(404).json({ error: "item not found" });
+  try {
+    await setBookingItemAddons(id, item, [...new Set(addonIds)]);
+  } catch (err) {
+    if (err instanceof AddonSelectionError) return res.status(400).json({ error: err.message, reason: err.reason });
+    if (err instanceof BookingEditError) return res.status(400).json({ error: err.message });
+    throw err;
+  }
+  await sendBooking(res, id);
 });
 
 export default router;
