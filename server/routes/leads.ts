@@ -12,6 +12,25 @@ const MAX_ACTIVITY_LENGTH = 2000;
 // dragged all sit at 0, so an untouched column is simply newest first.
 const COLUMN_ORDER = [{ sortOrder: "asc" as const }, { createdAt: "desc" as const }];
 
+// Returned with every lead the board or the panel receives, so replacing
+// a lead after a save never drops its bookings.
+const LEAD_BOOKINGS = {
+  bookings: {
+    select: {
+      id: true,
+      eventDate: true,
+      eventTime: true,
+      status: true,
+      total: true,
+      addons: {
+        select: { id: true, itemName: true, groupName: true, addonName: true, priceDelta: true, quantity: true },
+        orderBy: { createdAt: "asc" as const },
+      },
+    },
+    orderBy: { createdAt: "asc" as const },
+  },
+};
+
 const router = Router();
 
 const INVALID = Symbol("invalid");
@@ -42,9 +61,12 @@ function normalizeTags(value: unknown): string[] | typeof INVALID {
 
 router.get("/", async (_req, res) => {
   const account = await getDefaultAccount();
+  // Each lead carries a slim view of its bookings and the add-ons chosen
+  // on them, so the detail panel can show what was picked.
   const leads = await prisma.lead.findMany({
     where: { accountId: account.id },
     orderBy: COLUMN_ORDER,
+    include: LEAD_BOOKINGS,
   });
   res.json(leads);
 });
@@ -81,6 +103,7 @@ router.post("/", async (req, res) => {
       dateOfInterest: date,
       notes: normalizeText(notes),
     },
+    include: LEAD_BOOKINGS,
   });
 
   res.status(201).json(lead);
@@ -120,6 +143,7 @@ router.patch("/reorder", async (req, res) => {
   const leads = await prisma.lead.findMany({
     where: { accountId: account.id, status },
     orderBy: COLUMN_ORDER,
+    include: LEAD_BOOKINGS,
   });
   res.json(leads);
 });
@@ -178,7 +202,7 @@ router.patch("/:id", async (req, res) => {
     return res.status(400).json({ error: "no editable fields provided" });
   }
 
-  const lead = await prisma.lead.update({ where: { id }, data });
+  const lead = await prisma.lead.update({ where: { id }, data, include: LEAD_BOOKINGS });
   res.json(lead);
 });
 

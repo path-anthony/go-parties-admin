@@ -1,5 +1,6 @@
 import { type FormEvent, useEffect, useState } from "react";
 import { createBooking, createUnit, getBookings, getItems, getLeads, getUnits, updateBooking, updateUnit } from "../../lib/api";
+import { describeAddon } from "../../lib/addons";
 import { leadTitle } from "../../lib/leads";
 import {
   BOOKING_STATUSES,
@@ -570,6 +571,23 @@ function BookingRow({
               {unitLabel(unit, itemsById)}
             </span>
           ))}
+          {/* What the customer chose for each item, spelled out, and what
+              they were quoted with those choices included. */}
+          {booking.addons.length > 0 && (
+            <ul className="booking-addons" aria-label={`Add-ons for ${who}`}>
+              {booking.addons.map((addon) => (
+                <li key={addon.id}>
+                  <span className="muted">{addon.itemName}</span> {describeAddon(addon)}
+                  {addon.quantity > 1 ? ` x ${addon.quantity}` : ""}
+                </li>
+              ))}
+            </ul>
+          )}
+          {booking.total !== null && (
+            <span className="booking-total muted">
+              Quoted {Number(booking.total).toLocaleString("en-US", { style: "currency", currency: "USD" })}
+            </span>
+          )}
           <details>
             <summary>Edit</summary>
             <UnitPicker

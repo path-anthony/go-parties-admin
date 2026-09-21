@@ -4,6 +4,7 @@ import { addLeadActivity, getLeadActivity, updateLead } from "../lib/api";
 import type { Lead, LeadActivity, LeadPatch, LeadStatus } from "../lib/types";
 import { relativeTime } from "../lib/time";
 import { SOURCE_LABEL, leadTitle } from "../lib/leads";
+import { deltaLabel } from "../lib/addons";
 import { EditableCell } from "./EditableCell";
 
 const usd = (n: number) => n.toLocaleString("en-US", { style: "currency", currency: "USD" });
@@ -217,6 +218,48 @@ function LeadDetailBody({
               <span>{usd(items.total)}</span>
             </div>
           )}
+        </div>
+      )}
+
+      {lead.bookings && lead.bookings.length > 0 && (
+        <div className="detail-section">
+          <span className="detail-field-label">{lead.bookings.length === 1 ? "Booking" : "Bookings"}</span>
+          {lead.bookings.map((booking) => (
+            <div key={booking.id} className="lead-booking">
+              <div className="lead-booking-head">
+                <span>
+                  {new Date(booking.eventDate).toLocaleDateString("en-US", {
+                    weekday: "short",
+                    month: "short",
+                    day: "numeric",
+                    year: "numeric",
+                    timeZone: "UTC",
+                  })}
+                  {booking.eventTime ? `, ${booking.eventTime}` : ""}
+                  <span className="muted"> · {booking.status}</span>
+                </span>
+                {booking.total !== null && <span className="item-price">{usd(Number(booking.total))}</span>}
+              </div>
+              {booking.addons.length > 0 ? (
+                <ul className="item-list">
+                  {booking.addons.map((addon) => (
+                    <li key={addon.id} className="item-row">
+                      <span className="item-name">
+                        {addon.groupName}: {addon.addonName}
+                        <span className="item-category"> · {addon.itemName}</span>
+                        {addon.quantity > 1 ? ` x ${addon.quantity}` : ""}
+                      </span>
+                      <span className="item-price">
+                        {Number(addon.priceDelta) === 0 ? "Included" : deltaLabel(addon.priceDelta)}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="muted">No add-ons chosen.</p>
+              )}
+            </div>
+          ))}
         </div>
       )}
 

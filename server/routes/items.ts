@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { getDefaultAccount } from "../account.js";
+import { ADDON_GROUPS_INCLUDE } from "../addons.js";
 import { toCsv } from "../csv.js";
 import { prisma } from "../db.js";
 
@@ -34,6 +35,7 @@ router.get("/", async (_req, res) => {
   const items = await prisma.item.findMany({
     where: { accountId: account.id },
     orderBy: [{ category: "asc" }, { name: "asc" }],
+    include: ADDON_GROUPS_INCLUDE,
   });
   res.json(items);
 });
@@ -90,6 +92,7 @@ router.post("/", async (req, res) => {
       notes: normalizeText(notes),
       photoUrl: normalizeText(photoUrl),
     },
+    include: ADDON_GROUPS_INCLUDE,
   });
 
   res.status(201).json(item);
@@ -134,7 +137,7 @@ router.patch("/:id", async (req, res) => {
     data[field as Exclude<EditableField, "price" | "name" | "category">] = normalizeText(body[field]);
   }
 
-  const item = await prisma.item.update({ where: { id }, data });
+  const item = await prisma.item.update({ where: { id }, data, include: ADDON_GROUPS_INCLUDE });
   res.json(item);
 });
 

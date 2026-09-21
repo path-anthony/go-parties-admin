@@ -1,3 +1,36 @@
+// One option inside a group. priceDelta is a serialized Decimal and can be
+// zero (a free choice) or negative (a downgrade).
+export type Addon = {
+  id: string;
+  addonGroupId: string;
+  name: string;
+  priceDelta: string;
+  position: number;
+  createdAt: string;
+};
+
+// One question about an item ("Flavor"). A booking picks at most one of its
+// addons; required means the item can't be booked without an answer.
+export type AddonGroup = {
+  id: string;
+  itemId: string;
+  name: string;
+  required: boolean;
+  position: number;
+  createdAt: string;
+  addons: Addon[];
+};
+
+// What a booking chose, with the names and price copied at booking time.
+export type BookingAddon = {
+  id: string;
+  itemName: string;
+  groupName: string;
+  addonName: string;
+  priceDelta: string;
+  quantity: number;
+};
+
 export type Item = {
   id: string;
   accountId: string;
@@ -7,6 +40,7 @@ export type Item = {
   priceUnit: string | null;
   notes: string | null;
   photoUrl: string | null;
+  addonGroups: AddonGroup[];
   createdAt: string;
   updatedAt: string;
 };
@@ -58,8 +92,19 @@ export type Lead = {
   notes: string | null;
   theme: string | null;
   itemsReturned: LeadItems | null;
+  // A slim view of the bookings made from this lead, with their add-ons.
+  bookings?: LeadBooking[];
   createdAt: string;
   updatedAt: string;
+};
+
+export type LeadBooking = {
+  id: string;
+  eventDate: string;
+  eventTime: string | null;
+  status: BookingStatus;
+  total: string | null;
+  addons: BookingAddon[];
 };
 
 export type NewLead = {
@@ -154,6 +199,8 @@ export type Booking = {
   status: BookingStatus;
   depositPaid: boolean;
   customerId: string | null; // set when booked from a customer account
+  total: string | null; // what the customer was quoted, add-ons included
+  addons: BookingAddon[];
   unitIds: string[];
   createdAt: string;
   updatedAt: string;

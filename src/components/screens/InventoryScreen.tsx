@@ -2,7 +2,7 @@ import { type FormEvent, useEffect, useState } from "react";
 import { Plus } from "lucide-react";
 import { createUnitsBulk, getItems, getUnits } from "../../lib/api";
 import { UNIT_STATUSES, type Item, type Unit, type UnitStatus } from "../../lib/types";
-import { AddItemForm } from "../AddItemForm";
+import { ItemModal } from "../ItemModal";
 import { ItemsTable } from "../ItemsTable";
 
 const ALL_CATEGORIES = "";
@@ -17,8 +17,9 @@ export function InventoryScreen() {
   const [items, setItems] = useState<Item[] | null>(null);
   const [units, setUnits] = useState<Unit[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const [quickAddOpen, setQuickAddOpen] = useState(false);
-  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  // The item popup: a new item, or an existing one by id (looked up in
+  // items on each render, so saves inside the popup show up in it).
+  const [modal, setModal] = useState<{ mode: "create" } | { mode: "edit"; id: string } | null>(null);
   const [search, setSearch] = useState("");
   const [category, setCategory] = useState(ALL_CATEGORIES);
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -36,15 +37,6 @@ export function InventoryScreen() {
 
   function handleItemUpdated(updated: Item) {
     setItems((prev) => (prev ?? []).map((item) => (item.id === updated.id ? updated : item)));
-  }
-
-  function toggle(id: string) {
-    setExpanded((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
   }
 
   function toggleSelect(id: string, checked: boolean) {
@@ -67,13 +59,13 @@ export function InventoryScreen() {
     });
   }
 
-  // A new item goes to the top, expanded, so it's visible without scrolling
-  // and ready for a photo. It settles into category order on the next load.
+  // A new item goes to the top of the list so it's visible without
+  // scrolling (it settles into category order on the next load), and the
+  // popup stays open on it, now in edit mode, ready for its add-ons.
   // Filters are cleared so the new row can't be hidden by them.
   function handleAdded(item: Item) {
     setItems((prev) => [item, ...(prev ?? [])]);
-    setExpanded((prev) => new Set(prev).add(item.id));
-    setQuickAddOpen(false);
+    setModal({ mode: "edit", id: item.id });
     setSearch("");
     setCategory(ALL_CATEGORIES);
   }
@@ -89,6 +81,7 @@ export function InventoryScreen() {
   const filtering = query !== "" || category !== ALL_CATEGORIES;
   const categories = items ? [...new Set(items.map((item) => item.category))].sort((a, b) => a.localeCompare(b)) : [];
   const visible = items ? items.filter((item) => matches(item, query, category)) : [];
+  const modalItem = modal?.mode === "edit" ? items?.find((item) => item.id === modal.id) : undefined;
   const unitCounts = new Map<string, number>();
   for (const unit of units) unitCounts.set(unit.itemId, (unitCounts.get(unit.itemId) ?? 0) + 1);
 
@@ -103,16 +96,10 @@ export function InventoryScreen() {
         </div>
 
         <div className="quick-add">
-          {quickAddOpen ? (
-            <div className="quick-add-form">
-              <AddItemForm onAdded={handleAdded} onCancel={() => setQuickAddOpen(false)} />
-            </div>
-          ) : (
-            <button type="button" className="quick-add-toggle" onClick={() => setQuickAddOpen(true)}>
-              <Plus size={14} />
-              Add an item
-            </button>
-          )}
+          <button type="button" className="quick-add-toggle" onClick={() => setModal({ mode: "create" })}>
+            <Plus size={14} />
+            Add an item
+          </button>
         </div>
 
         {items && items.length > 0 && (
@@ -179,9 +166,7 @@ export function InventoryScreen() {
         {visible.length > 0 && (
           <ItemsTable
             items={visible}
-            expanded={expanded}
-            onToggle={toggle}
-            onItemUpdated={handleItemUpdated}
+            onOpen={(id) => setModal({ mode: "edit", id })}
             selected={selected}
             onToggleSelect={toggleSelect}
             onSelectAll={selectAll}
@@ -189,6 +174,15 @@ export function InventoryScreen() {
           />
         )}
       </section>
+
+      {modal && (modal.mode === "create" || modalItem) && (
+        <ItemModal
+          item={modal.mode === "edit" ? (modalItem ?? null) : null}
+          onClose={() => setModal(null)}
+          onCreated={handleAdded}
+          onItemUpdated={handleItemUpdated}
+        />
+      )}
     </div>
   );
 }

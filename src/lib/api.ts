@@ -1,4 +1,5 @@
 import type {
+  AddonGroup,
   AskGoMessage,
   Booking,
   BookingPatch,
@@ -71,6 +72,31 @@ export type ItemPatch = Partial<Pick<Item, "name" | "category" | "priceUnit" | "
 
 export function updateItem(id: string, patch: ItemPatch): Promise<Item> {
   return fetch(`/api/items/${id}`, jsonRequest("PATCH", patch)).then(asJson<Item>);
+}
+
+export function createAddonGroup(input: { itemId: string; name: string; required: boolean }): Promise<AddonGroup> {
+  return fetch("/api/addon-groups", jsonRequest("POST", input)).then(asJson<AddonGroup>);
+}
+
+export function updateAddonGroup(id: string, patch: { name?: string; required?: boolean }): Promise<AddonGroup> {
+  return fetch(`/api/addon-groups/${id}`, jsonRequest("PATCH", patch)).then(asJson<AddonGroup>);
+}
+
+export function deleteAddonGroup(id: string): Promise<{ ok: true }> {
+  return fetch(`/api/addon-groups/${id}`, jsonRequest("DELETE")).then(asJson<{ ok: true }>);
+}
+
+// The option calls all answer with the whole group, options included.
+export function createAddon(groupId: string, input: { name: string; priceDelta: string }): Promise<AddonGroup> {
+  return fetch(`/api/addon-groups/${groupId}/addons`, jsonRequest("POST", input)).then(asJson<AddonGroup>);
+}
+
+export function updateAddon(groupId: string, addonId: string, patch: { name?: string; priceDelta?: string }): Promise<AddonGroup> {
+  return fetch(`/api/addon-groups/${groupId}/addons/${addonId}`, jsonRequest("PATCH", patch)).then(asJson<AddonGroup>);
+}
+
+export function deleteAddon(groupId: string, addonId: string): Promise<AddonGroup> {
+  return fetch(`/api/addon-groups/${groupId}/addons/${addonId}`, jsonRequest("DELETE")).then(asJson<AddonGroup>);
 }
 
 export function getLeads(): Promise<Lead[]> {

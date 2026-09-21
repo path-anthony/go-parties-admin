@@ -29,6 +29,7 @@ type Tx = Prisma.TransactionClient;
 
 const WITH_UNIT_DETAILS = {
   units: { include: { unit: { include: { item: { select: { id: true, name: true } } } } } },
+  addons: { orderBy: { createdAt: "asc" } },
 } as const;
 
 export type BookingWithUnits = Prisma.BookingGetPayload<{ include: typeof WITH_UNIT_DETAILS }>;
@@ -114,6 +115,18 @@ export async function changeBookingItem(
 
     await releaseUnits(tx, bookingId);
     await tx.bookingUnit.create({ data: { bookingId, unitId: unit.id, eventDate: booking.eventDate } });
+    // Add-on choices belong to the item they were made for. They go with
+    // the old item, and what they added comes off the quoted total.
+    if (booking.addons.length > 0) {
+      const dropped = booking.addons.reduce((sum, a) => sum + Number(a.priceDelta) * a.quantity, 0);
+      await tx.bookingAddon.deleteMany({ where: { bookingId } });
+      if (booking.total !== null) {
+        await tx.booking.update({
+          where: { id: bookingId },
+          data: { total: Math.round((Number(booking.total) - dropped) * 100) / 100 },
+        });
+      }
+    }
     if (booking.leadId) {
       await tx.lead.update({ where: { id: booking.leadId }, data: { occasion: item.name } });
     }
@@ -124,9 +137,17 @@ export async function changeBookingItem(
 }
 
 export function serializeCustomerBooking(booking: BookingWithUnits) {
-  const { units, customerId: _customerId, accountId: _accountId, ...rest } = booking;
+  const { units, addons, customerId: _customerId, accountId: _accountId, ...rest } = booking;
   return {
     ...rest,
+    addons: addons.map((a) => ({
+      itemId: a.itemId,
+      itemName: a.itemName,
+      groupName: a.groupName,
+      addonName: a.addonName,
+      priceDelta: Number(a.priceDelta),
+      quantity: a.quantity,
+    })),
     units: units.map((row) => ({
       unitId: row.unit.id,
       unitLabel: row.unit.label,

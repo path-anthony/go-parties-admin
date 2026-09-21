@@ -1,6 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { Router } from "express";
 import { getDefaultAccount } from "../account.js";
+import { ADDON_GROUPS_INCLUDE, publicAddonGroups } from "../addons.js";
 import { prisma } from "../db.js";
 import { getDefaultStatus } from "../leadStatuses.js";
 import type { Item } from "../../src/generated/prisma/client.js";
@@ -125,6 +126,7 @@ router.post("/", async (req, res) => {
   const catalogItems = await prisma.item.findMany({
     where: { accountId: account.id, price: { not: null } },
     orderBy: [{ category: "asc" }, { name: "asc" }],
+    include: ADDON_GROUPS_INCLUDE,
   });
 
   if (catalogItems.length === 0) {
@@ -239,7 +241,12 @@ router.post("/", async (req, res) => {
 
   logLead(account.id, theme, toLeadItems(recommended), total);
 
-  res.json({ ready: true, message, items: recommended, total });
+  // Each recommended item carries its add-on groups in the public shape,
+  // so the storefront can offer them straight from this response. The
+  // total stays the base prices: nothing has been chosen yet.
+  const items = recommended.map(({ addonGroups, ...item }) => ({ ...item, addonGroups: publicAddonGroups(addonGroups) }));
+
+  res.json({ ready: true, message, items, total });
 });
 
 export default router;

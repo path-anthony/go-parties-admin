@@ -794,9 +794,6 @@ select:focus {
   color: var(--charcoal);
 }
 
-.quick-add-form {
-  padding: 6px 0 4px;
-}
 
 .filter-row {
   display: flex;
@@ -918,9 +915,6 @@ select:focus {
   color: var(--muted);
 }
 
-.catalog-detail-row > td {
-  padding: 0 0 12px 34px;
-}
 
 .catalog-detail {
   display: grid;
@@ -1716,4 +1710,166 @@ select:focus {
 .askgo-result .item-price {
   font-size: 13px;
   color: var(--charcoal-soft);
+}
+
+/* ---------- item popup and add-ons ---------- */
+
+.modal .catalog-detail {
+  max-width: none;
+  padding: 0;
+}
+
+.modal .add-item-form {
+  max-width: none;
+}
+
+.modal-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  border-top: 1px solid var(--line);
+  padding-top: 12px;
+}
+
+.addon-help {
+  margin: 0;
+  font-size: 12px;
+  max-width: 640px;
+}
+
+.addon-group {
+  border: 1.5px solid var(--line);
+  border-radius: 6px;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  background: var(--cream);
+}
+
+.addon-group-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.addon-group-head .editable-cell {
+  flex: 1 1 180px;
+  min-width: 0;
+}
+
+.addon-group-head .cell-input {
+  font-weight: 700;
+  width: 100%;
+  border-color: var(--line);
+}
+
+.addon-confirm {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 12px;
+}
+
+.checkbox-label {
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  white-space: nowrap;
+}
+
+.addon-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.addon-row,
+.addon-new-option,
+.addon-new-group {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 110px 84px 28px;
+  align-items: center;
+  gap: 8px;
+}
+
+.addon-new-option {
+  grid-template-columns: minmax(0, 1fr) 110px auto;
+  border-top: 1px dashed var(--line);
+  padding-top: 8px;
+}
+
+.addon-new-group {
+  grid-template-columns: minmax(0, 1fr) auto auto;
+}
+
+.addon-row .editable-cell {
+  min-width: 0;
+}
+
+.addon-row .cell-input {
+  width: 100%;
+  border-color: var(--line);
+  background: var(--white);
+}
+
+.addon-delta {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+.addon-delta input {
+  width: 100%;
+  min-width: 0;
+}
+
+.addon-delta-prefix {
+  color: var(--muted);
+  font-size: 12.5px;
+}
+
+.addon-delta-label {
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.addon-empty {
+  margin: 0;
+  font-size: 12.5px;
+}
+
+.booking-addons {
+  list-style: none;
+  margin: 2px 0 0;
+  padding: 0;
+  flex-basis: 100%;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.booking-total {
+  flex-basis: 100%;
+  font-size: 12px;
+}
+
+.lead-booking {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.lead-booking-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 13px;
 }

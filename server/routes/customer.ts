@@ -32,6 +32,7 @@ const router = Router();
 
 const WITH_UNIT_DETAILS = {
   units: { include: { unit: { include: { item: { select: { id: true, name: true } } } } } },
+  addons: { orderBy: { createdAt: "asc" as const } },
 } as const;
 
 router.post("/signup", customerSignupLimiter, async (req, res) => {

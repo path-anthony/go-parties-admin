@@ -10,7 +10,13 @@ const MAX_TIME_LENGTH = 60;
 
 const router = Router();
 
-const WITH_UNITS = { units: { select: { unitId: true } } };
+const WITH_UNITS = {
+  units: { select: { unitId: true } },
+  addons: {
+    select: { id: true, itemId: true, addonId: true, itemName: true, groupName: true, addonName: true, priceDelta: true, quantity: true },
+    orderBy: { createdAt: "asc" as const },
+  },
+};
 const ORDER = [{ eventDate: "asc" as const }, { createdAt: "asc" as const }];
 
 // The join rows are an implementation detail; clients see a flat unitIds.

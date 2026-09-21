@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { getDefaultAccount } from "../account.js";
+import { ADDON_GROUPS_INCLUDE, publicAddonGroups } from "../addons.js";
 import { prisma } from "../db.js";
 import { availabilityLimiter } from "../rateLimit.js";
 
@@ -30,7 +31,9 @@ router.get("/public", availabilityLimiter, async (req, res) => {
       items: {
         select: {
           quantity: true,
-          item: { select: { id: true, name: true, category: true, price: true, priceUnit: true } },
+          item: {
+            select: { id: true, name: true, category: true, price: true, priceUnit: true, addonGroups: ADDON_GROUPS_INCLUDE.addonGroups },
+          },
         },
         orderBy: { item: { name: "asc" } },
       },
@@ -49,6 +52,9 @@ router.get("/public", availabilityLimiter, async (req, res) => {
         price: item.price === null ? null : Number(item.price),
         priceUnit: item.priceUnit,
         quantity,
+        // A package is booked as a cart of these items, so their add-on
+        // groups come along the same way they do on the public catalog.
+        addonGroups: publicAddonGroups(item.addonGroups),
       })),
     })),
   });

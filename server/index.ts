@@ -8,6 +8,7 @@ import express, { type ErrorRequestHandler } from "express";
 import { requireAuth } from "./auth.js";
 import { isOriginAllowed } from "./cors.js";
 import { directBookingLimiter, externalLeadLimiter, recommendLimiter } from "./rateLimit.js";
+import addonGroupsRouter from "./routes/addonGroups.js";
 import authRouter from "./routes/auth.js";
 import bookingsRouter from "./routes/bookings.js";
 import customerRouter from "./routes/customer.js";
@@ -87,6 +88,7 @@ app.use("/api/leads/external", externalLeadLimiter, requireWebhookSecret, extern
 app.use("/api/leads", requireAuth, leadsRouter);
 app.use("/api/lead-statuses", requireAuth, leadStatusesRouter);
 app.use("/api/units", requireAuth, unitsRouter);
+app.use("/api/addon-groups", requireAuth, addonGroupsRouter);
 app.use("/api/packages", publicPackagesRouter);
 app.use("/api/packages", requireAuth, packagesRouter);
 app.use("/api/bookings/direct", directBookingLimiter, directBookingsRouter);

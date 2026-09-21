@@ -126,6 +126,7 @@ model Booking {
   customer Customer?     @relation(fields: [customerId], references: [id], onDelete: SetNull)
   package  Package?      @relation(fields: [packageId], references: [id], onDelete: SetNull)
   units    BookingUnit[]
+  addons   BookingAddon[]
 
   @@index([accountId, eventDate])
   @@index([leadId])
@@ -231,12 +232,78 @@ model Item {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  account      Account       @relation(fields: [accountId], references: [id])
-  units        Unit[]
-  packageItems PackageItem[]
+  account       Account        @relation(fields: [accountId], references: [id])
+  units         Unit[]
+  packageItems  PackageItem[]
+  addonGroups   AddonGroup[]
+  bookingAddons BookingAddon[]
 
   @@index([accountId])
   @@map("items")
+}
+
+// Item-specific configuration. A group is one question about an item
+// ("Flavor", "Print size") and its addons are the answers. A booking picks
+// at most one addon per group; a required group must be answered for the
+// item to be booked, an optional one is an upgrade that can be skipped.
+// position keeps groups and options in the order Andy arranged them.
+model AddonGroup {
+  id        String   @id @default(cuid())
+  itemId    String   @map("item_id")
+  name      String
+  required  Boolean  @default(false)
+  position  Int      @default(0)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  item   Item    @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  addons Addon[]
+
+  @@index([itemId, position])
+  @@map("addon_groups")
+}
+
+// priceDelta is added to the item's price when the option is picked. Zero
+// is a free choice (a flavor) and a negative number is a downgrade, so it
+// is not constrained to upsells.
+model Addon {
+  id           String   @id @default(cuid())
+  addonGroupId String   @map("addon_group_id")
+  name         String
+  priceDelta   Decimal  @default(0) @map("price_delta") @db.Decimal(10, 2)
+  position     Int      @default(0)
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  group    AddonGroup     @relation(fields: [addonGroupId], references: [id], onDelete: Cascade)
+  bookings BookingAddon[]
+
+  @@index([addonGroupId, position])
+  @@map("addons")
+}
+
+// What a booking actually chose. The names and the price delta are copied
+// at booking time on purpose: a booking is a record of what was sold, so
+// renaming, repricing, or deleting an option later must not rewrite it.
+// itemId and addonId still point at the live rows while they exist.
+// quantity is how many units of the item the option applies to (more than
+// one only for a package that holds several of the same item).
+model BookingAddon {
+  id         String   @id @default(cuid())
+  bookingId  String   @map("booking_id")
+  itemId     String?  @map("item_id")
+  addonId    String?  @map("addon_id")
+  itemName   String   @map("item_name")
+  groupName  String   @map("group_name")
+  addonName  String   @map("addon_name")
+  priceDelta Decimal  @map("price_delta") @db.Decimal(10, 2)
+  quantity   Int      @default(1)
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  booking Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  item    Item?   @relation(fields: [itemId], references: [id], onDelete: SetNull)
+  addon   Addon?  @relation(fields: [addonId], references: [id], onDelete: SetNull)
+
+  @@index([bookingId])
+  @@map("booking_addons")
 }
 
 // A lead is the top of the CRM pipeline (see GO-PRODUCT.md: Booking,

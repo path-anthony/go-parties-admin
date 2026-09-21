@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { getDefaultAccount } from "../account.js";
+import { AddonSelectionError, describeAddon, parseAddonSelections, resolveAddons, type ChosenAddon } from "../addons.js";
 import { leadStatusForStorefrontBooking, lockFreeUnit } from "../availability.js";
 import { NoFreeUnits } from "../bookingOps.js";
 import { currentCustomer } from "../customerAuth.js";
@@ -93,6 +94,13 @@ function quotedTotal(
 // for the last unit of any item can't both succeed. If a customer session
 // is present the booking is attached to that account and name, phone, and
 // email default from it.
+//
+// addons is optional: { [itemId]: [addonId, ...] }. Every addon has to
+// belong to the item it's sent under, a group takes one choice, and an
+// item's required groups have to be answered or the booking is refused.
+// Each chosen option's price delta (times the units held of that item) is
+// added to the total, and the choices are stored as BookingAddon rows with
+// their names, so they read as choices in the admin, not as a bigger number.
 router.post("/", async (req, res) => {
   const body = (req.body ?? {}) as Record<string, unknown>;
 
@@ -126,6 +134,10 @@ router.post("/", async (req, res) => {
   const eventTime = optionalText(body.eventTime, MAX_TIME_LENGTH);
   if (eventTime === INVALID) {
     return res.status(400).json({ error: `eventTime must be text up to ${MAX_TIME_LENGTH} characters` });
+  }
+  const selections = parseAddonSelections(body.addons, itemIds);
+  if (typeof selections === "string") {
+    return res.status(400).json({ error: selections, reason: "addon-invalid" });
   }
   const packageId = resolvePackageId(body);
   if (packageId === INVALID) {
@@ -177,7 +189,29 @@ router.post("/", async (req, res) => {
   if (wanted.reduce((sum, w) => sum + w.quantity, 0) > MAX_UNITS_PER_BOOKING) {
     return res.status(400).json({ error: `A booking can hold at most ${MAX_UNITS_PER_BOOKING} units` });
   }
-  const total = quotedTotal(pkg, wanted);
+  let chosen: ChosenAddon[];
+  try {
+    chosen = await resolveAddons(items, selections);
+  } catch (err) {
+    if (err instanceof AddonSelectionError) {
+      return res.status(400).json({ error: err.message, reason: err.reason });
+    }
+    throw err;
+  }
+  const quantityOf = (itemId: string) => wanted.find((w) => w.item.id === itemId)?.quantity ?? 1;
+  const addonRows = chosen.map((addon) => ({ ...addon, quantity: quantityOf(addon.itemId) }));
+  const addonsTotal = Math.round(addonRows.reduce((sum, a) => sum + a.priceDelta * a.quantity, 0) * 100) / 100;
+  // Nothing priced means nothing to quote, add-ons or not.
+  const baseTotal = quotedTotal(pkg, wanted);
+  const total = baseTotal === null ? null : Math.round((baseTotal + addonsTotal) * 100) / 100;
+  // "Snow Cone Station, Flavor: Peach (+$10); Size: Large (+$50)"
+  const addonNote = items
+    .map((item) => {
+      const picks = addonRows.filter((a) => a.itemId === item.id);
+      return picks.length === 0 ? null : `${item.name}, ${picks.map(describeAddon).join("; ")}`;
+    })
+    .filter((line): line is string => line !== null)
+    .join(". ");
 
   const leadStatus = await leadStatusForStorefrontBooking(account.id);
   const leadContact = [contact.phone, contact.email].filter(Boolean).join(" · ");
@@ -215,11 +249,14 @@ router.post("/", async (req, res) => {
           contact: leadContact,
           occasion: pkg ? pkg.name : claimed.map(({ item }) => item.name).join(", "),
           dateOfInterest: date,
-          notes: `Direct booking of ${summary} from the storefront, ${when}.${where}${packageNote}`,
+          notes: `Direct booking of ${summary} from the storefront, ${when}.${where}${packageNote}${addonNote ? ` Add-ons: ${addonNote}.` : ""}`,
         },
       });
       await tx.leadActivity.create({
-        data: { leadId: lead.id, text: `Booked ${summary} for ${when} from the storefront.` },
+        data: {
+          leadId: lead.id,
+          text: `Booked ${summary} for ${when} from the storefront.${addonNote ? ` Add-ons: ${addonNote}.` : ""}`,
+        },
       });
       const booking = await tx.booking.create({
         data: {
@@ -238,6 +275,19 @@ router.post("/", async (req, res) => {
           // eventDate is copied onto each join row for the (unitId, eventDate)
           // unique constraint, the database-level backstop behind the lock.
           units: { create: claimed.map(({ unit }) => ({ unitId: unit.id, eventDate: date })) },
+          // Names and the delta are copied so the booking stays readable
+          // and honest if the option is later renamed, repriced, or removed.
+          addons: {
+            create: addonRows.map((a) => ({
+              itemId: a.itemId,
+              addonId: a.addonId,
+              itemName: a.itemName,
+              groupName: a.groupName,
+              addonName: a.addonName,
+              priceDelta: a.priceDelta,
+              quantity: a.quantity,
+            })),
+          },
         },
       });
       // First booking from an account that signed up without a name: keep
@@ -265,6 +315,8 @@ router.post("/", async (req, res) => {
       status: result.booking.status,
       depositPaid: result.booking.depositPaid,
       total,
+      addonsTotal,
+      addons: addonRows,
       packageId: pkg?.id ?? null,
       package: pkg ? { id: pkg.id, name: pkg.name, price: Number(pkg.price) } : null,
       // item and unit are the first entry, kept for single-item callers;
