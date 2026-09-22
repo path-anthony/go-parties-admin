@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { getDefaultAccount } from "../account.js";
 import { countFreeUnits, freeUnitsByItem } from "../availability.js";
+import { crewFreeBySkill } from "../gigs.js";
 import { prisma } from "../db.js";
 import { PUBLIC_ITEM_RELATIONS, toPublicItem } from "../publicItem.js";
 import { availabilityLimiter } from "../rateLimit.js";
@@ -28,7 +29,11 @@ router.get("/public", availabilityLimiter, async (req, res) => {
   const dateText = date ? date.toISOString().slice(0, 10) : null;
 
   const account = await getDefaultAccount();
+  // Physical items are free by unit; service items by crew with the skill.
   const free = dateText ? await freeUnitsByItem(account.id, dateText) : null;
+  const crew = dateText ? await crewFreeBySkill(account.id, dateText) : null;
+  const freeFor = (item: { id: string; requiredSkill: string | null }) =>
+    item.requiredSkill !== null ? (crew?.get(item.requiredSkill)?.free ?? 0) : (free?.get(item.id) ?? 0);
   const [items, categoryRows] = await Promise.all([
     prisma.item.findMany({
       where: {
@@ -44,6 +49,7 @@ router.get("/public", availabilityLimiter, async (req, res) => {
         price: true,
         priceUnit: true,
         photoUrl: true,
+        requiredSkill: true,
         // Unit count and each item's add-on groups and options ride along,
         // so the storefront can offer them without a second request.
         ...PUBLIC_ITEM_RELATIONS,
@@ -54,12 +60,12 @@ router.get("/public", availabilityLimiter, async (req, res) => {
 
   const shaped = items.map((item) => ({
     ...toPublicItem(item),
-    ...(free ? { freeUnits: free.get(item.id) ?? 0 } : {}),
+    ...(free ? { freeUnits: freeFor(item) } : {}),
   }));
 
   res.json({
     date: dateText,
-    items: free ? shaped.filter((item) => (free.get(item.id) ?? 0) > 0) : shaped,
+    items: free ? shaped.filter((item) => (item.freeUnits ?? 0) > 0) : shaped,
     categories: categoryRows.map((row) => row.category),
   });
 });
@@ -73,9 +79,24 @@ router.get("/:id/availability", availabilityLimiter, async (req, res) => {
   const dateText = date.toISOString().slice(0, 10);
 
   const account = await getDefaultAccount();
-  const item = await prisma.item.findFirst({ where: { id, accountId: account.id }, select: { id: true, name: true } });
+  const item = await prisma.item.findFirst({ where: { id, accountId: account.id }, select: { id: true, name: true, requiredSkill: true } });
   if (!item) {
     return res.status(404).json({ error: "item not found" });
+  }
+
+  // A service item is available when someone with its skill is free that
+  // day: active crew with the skill, minus gigs already needing it.
+  if (item.requiredSkill !== null) {
+    const crew = (await crewFreeBySkill(account.id, dateText)).get(item.requiredSkill) ?? { crew: 0, free: 0 };
+    return res.json({
+      itemId: item.id,
+      date: dateText,
+      directBooking: true,
+      available: crew.free > 0,
+      freeUnits: crew.free,
+      totalUnits: crew.crew,
+      ...(crew.crew === 0 ? { message: "No one on the crew has this skill yet." } : {}),
+    });
   }
 
   // An item with no units has no physical pieces to promise. Say so rather

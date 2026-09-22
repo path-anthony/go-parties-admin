@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { X } from "lucide-react";
-import { addBookingUnit, removeBookingUnit, setBookingAddons, updateBooking } from "../lib/api";
+import { addBookingUnit, removeBookingGig, removeBookingUnit, setBookingAddons, updateBooking } from "../lib/api";
 import { deltaLabel, describeAddon } from "../lib/addons";
 import { leadTitle } from "../lib/leads";
 import {
@@ -8,6 +8,7 @@ import {
   type AddonGroup,
   type Booking,
   type BookingAddon,
+  type BookingGig,
   type BookingPatch,
   type BookingStatus,
   type Item,
@@ -101,10 +102,16 @@ export function BookingModal({
   const heldItems = [...new Set(held.map((u) => u.itemId))]
     .map((id) => items.find((i) => i.id === id))
     .filter((i): i is Item => !!i);
-  const trackedItems = items.filter((item) => units.some((u) => u.itemId === item.id));
+  // What "add an item" can offer: physical items with units, and service
+  // items, which are covered by crew rather than units.
+  const trackedItems = items.filter((item) => item.requiredSkill !== null || units.some((u) => u.itemId === item.id));
+  const liveGigs = booking.gigs.filter((g) => g.status !== "Cancelled");
+  const gigItems = [...new Set(liveGigs.map((g) => g.itemId))]
+    .map((id) => items.find((i) => i.id === id))
+    .filter((i): i is Item => !!i);
   // Choices whose item is no longer on the booking's unit list at all (the
   // item was deleted, say) still get shown.
-  const looseAddons = booking.addons.filter((a) => !heldItems.some((i) => i.id === a.itemId));
+  const looseAddons = booking.addons.filter((a) => !heldItems.some((i) => i.id === a.itemId) && !gigItems.some((i) => i.id === a.itemId));
 
   return (
     <div className="modal-backdrop" onClick={onClose}>
@@ -226,7 +233,7 @@ export function BookingModal({
         <div className="modal-section">
           <span className="detail-field-label">Items and units</span>
           {cancelled && <p className="muted">A cancelled booking holds no units. Set it back to Confirmed to add some.</p>}
-          {!cancelled && heldItems.length === 0 && <p className="muted">No units on this booking yet.</p>}
+          {!cancelled && heldItems.length === 0 && liveGigs.length === 0 && <p className="muted">No items on this booking yet.</p>}
 
           {heldItems.map((item) => (
             <BookingItemCard
@@ -239,6 +246,31 @@ export function BookingModal({
               onSetAddons={(addonIds) => run(() => setBookingAddons(booking.id, item.id, addonIds))}
             />
           ))}
+
+          {gigItems.map((item) => (
+            <BookingItemCard
+              key={item.id}
+              item={item}
+              units={[]}
+              gigs={liveGigs.filter((g) => g.itemId === item.id)}
+              addons={booking.addons.filter((a) => a.itemId === item.id)}
+              busy={busy}
+              onRemoveUnit={() => {}}
+              onRemoveGig={(gigId) => run(() => removeBookingGig(booking.id, gigId))}
+              onSetAddons={(addonIds) => run(() => setBookingAddons(booking.id, item.id, addonIds))}
+            />
+          ))}
+          {liveGigs.some((g) => !gigItems.some((i) => i.id === g.itemId)) && (
+            <ul className="booking-addons">
+              {liveGigs
+                .filter((g) => !gigItems.some((i) => i.id === g.itemId))
+                .map((g) => (
+                  <li key={g.id}>
+                    {g.itemName} <span className="muted">· needs a {g.skill} · {g.status}</span>
+                  </li>
+                ))}
+            </ul>
+          )}
 
           {looseAddons.length > 0 && (
             <ul className="booking-addons">
@@ -262,6 +294,13 @@ export function BookingModal({
               <select value={addItemId} onChange={(e) => setAddItemId(e.target.value)} disabled={busy} aria-label="Item to add">
                 <option value="">Add an item for this date…</option>
                 {trackedItems.map((item) => {
+                  if (item.requiredSkill) {
+                    return (
+                      <option key={item.id} value={item.id}>
+                        {item.name} · crew, needs a {item.requiredSkill}
+                      </option>
+                    );
+                  }
                   const free = freeCount(item, date, units, bookings);
                   return (
                     <option key={item.id} value={item.id} disabled={free === 0}>
@@ -277,7 +316,8 @@ export function BookingModal({
           )}
           <p className="muted booking-help">
             Changing the date moves every item to a unit that's free on the new day, or changes nothing if one of them has
-            none. Adding an item takes whichever of its units is free on this date.
+            none. Adding an item takes whichever of its units is free on this date; a service item takes a gig for the crew
+            instead, if someone with the skill is free.
           </p>
         </div>
 
@@ -295,16 +335,20 @@ export function BookingModal({
 function BookingItemCard({
   item,
   units,
+  gigs = [],
   addons,
   busy,
   onRemoveUnit,
+  onRemoveGig,
   onSetAddons,
 }: {
   item: Item;
   units: Unit[];
+  gigs?: BookingGig[];
   addons: BookingAddon[];
   busy: boolean;
   onRemoveUnit: (unitId: string) => void;
+  onRemoveGig?: (gigId: string) => void;
   onSetAddons: (addonIds: string[]) => void;
 }) {
   const liveIds = new Set(item.addonGroups.flatMap((g) => g.addons.map((a) => a.id)));
@@ -328,6 +372,21 @@ function BookingItemCard({
         <span className="muted">{item.price !== null ? usd(Number(item.price)) : "TBD"}</span>
       </div>
       <div className="booking-units">
+        {gigs.map((gig) => (
+          <span key={gig.id} className="tag-chip">
+            {gig.filledBy ? `${gig.filledBy.name} (${gig.skill})` : `Needs a ${gig.skill}`}
+            <span className="muted"> · {gig.status}</span>
+            <button
+              type="button"
+              className="tag-chip-remove"
+              aria-label={`Remove the ${gig.skill} gig for ${item.name} from this booking`}
+              disabled={busy}
+              onClick={() => onRemoveGig?.(gig.id)}
+            >
+              <X size={11} />
+            </button>
+          </span>
+        ))}
         {units.map((unit) => (
           <span key={unit.id} className="tag-chip">
             {unit.label}

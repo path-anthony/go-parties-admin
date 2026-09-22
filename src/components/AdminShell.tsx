@@ -2,7 +2,7 @@ import { useState } from "react";
 import { AskGoPanel } from "./AskGoPanel";
 import { NavRail } from "./NavRail";
 import { LeadsScreen } from "./screens/LeadsScreen";
-import { EmptyScreen } from "./screens/EmptyScreen";
+import { CrewGigsScreen } from "./screens/CrewGigsScreen";
 import { InventoryScreen } from "./screens/InventoryScreen";
 import { OverviewScreen } from "./screens/OverviewScreen";
 import { PackagesScreen } from "./screens/PackagesScreen";
@@ -36,7 +36,7 @@ function ScreenBody({ screen }: { screen: ScreenKey }) {
     case "packages":
       return <PackagesScreen />;
     case "crew":
-      return <EmptyScreen title={SCREEN_TITLES[screen]} />;
+      return <CrewGigsScreen />;
   }
 }
 

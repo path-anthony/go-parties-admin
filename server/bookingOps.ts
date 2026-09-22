@@ -2,6 +2,7 @@ import { Prisma } from "../src/generated/prisma/client.js";
 import { describeAddon, resolveAddons } from "./addons.js";
 import { lockFreeUnit } from "./availability.js";
 import { prisma } from "./db.js";
+import { BOOKING_GIGS_SELECT, cancelGigs, createGig, moveGigs } from "./gigs.js";
 
 // Thrown inside a transaction when no unit of an item can be locked for a
 // date, so the whole transaction rolls back and nothing is left half done.
@@ -31,6 +32,7 @@ type Tx = Prisma.TransactionClient;
 const WITH_UNIT_DETAILS = {
   units: { include: { unit: { include: { item: { select: { id: true, name: true, price: true } } } } } },
   addons: { orderBy: { createdAt: "asc" } },
+  gigs: BOOKING_GIGS_SELECT,
 } as const;
 
 export type BookingWithUnits = Prisma.BookingGetPayload<{ include: typeof WITH_UNIT_DETAILS }>;
@@ -46,9 +48,12 @@ async function logActivity(tx: Tx, leadId: string | null, text: string) {
   if (leadId) await tx.leadActivity.create({ data: { leadId, text } });
 }
 
+// Cancelling releases the booking's units and cancels its gigs, so
+// neither a date nor a crew need is held for something not happening.
 export async function cancelBooking(bookingId: string, activity: string): Promise<BookingWithUnits> {
   return prisma.$transaction(async (tx) => {
     await releaseUnits(tx, bookingId);
+    await cancelGigs(tx, bookingId);
     const booking = await tx.booking.update({
       where: { id: bookingId },
       data: { status: "Cancelled" },
@@ -90,6 +95,9 @@ export async function rescheduleBooking(
           data: claimed.map((unitId) => ({ bookingId, unitId, eventDate: change.date as Date })),
         });
       }
+      // The booking's gigs move too, each checked for a free person on
+      // the new date; if any can't be covered the whole move is refused.
+      await moveGigs(tx, booking.accountId, bookingId, change.date);
       data.eventDate = change.date;
     }
 
@@ -103,19 +111,31 @@ export async function rescheduleBooking(
 // The new unit is locked first; only then are the old units released, so
 // a failure leaves the original booking exactly as it was. The linked
 // lead's occasion follows the new item.
+// A service item as the target takes a gig instead of a unit; the "unit"
+// handed back is then a placeholder labelled Crew, so callers that show a
+// label still have one.
 export async function changeBookingItem(
   bookingId: string,
-  item: { id: string; name: string },
+  item: { id: string; name: string; requiredSkill: string | null },
   activity: (booking: BookingWithUnits, unitLabel: string) => string,
-): Promise<{ booking: BookingWithUnits; unit: { id: string; label: string } }> {
+): Promise<{ booking: BookingWithUnits; unit: { id: string | null; label: string } }> {
   return prisma.$transaction(async (tx) => {
     const booking = await tx.booking.findUniqueOrThrow({ where: { id: bookingId }, include: WITH_UNIT_DETAILS });
     const dateText = booking.eventDate.toISOString().slice(0, 10);
-    const unit = await lockFreeUnit(tx, item.id, dateText);
-    if (!unit) throw new NoFreeUnit(item.name);
-
-    await releaseUnits(tx, bookingId);
-    await tx.bookingUnit.create({ data: { bookingId, unitId: unit.id, eventDate: booking.eventDate } });
+    let unit: { id: string | null; label: string };
+    if (item.requiredSkill !== null) {
+      await releaseUnits(tx, bookingId);
+      await cancelGigs(tx, bookingId);
+      await createGig(tx, { accountId: booking.accountId, bookingId, item: { ...item, requiredSkill: item.requiredSkill }, date: booking.eventDate });
+      unit = { id: null, label: "Crew" };
+    } else {
+      const locked = await lockFreeUnit(tx, item.id, dateText);
+      if (!locked) throw new NoFreeUnit(item.name);
+      unit = locked;
+      await releaseUnits(tx, bookingId);
+      await cancelGigs(tx, bookingId);
+      await tx.bookingUnit.create({ data: { bookingId, unitId: locked.id, eventDate: booking.eventDate } });
+    }
     // Add-on choices belong to the item they were made for. They go with
     // the old item, and what they added comes off the quoted total.
     if (booking.addons.length > 0) {
@@ -180,6 +200,56 @@ export async function addBookingUnit(
   });
 }
 
+// Adds one gig for a service item to a booking, the counterpart of
+// addBookingUnit: a free person with the skill is checked for under the
+// crew lock, or NoCrewFree means nothing was written.
+export async function addBookingGig(
+  bookingId: string,
+  item: { id: string; name: string; price: unknown; requiredSkill: string },
+): Promise<BookingWithUnits> {
+  return prisma.$transaction(async (tx) => {
+    const booking = await tx.booking.findUniqueOrThrow({ where: { id: bookingId }, include: WITH_UNIT_DETAILS });
+    if (booking.status === "Cancelled") {
+      throw new BookingEditError("A cancelled booking can't hold items. Set it back to Confirmed first.");
+    }
+    await createGig(tx, { accountId: booking.accountId, bookingId, item, date: booking.eventDate });
+    const itemAddons = booking.addons.filter((a) => a.itemId === item.id);
+    if (itemAddons.length > 0) {
+      await tx.bookingAddon.updateMany({ where: { bookingId, itemId: item.id }, data: { quantity: { increment: 1 } } });
+    }
+    const addonsPerUnit = itemAddons.reduce((sum, a) => sum + Number(a.priceDelta), 0);
+    await adjustTotal(tx, booking, (item.price === null ? 0 : Number(item.price)) + addonsPerUnit);
+    await logActivity(tx, booking.leadId, `Added ${item.name} (needs a ${item.requiredSkill}) to the booking from the admin.`);
+    return tx.booking.findUniqueOrThrow({ where: { id: bookingId }, include: WITH_UNIT_DETAILS });
+  });
+}
+
+// Takes a gig off a booking: the service item is no longer wanted. The
+// gig row and its offers go, the item's price comes off the total, and
+// add-on choices for the item shrink with it.
+export async function removeBookingGig(bookingId: string, gigId: string): Promise<BookingWithUnits> {
+  return prisma.$transaction(async (tx) => {
+    const booking = await tx.booking.findUniqueOrThrow({ where: { id: bookingId }, include: WITH_UNIT_DETAILS });
+    const gig = await tx.gig.findFirst({ where: { id: gigId, bookingId }, include: { filledBy: { select: { name: true } }, item: { select: { price: true } } } });
+    if (!gig) throw new BookingEditError("That gig isn't on this booking.");
+    const remaining = booking.gigs.filter((g) => g.itemId !== null && g.itemId === gig.itemId && g.status !== "Cancelled").length - 1;
+
+    await tx.gig.delete({ where: { id: gig.id } });
+    const itemAddons = gig.itemId ? booking.addons.filter((a) => a.itemId === gig.itemId) : [];
+    if (itemAddons.length > 0) {
+      if (remaining <= 0) await tx.bookingAddon.deleteMany({ where: { bookingId, itemId: gig.itemId as string } });
+      else await tx.bookingAddon.updateMany({ where: { bookingId, itemId: gig.itemId as string }, data: { quantity: { decrement: 1 } } });
+    }
+    const addonsPerUnit = itemAddons.reduce((sum, a) => sum + Number(a.priceDelta), 0);
+    if (gig.status !== "Cancelled") {
+      await adjustTotal(tx, booking, -((gig.item?.price == null ? 0 : Number(gig.item.price)) + addonsPerUnit));
+    }
+    const who = gig.filledBy ? `, which ${gig.filledBy.name} had accepted` : "";
+    await logActivity(tx, booking.leadId, `Removed ${gig.itemName} from the booking from the admin${who}.`);
+    return tx.booking.findUniqueOrThrow({ where: { id: bookingId }, include: WITH_UNIT_DETAILS });
+  });
+}
+
 // Takes one unit off a booking, which frees it for that date. Add-on
 // choices for the item shrink with it, and go entirely with its last unit.
 export async function removeBookingUnit(bookingId: string, unitId: string): Promise<BookingWithUnits> {
@@ -216,7 +286,9 @@ export async function setBookingItemAddons(
   const chosen = await resolveAddons([item], new Map([[item.id, addonIds]]), { enforceRequired: false });
   return prisma.$transaction(async (tx) => {
     const booking = await tx.booking.findUniqueOrThrow({ where: { id: bookingId }, include: WITH_UNIT_DETAILS });
-    const quantity = booking.units.filter((u) => u.unit.item.id === item.id).length;
+    const quantity =
+      booking.units.filter((u) => u.unit.item.id === item.id).length +
+      booking.gigs.filter((g) => g.itemId === item.id && g.status !== "Cancelled").length;
     if (quantity === 0) throw new BookingEditError(`${item.name} isn't on this booking.`);
 
     // Only what changed is touched. A choice that stays keeps the name and
@@ -255,10 +327,15 @@ export async function setBookingItemAddons(
   });
 }
 
+// The portal reads a booking's items off `units`, so a service item (a
+// gig, no physical unit) is listed there too with a null unitId and the
+// label "Crew", and again under `gigs` with its skill and status.
 export function serializeCustomerBooking(booking: BookingWithUnits) {
-  const { units, addons, customerId: _customerId, accountId: _accountId, ...rest } = booking;
+  const { units, addons, gigs, customerId: _customerId, accountId: _accountId, ...rest } = booking;
+  const liveGigs = gigs.filter((g) => g.status !== "Cancelled");
   return {
     ...rest,
+    gigs: liveGigs.map((g) => ({ id: g.id, itemId: g.itemId, itemName: g.itemName, skill: g.skill, status: g.status })),
     addons: addons.map((a) => ({
       itemId: a.itemId,
       itemName: a.itemName,
@@ -267,11 +344,14 @@ export function serializeCustomerBooking(booking: BookingWithUnits) {
       priceDelta: Number(a.priceDelta),
       quantity: a.quantity,
     })),
-    units: units.map((row) => ({
-      unitId: row.unit.id,
-      unitLabel: row.unit.label,
-      itemId: row.unit.item.id,
-      itemName: row.unit.item.name,
-    })),
+    units: [
+      ...units.map((row) => ({
+        unitId: row.unit.id as string | null,
+        unitLabel: row.unit.label,
+        itemId: row.unit.item.id as string | null,
+        itemName: row.unit.item.name,
+      })),
+      ...liveGigs.map((g) => ({ unitId: null, unitLabel: "Crew", itemId: g.itemId, itemName: g.itemName })),
+    ],
   };
 }

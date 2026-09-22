@@ -11,6 +11,8 @@ import { directBookingLimiter, externalLeadLimiter, recommendLimiter } from "./r
 import addonGroupsRouter from "./routes/addonGroups.js";
 import authRouter from "./routes/auth.js";
 import bookingsRouter from "./routes/bookings.js";
+import crewRouter from "./routes/crew.js";
+import gigsRouter from "./routes/gigs.js";
 import customerRouter from "./routes/customer.js";
 import directBookingsRouter from "./routes/directBookings.js";
 import externalLeadsRouter from "./routes/externalLeads.js";
@@ -89,6 +91,8 @@ app.use("/api/leads", requireAuth, leadsRouter);
 app.use("/api/lead-statuses", requireAuth, leadStatusesRouter);
 app.use("/api/units", requireAuth, unitsRouter);
 app.use("/api/addon-groups", requireAuth, addonGroupsRouter);
+app.use("/api/crew", requireAuth, crewRouter);
+app.use("/api/gigs", requireAuth, gigsRouter);
 app.use("/api/packages", publicPackagesRouter);
 app.use("/api/packages", requireAuth, packagesRouter);
 app.use("/api/bookings/direct", directBookingLimiter, directBookingsRouter);

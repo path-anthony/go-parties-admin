@@ -31,6 +31,10 @@ router.post("/", async (req, res) => {
   if (!item) {
     return res.status(400).json({ error: "itemId must be an item on this account" });
   }
+  // A service item is a person's time, tracked as crew, never as units.
+  if (item.requiredSkill !== null) {
+    return res.status(409).json({ error: `${item.name} needs a ${item.requiredSkill}; it's covered by crew, not units.` });
+  }
 
   const unit = await prisma.unit.create({ data: { itemId: item.id, label: labelText, status: status ?? "Available" } });
   res.status(201).json(unit);
@@ -77,9 +81,15 @@ router.post("/bulk", async (req, res) => {
   }
 
   const account = await getDefaultAccount();
-  const items = await prisma.item.findMany({ where: { id: { in: uniqueItemIds }, accountId: account.id }, select: { id: true } });
+  const items = await prisma.item.findMany({ where: { id: { in: uniqueItemIds }, accountId: account.id }, select: { id: true, name: true, requiredSkill: true } });
   if (items.length !== uniqueItemIds.length) {
     return res.status(400).json({ error: "itemIds must all be items on this account" });
+  }
+  const services = items.filter((item) => item.requiredSkill !== null);
+  if (services.length > 0) {
+    return res.status(409).json({
+      error: `${services.map((item) => item.name).join(", ")} ${services.length === 1 ? "is" : "are"} covered by crew, not units. Unselect ${services.length === 1 ? "it" : "them"} first.`,
+    });
   }
 
   const existing = await prisma.unit.findMany({ where: { itemId: { in: uniqueItemIds } }, select: { itemId: true, label: true } });

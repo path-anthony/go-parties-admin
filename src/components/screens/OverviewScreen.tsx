@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
-import { getItems, getLeadStatuses, getLeads } from "../../lib/api";
-import type { Item, Lead } from "../../lib/types";
+import { getGigs, getItems, getLeadStatuses, getLeads } from "../../lib/api";
+import type { Gig, Item, Lead } from "../../lib/types";
+import { formatEventDay } from "../../lib/gigs";
 
 type Stats = {
   total: number;
@@ -11,11 +12,7 @@ type Stats = {
   leadsByStage: { name: string; count: number }[];
 };
 
-const PLACEHOLDER_CARDS = [
-  { label: "Sales this month" },
-  { label: "Upcoming events (30d)" },
-  { label: "Bookings needing crew" },
-];
+const PLACEHOLDER_CARDS = [{ label: "Sales this month" }, { label: "Upcoming events (30d)" }];
 
 function computeItemStats(items: Item[]) {
   const priced = items.filter((item) => item.price !== null).length;
@@ -38,19 +35,22 @@ function computeLeadStats(leads: Lead[], stages: string[]) {
 
 export function OverviewScreen() {
   const [stats, setStats] = useState<Stats | null>(null);
+  // Gigs still needing someone, soonest first, for the crew card.
+  const [needsCrew, setNeedsCrew] = useState<Gig[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    Promise.all([getItems(), getLeads(), getLeadStatuses()])
-      .then(([items, leads, statuses]) =>
+    Promise.all([getItems(), getLeads(), getLeadStatuses(), getGigs("Needs Crew")])
+      .then(([items, leads, statuses, gigs]) => {
         setStats({
           ...computeItemStats(items),
           ...computeLeadStats(
             leads,
             statuses.map((row) => row.name),
           ),
-        }),
-      )
+        });
+        setNeedsCrew(gigs);
+      })
       .catch((err) => setError(err instanceof Error ? err.message : "Failed to load"));
   }, []);
 
@@ -87,6 +87,25 @@ export function OverviewScreen() {
             <div className="kpi-card">
               <span className="kpi-label">Leads captured (total)</span>
               <span className="kpi-value">{stats.leadsCaptured}</span>
+            </div>
+            <div className="kpi-card kpi-card-wide">
+              <span className="kpi-label">Bookings needing crew</span>
+              <span className="kpi-value">{needsCrew?.length ?? 0}</span>
+              {needsCrew && needsCrew.length > 0 && (
+                <ul className="kpi-list" aria-label="Gigs needing crew">
+                  {needsCrew.slice(0, 6).map((g) => (
+                    <li key={g.id}>
+                      <span className="kpi-list-when">{formatEventDay(g.eventDate)}</span> {g.booking.customerName}
+                      <span className="muted">
+                        {" "}
+                        · {g.itemName} · needs a {g.skill}
+                      </span>
+                    </li>
+                  ))}
+                  {needsCrew.length > 6 && <li className="muted">and {needsCrew.length - 6} more under Crew & Gigs</li>}
+                </ul>
+              )}
+              {needsCrew && needsCrew.length === 0 && <span className="muted kpi-note">Every booked service item has someone on it.</span>}
             </div>
             <div className="kpi-card kpi-card-wide">
               <span className="kpi-label">Leads by stage</span>

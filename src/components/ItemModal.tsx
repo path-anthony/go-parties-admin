@@ -14,6 +14,7 @@ import {
 } from "../lib/api";
 import { deltaLabel } from "../lib/addons";
 import { isUploadedPhoto } from "../lib/photo";
+import { SKILLS, type Skill } from "../lib/skills";
 import type { AddonGroup, Item, ItemDeleteResult, ItemUsage } from "../lib/types";
 import { AddItemForm } from "./AddItemForm";
 import { EditableCell } from "./EditableCell";
@@ -136,6 +137,24 @@ function ItemDetail({ item, onItemUpdated }: { item: Item; onItemUpdated: (item:
           onSave={(priceUnit) => save({ priceUnit })}
         />
       </div>
+      <label className="detail-field">
+        <span className="detail-field-label">Required skill</span>
+        <select
+          value={item.requiredSkill ?? ""}
+          aria-label={`Required skill for ${item.name}`}
+          onChange={(e) => save({ requiredSkill: e.target.value === "" ? null : (e.target.value as Skill) })}
+        >
+          <option value="">None, physical inventory (tracked as units)</option>
+          {SKILLS.map((skill) => (
+            <option key={skill} value={skill}>
+              {skill}
+            </option>
+          ))}
+        </select>
+        <span className="muted field-help">
+          A service item (a DJ, a photographer) is a person's time. It gets no units; booking it creates a gig for the crew.
+        </span>
+      </label>
       <div className="detail-field detail-field-span">
         <span className="detail-field-label">Notes</span>
         <EditableCell

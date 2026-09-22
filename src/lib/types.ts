@@ -1,3 +1,5 @@
+import type { GigStatus, OfferStatus, Skill } from "./skills";
+
 // One option inside a group. priceDelta is a serialized Decimal and can be
 // zero (a free choice) or negative (a downgrade).
 export type Addon = {
@@ -44,6 +46,9 @@ export type Item = {
   priceUnit: string | null;
   notes: string | null;
   photoUrl: string | null;
+  // Set on a service item (a DJ, a photographer): the crew skill it needs.
+  // Such an item has no units; it is booked as a gig against the crew.
+  requiredSkill: Skill | null;
   addonGroups: AddonGroup[];
   createdAt: string;
   updatedAt: string;
@@ -56,6 +61,71 @@ export type NewItem = {
   priceUnit: string;
   notes: string;
   photoUrl: string;
+};
+
+export type CrewMember = {
+  id: string;
+  accountId: string;
+  name: string;
+  phone: string | null;
+  email: string | null;
+  skills: Skill[];
+  active: boolean;
+  notes: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type CrewMemberInput = {
+  name: string;
+  phone: string;
+  email: string;
+  skills: Skill[];
+  active: boolean;
+  notes: string;
+};
+
+export type GigOffer = {
+  id: string;
+  gigId: string;
+  crewMemberId: string;
+  status: OfferStatus;
+  createdAt: string;
+  updatedAt: string;
+  crewMember: { id: string; name: string; phone: string | null; email: string | null; active: boolean };
+};
+
+// One person needed for one service item on one booking.
+export type Gig = {
+  id: string;
+  accountId: string;
+  bookingId: string;
+  itemId: string | null;
+  itemName: string;
+  skill: Skill;
+  eventDate: string; // serialized DATE
+  status: GigStatus;
+  filledById: string | null;
+  createdAt: string;
+  updatedAt: string;
+  booking: { id: string; customerName: string; eventDate: string; eventTime: string | null; status: BookingStatus; leadId: string | null };
+  filledBy: { id: string; name: string } | null;
+  offers: GigOffer[];
+};
+
+// The gig plus every active crew member with its skill.
+export type GigDetail = Gig & {
+  candidates: { id: string; name: string; phone: string | null; email: string | null }[];
+};
+
+// The slim gig view carried on an admin booking.
+export type BookingGig = {
+  id: string;
+  itemId: string | null;
+  itemName: string;
+  skill: Skill;
+  status: GigStatus;
+  filledBy: { id: string; name: string } | null;
 };
 
 // What deleting an item would touch. packages is every package, Draft or
@@ -234,6 +304,7 @@ export type Booking = {
   customerId: string | null; // set when booked from a customer account
   total: string | null; // what the customer was quoted, add-ons included
   addons: BookingAddon[];
+  gigs: BookingGig[];
   unitIds: string[];
   createdAt: string;
   updatedAt: string;

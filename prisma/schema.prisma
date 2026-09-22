@@ -22,8 +22,84 @@ model Account {
   bookings     Booking[]
   customers    Customer[]
   packages     Package[]
+  crewMembers  CrewMember[]
+  gigs         Gig[]
 
   @@map("accounts")
+}
+
+// A person who works events: a DJ, a photographer, a coordinator. Admin
+// managed only, no login. skills holds names from the fixed list in
+// server/skills.ts (plain strings validated at the API, like every other
+// fixed set here, so adding a skill is a code change, not a migration).
+// Deactivating keeps the row and its history; it just stops the person
+// being offered new gigs.
+model CrewMember {
+  id        String   @id @default(cuid())
+  accountId String   @map("account_id")
+  name      String
+  phone     String?
+  email     String?
+  skills    String[] @default([])
+  active    Boolean  @default(true)
+  notes     String?
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at")
+
+  account Account    @relation(fields: [accountId], references: [id])
+  filled  Gig[]      @relation("GigFilledBy")
+  offers  GigOffer[]
+
+  @@index([accountId, active])
+  @@map("crew_members")
+}
+
+// One person needed for one service item on one booking. Created
+// automatically when a booking takes an item with a required skill (one
+// gig per unit of it), cancelled with the booking, moved with the
+// booking's date. itemName is copied so the gig still reads right if the
+// item is renamed or deleted. status: Needs Crew, Offered, Filled,
+// Cancelled. filledById is the crew member whose offer was accepted.
+model Gig {
+  id         String   @id @default(cuid())
+  accountId  String   @map("account_id")
+  bookingId  String   @map("booking_id")
+  itemId     String?  @map("item_id")
+  itemName   String   @map("item_name")
+  skill      String
+  eventDate  DateTime @map("event_date") @db.Date
+  status     String   @default("Needs Crew")
+  filledById String?  @map("filled_by_id")
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @default(now()) @updatedAt @map("updated_at")
+
+  account  Account     @relation(fields: [accountId], references: [id])
+  booking  Booking     @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  item     Item?       @relation(fields: [itemId], references: [id], onDelete: SetNull)
+  filledBy CrewMember? @relation("GigFilledBy", fields: [filledById], references: [id], onDelete: SetNull)
+  offers   GigOffer[]
+
+  @@index([accountId, status])
+  @@index([bookingId])
+  @@index([accountId, skill, eventDate])
+  @@map("gigs")
+}
+
+// A gig put to one crew member. status: Sent, Accepted, Declined. Several
+// people can be offered the same gig; one accepted offer fills it.
+model GigOffer {
+  id           String   @id @default(cuid())
+  gigId        String   @map("gig_id")
+  crewMemberId String   @map("crew_member_id")
+  status       String   @default("Sent")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @default(now()) @updatedAt @map("updated_at")
+
+  gig        Gig        @relation(fields: [gigId], references: [id], onDelete: Cascade)
+  crewMember CrewMember @relation(fields: [crewMemberId], references: [id], onDelete: Cascade)
+
+  @@unique([gigId, crewMemberId])
+  @@map("gig_offers")
 }
 
 // The Leads board's columns, editable in Settings. Lead.status stores
@@ -121,12 +197,13 @@ model Booking {
   createdAt    DateTime @default(now()) @map("created_at")
   updatedAt    DateTime @default(now()) @updatedAt @map("updated_at")
 
-  account  Account       @relation(fields: [accountId], references: [id])
-  lead     Lead?         @relation(fields: [leadId], references: [id], onDelete: SetNull)
-  customer Customer?     @relation(fields: [customerId], references: [id], onDelete: SetNull)
-  package  Package?      @relation(fields: [packageId], references: [id], onDelete: SetNull)
+  account  Account        @relation(fields: [accountId], references: [id])
+  lead     Lead?          @relation(fields: [leadId], references: [id], onDelete: SetNull)
+  customer Customer?      @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  package  Package?       @relation(fields: [packageId], references: [id], onDelete: SetNull)
   units    BookingUnit[]
   addons   BookingAddon[]
+  gigs     Gig[]
 
   @@index([accountId, eventDate])
   @@index([leadId])
@@ -221,22 +298,28 @@ model BookingUnit {
 }
 
 model Item {
-  id        String   @id @default(cuid())
-  accountId String   @map("account_id")
-  name      String
-  category  String
-  price     Decimal? @db.Decimal(10, 2)
-  priceUnit String?  @map("price_unit")
-  notes     String?
-  photoUrl  String?  @map("photo_url")
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
+  id            String   @id @default(cuid())
+  accountId     String   @map("account_id")
+  name          String
+  category      String
+  price         Decimal? @db.Decimal(10, 2)
+  priceUnit     String?  @map("price_unit")
+  notes         String?
+  photoUrl      String?  @map("photo_url")
+  // Set on service items (a DJ, a photographer): a name from the fixed
+  // skill list. Such an item is a person's time, not a physical piece, so
+  // it is never given units; its availability is the crew with that
+  // skill, and booking it creates a Gig instead of holding a unit.
+  requiredSkill String?  @map("required_skill")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
 
   account       Account        @relation(fields: [accountId], references: [id])
   units         Unit[]
   packageItems  PackageItem[]
   addonGroups   AddonGroup[]
   bookingAddons BookingAddon[]
+  gigs          Gig[]
 
   @@index([accountId])
   @@map("items")

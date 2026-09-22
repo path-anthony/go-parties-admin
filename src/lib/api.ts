@@ -5,6 +5,10 @@ import type {
   BookingPatch,
   BulkUnitsRequest,
   BulkUnitsResult,
+  CrewMember,
+  CrewMemberInput,
+  Gig,
+  GigDetail,
   Item,
   ItemDeleteResult,
   ItemUsage,
@@ -70,7 +74,7 @@ export function createItem(item: NewItem): Promise<Item> {
   return fetch("/api/items", jsonRequest("POST", item)).then(asJson<Item>);
 }
 
-export type ItemPatch = Partial<Pick<Item, "name" | "category" | "priceUnit" | "notes" | "photoUrl">> & {
+export type ItemPatch = Partial<Pick<Item, "name" | "category" | "priceUnit" | "notes" | "photoUrl" | "requiredSkill">> & {
   price?: string | number | null;
 };
 
@@ -228,6 +232,40 @@ export function removeBookingUnit(id: string, unitId: string): Promise<Booking> 
 
 export function setBookingAddons(id: string, itemId: string, addonIds: string[]): Promise<Booking> {
   return fetch(`/api/bookings/${id}/addons`, jsonRequest("PUT", { itemId, addonIds })).then(asJson<Booking>);
+}
+
+export function getCrew(): Promise<CrewMember[]> {
+  return fetch("/api/crew").then(asJson<CrewMember[]>);
+}
+
+export function createCrewMember(input: CrewMemberInput): Promise<CrewMember> {
+  return fetch("/api/crew", jsonRequest("POST", input)).then(asJson<CrewMember>);
+}
+
+export function updateCrewMember(id: string, patch: Partial<CrewMemberInput>): Promise<CrewMember> {
+  return fetch(`/api/crew/${id}`, jsonRequest("PATCH", patch)).then(asJson<CrewMember>);
+}
+
+export function getGigs(status?: string): Promise<Gig[]> {
+  const query = status ? `?status=${encodeURIComponent(status)}` : "";
+  return fetch(`/api/gigs${query}`).then(asJson<Gig[]>);
+}
+
+export function getGig(id: string): Promise<GigDetail> {
+  return fetch(`/api/gigs/${id}`).then(asJson<GigDetail>);
+}
+
+// Records an offer to each crew member; nothing is sent anywhere yet.
+export function sendGigOffers(gigId: string, crewMemberIds: string[]): Promise<GigDetail & { offered: number; skipped: number }> {
+  return fetch(`/api/gigs/${gigId}/offers`, jsonRequest("POST", { crewMemberIds })).then(asJson<GigDetail & { offered: number; skipped: number }>);
+}
+
+export function updateGigOffer(gigId: string, offerId: string, status: "Accepted" | "Declined"): Promise<GigDetail> {
+  return fetch(`/api/gigs/${gigId}/offers/${offerId}`, jsonRequest("PATCH", { status })).then(asJson<GigDetail>);
+}
+
+export function removeBookingGig(id: string, gigId: string): Promise<Booking> {
+  return fetch(`/api/bookings/${id}/gigs/${gigId}`, jsonRequest("DELETE")).then(asJson<Booking>);
 }
 
 export function recommend(messages: AskGoMessage[], subOcc: string | null = null): Promise<RecommendResponse> {

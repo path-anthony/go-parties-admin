@@ -15,6 +15,7 @@ type PublicItemSource = {
   price: unknown;
   priceUnit: string | null;
   photoUrl: string | null;
+  requiredSkill: string | null;
   _count: { units: number };
   addonGroups: Parameters<typeof publicAddonGroups>[0];
 };
@@ -31,7 +32,9 @@ export function toPublicItem(item: PublicItemSource) {
     price: item.price === null ? null : Number(item.price),
     priceUnit: item.priceUnit,
     photoUrl: item.photoUrl,
-    hasUnits: item._count.units > 0,
+    // "Can be booked directly": a physical item with at least one unit, or
+    // a service item, which is booked against the crew rather than units.
+    hasUnits: item._count.units > 0 || item.requiredSkill !== null,
     addonGroups: publicAddonGroups(item.addonGroups),
   };
 }

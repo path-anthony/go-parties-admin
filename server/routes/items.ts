@@ -3,12 +3,13 @@ import { getDefaultAccount } from "../account.js";
 import { ADDON_GROUPS_INCLUDE } from "../addons.js";
 import { toCsv } from "../csv.js";
 import { prisma } from "../db.js";
+import { isSkill } from "../skills.js";
 
 const CSV_HEADERS = ["name", "category", "price", "price_unit", "notes", "photo_url"];
 
 const router = Router();
 
-const EDITABLE_FIELDS = ["name", "category", "price", "priceUnit", "notes", "photoUrl"] as const;
+const EDITABLE_FIELDS = ["name", "category", "price", "priceUnit", "notes", "photoUrl", "requiredSkill"] as const;
 type EditableField = (typeof EDITABLE_FIELDS)[number];
 
 function normalizeText(value: unknown): string | null {
@@ -39,7 +40,7 @@ function photoUrlTooLong(value: unknown): boolean {
 // - heldByBookings: Confirmed or Completed bookings holding one of this
 //   item's units. Deleting the item would cascade through its units and
 //   silently strip those bookings of what they hold, so the delete refuses
-//   while this is above zero.
+//   while this is above zero. A live gig for the item counts the same way.
 async function describeUsage(itemId: string) {
   const [packages, heldByBookings] = await Promise.all([
     prisma.package.findMany({
@@ -48,7 +49,10 @@ async function describeUsage(itemId: string) {
       orderBy: { name: "asc" },
     }),
     prisma.booking.count({
-      where: { status: { not: "Cancelled" }, units: { some: { unit: { itemId } } } },
+      where: {
+        status: { not: "Cancelled" },
+        OR: [{ units: { some: { unit: { itemId } } } }, { gigs: { some: { itemId, status: { not: "Cancelled" } } } }],
+      },
     }),
   ]);
   return {
@@ -159,6 +163,22 @@ router.patch("/:id", async (req, res) => {
         return res.status(400).json({ error: `${field} is required` });
       }
       data[field] = text;
+      continue;
+    }
+
+    // The skill an item needs, from the fixed list, or null for a
+    // physical item. Not allowed on an item that has units: it would be
+    // both a piece of inventory and a person, and availability would
+    // have to mean two things at once.
+    if (field === "requiredSkill") {
+      const skill = normalizeText(body.requiredSkill);
+      if (skill !== null && !isSkill(skill)) {
+        return res.status(400).json({ error: "requiredSkill must be one of the crew skills, or empty" });
+      }
+      if (skill !== null && (await prisma.unit.count({ where: { itemId: id } })) > 0) {
+        return res.status(409).json({ error: "This item has units, so it's physical inventory. Remove its units before giving it a required skill." });
+      }
+      data.requiredSkill = skill;
       continue;
     }
 

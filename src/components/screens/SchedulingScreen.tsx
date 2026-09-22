@@ -202,8 +202,9 @@ function BookingSummaryRow({
   onOpen: () => void;
 }) {
   const held = booking.unitIds.map((id) => units.find((u) => u.id === id)).filter((u): u is Unit => !!u);
-  const names = [...new Set(held.map((u) => itemsById.get(u.itemId)?.name ?? "Unknown item"))];
-  const count = held.length;
+  const liveGigs = booking.gigs.filter((g) => g.status !== "Cancelled");
+  const names = [...new Set([...held.map((u) => itemsById.get(u.itemId)?.name ?? "Unknown item"), ...liveGigs.map((g) => g.itemName)])];
+  const count = held.length + liveGigs.length;
 
   function handleKey(e: KeyboardEvent<HTMLTableRowElement>) {
     if (e.target !== e.currentTarget) return;
@@ -229,7 +230,7 @@ function BookingSummaryRow({
         <span className={booking.status === "Cancelled" ? "status-pill" : "status-pill status-pill-live"}>{booking.status}</span>
       </td>
       <td className={count === 0 ? "muted" : ""}>
-        {count === 0 ? "None" : `${count} ${count === 1 ? "unit" : "units"}`}
+        {count === 0 ? "None" : `${count} ${count === 1 ? "item" : "items"}`}
         {names.length > 0 && <span className="muted booking-item-names"> · {names.join(", ")}</span>}
         {booking.addons.length > 0 && (
           <span className="muted booking-item-names">

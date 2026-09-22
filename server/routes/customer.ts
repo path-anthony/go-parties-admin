@@ -19,6 +19,7 @@ import {
   setCustomerSession,
 } from "../customerAuth.js";
 import { prisma } from "../db.js";
+import { BOOKING_GIGS_SELECT, NoCrewFree } from "../gigs.js";
 import { customerActionLimiter, customerLoginLimiter, customerSignupLimiter } from "../rateLimit.js";
 import { INVALID, normalizeDate, normalizeText } from "../validate.js";
 
@@ -33,6 +34,7 @@ const router = Router();
 const WITH_UNIT_DETAILS = {
   units: { include: { unit: { include: { item: { select: { id: true, name: true } } } } } },
   addons: { orderBy: { createdAt: "asc" as const } },
+  gigs: BOOKING_GIGS_SELECT,
 } as const;
 
 router.post("/signup", customerSignupLimiter, async (req, res) => {
@@ -201,8 +203,8 @@ router.post("/bookings/:id/reschedule", requireCustomer, customerActionLimiter, 
     });
     res.json(serializeCustomerBooking(updated));
   } catch (err) {
-    if (err instanceof NoFreeUnit || (err as { code?: unknown }).code === "P2002") {
-      const itemName = err instanceof NoFreeUnit ? err.itemName : "that item";
+    if (err instanceof NoFreeUnit || err instanceof NoCrewFree || (err as { code?: unknown }).code === "P2002") {
+      const itemName = err instanceof NoFreeUnit || err instanceof NoCrewFree ? err.itemName : "that item";
       return res.status(409).json({
         error: `That date isn't available for ${itemName}. Your booking hasn't changed. Try another date.`,
         reason: "unavailable",
@@ -229,19 +231,21 @@ router.post("/bookings/:id/change-item", requireCustomer, customerActionLimiter,
   if (!item) {
     return res.status(404).json({ error: "item not found" });
   }
-  if (await prisma.unit.count({ where: { itemId: item.id } }) === 0) {
+  // A service item (a required skill) is booked as a gig and needs no
+  // units; anything else needs at least one unit to be promised.
+  if (item.requiredSkill === null && (await prisma.unit.count({ where: { itemId: item.id } })) === 0) {
     return res.status(409).json({ error: "That item isn't available for direct booking yet.", reason: "not-tracked" });
   }
 
   try {
     const { booking: updated, unit } = await changeBookingItem(
       booking.id,
-      { id: item.id, name: item.name },
+      { id: item.id, name: item.name, requiredSkill: item.requiredSkill },
       (b, unitLabel) => `Changed to ${item.name} (${unitLabel}) for ${b.eventDate.toISOString().slice(0, 10)} by the customer from their account.`,
     );
     res.json({ ...serializeCustomerBooking(updated), unit: { id: unit.id, label: unit.label } });
   } catch (err) {
-    if (err instanceof NoFreeUnit || (err as { code?: unknown }).code === "P2002") {
+    if (err instanceof NoFreeUnit || err instanceof NoCrewFree || (err as { code?: unknown }).code === "P2002") {
       return res.status(409).json({
         error: `${item.name} isn't available on that date. Your booking hasn't changed.`,
         reason: "unavailable",

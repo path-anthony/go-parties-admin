@@ -4,12 +4,15 @@ import { AddonSelectionError } from "../addons.js";
 import {
   BookingEditError,
   NoFreeUnit,
+  addBookingGig,
   addBookingUnit,
   releaseUnits,
+  removeBookingGig,
   removeBookingUnit,
   rescheduleBooking,
   setBookingItemAddons,
 } from "../bookingOps.js";
+import { BOOKING_GIGS_SELECT, NoCrewFree } from "../gigs.js";
 import { prisma } from "../db.js";
 import { INVALID, isOneOf, normalizeDate, normalizeText } from "../validate.js";
 
@@ -25,6 +28,7 @@ const WITH_UNITS = {
     select: { id: true, itemId: true, addonId: true, itemName: true, groupName: true, addonName: true, priceDelta: true, quantity: true },
     orderBy: { createdAt: "asc" as const },
   },
+  gigs: BOOKING_GIGS_SELECT,
 };
 const ORDER = [{ eventDate: "asc" as const }, { createdAt: "asc" as const }];
 
@@ -83,6 +87,10 @@ async function describeConflicts(unitIds: string[], date: Date, excludeBookingId
 // The same refusal the portal gives, worded for the admin: nothing moved.
 function noFreeUnitMessage(itemName: string, date: Date): string {
   return `${itemName} has no free unit on ${formatDay(date)}, so nothing was changed. Pick another date, or free up a unit first.`;
+}
+
+function noCrewMessage(itemName: string, date: Date): string {
+  return `Nobody on the crew is free to cover ${itemName} on ${formatDay(date)}, so nothing was changed. Pick another date, or add crew with that skill first.`;
 }
 
 const RACE_CONFLICT = "One of those units was just booked for that date by someone else. Pick another unit or date.";
@@ -285,6 +293,9 @@ router.patch("/:id", async (req, res) => {
       if (err instanceof NoFreeUnit) {
         return res.status(409).json({ error: noFreeUnitMessage(err.itemName, moveTo), reason: "unavailable" });
       }
+      if (err instanceof NoCrewFree) {
+        return res.status(409).json({ error: noCrewMessage(err.itemName, moveTo), reason: "unavailable" });
+      }
       if (isUniqueViolation(err)) {
         return res.status(409).json({ error: RACE_CONFLICT, reason: "unavailable" });
       }
@@ -296,6 +307,8 @@ router.patch("/:id", async (req, res) => {
   const ops = [];
   if (cancelling) {
     ops.push(releaseUnits(prisma, id));
+    // Its gigs are cancelled with it, so no crew need is left dangling.
+    ops.push(prisma.gig.updateMany({ where: { bookingId: id, status: { not: "Cancelled" } }, data: { status: "Cancelled" } }));
   } else if (unitIds !== null) {
     ops.push(prisma.bookingUnit.deleteMany({ where: { bookingId: id } }));
     if (unitIds.length > 0) {
@@ -337,16 +350,20 @@ router.post("/:id/units", async (req, res) => {
   const itemId = (req.body ?? {}).itemId;
   const item =
     typeof itemId === "string"
-      ? await prisma.item.findFirst({ where: { id: itemId, accountId: account.id }, select: { id: true, name: true, price: true } })
+      ? await prisma.item.findFirst({ where: { id: itemId, accountId: account.id }, select: { id: true, name: true, price: true, requiredSkill: true } })
       : null;
   if (!item) return res.status(404).json({ error: "item not found" });
 
   try {
-    await addBookingUnit(id, item);
+    // A service item takes a gig, checked against the crew; anything else
+    // takes a unit, locked the way a direct booking locks one.
+    if (item.requiredSkill !== null) await addBookingGig(id, { ...item, requiredSkill: item.requiredSkill });
+    else await addBookingUnit(id, item);
   } catch (err) {
-    if (err instanceof NoFreeUnit) {
+    if (err instanceof NoFreeUnit || err instanceof NoCrewFree) {
       const date = (await prisma.booking.findUniqueOrThrow({ where: { id }, select: { eventDate: true } })).eventDate;
-      return res.status(409).json({ error: noFreeUnitMessage(item.name, date), reason: "unavailable" });
+      const message = err instanceof NoFreeUnit ? noFreeUnitMessage(item.name, date) : noCrewMessage(item.name, date);
+      return res.status(409).json({ error: message, reason: "unavailable" });
     }
     if (err instanceof BookingEditError) return res.status(400).json({ error: err.message });
     if (isUniqueViolation(err)) return res.status(409).json({ error: RACE_CONFLICT, reason: "unavailable" });
@@ -361,6 +378,19 @@ router.delete("/:id/units/:unitId", async (req, res) => {
   if (!booking) return res.status(404).json({ error: "booking not found" });
   try {
     await removeBookingUnit(id, String(req.params.unitId));
+  } catch (err) {
+    if (err instanceof BookingEditError) return res.status(404).json({ error: err.message });
+    throw err;
+  }
+  await sendBooking(res, id);
+});
+
+router.delete("/:id/gigs/:gigId", async (req, res) => {
+  const id = String(req.params.id);
+  const { booking } = await findOwn(id);
+  if (!booking) return res.status(404).json({ error: "booking not found" });
+  try {
+    await removeBookingGig(id, String(req.params.gigId));
   } catch (err) {
     if (err instanceof BookingEditError) return res.status(404).json({ error: err.message });
     throw err;
