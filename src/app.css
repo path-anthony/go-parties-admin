@@ -2031,3 +2031,12 @@ select:focus {
 .kpi-note {
   font-size: 12px;
 }
+
+.admin-logout {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  font-size: 11.5px;
+}

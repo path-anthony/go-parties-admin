@@ -1,4 +1,6 @@
 import { useState } from "react";
+import { LogOut } from "lucide-react";
+import { AUTH_EXPIRED_EVENT, logout } from "../lib/api";
 import { AskGoPanel } from "./AskGoPanel";
 import { NavRail } from "./NavRail";
 import { LeadsScreen } from "./screens/LeadsScreen";
@@ -61,6 +63,18 @@ export function AdminShell() {
           </span>
           <span className="admin-topbar-divider">/</span>
           <span className="admin-topbar-title">{SCREEN_TITLES[screen]}</span>
+          <button
+            type="button"
+            className="btn-secondary admin-logout"
+            onClick={() =>
+              logout()
+                .catch(() => undefined)
+                // The gate listens for this and shows the login screen.
+                .finally(() => window.dispatchEvent(new Event(AUTH_EXPIRED_EVENT)))
+            }
+          >
+            <LogOut size={13} /> Log out
+          </button>
         </header>
         <div className="admin-content">
           <ScreenBody screen={screen} />

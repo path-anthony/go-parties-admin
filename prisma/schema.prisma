@@ -24,8 +24,32 @@ model Account {
   packages     Package[]
   crewMembers  CrewMember[]
   gigs         Gig[]
+  sessions     Session[]
 
   @@map("accounts")
+}
+
+// One signed-in session, admin or customer. The cookie carries only this
+// row's id (a random token, signed so it can't be tampered with in
+// transit), and every gated request looks the row up: a deleted row is a
+// revoked session, whatever the cookie still says and however long it has
+// left. Logout deletes the row; expired rows are swept on the next login.
+// kind is "admin" or "customer"; customerId is set only for the latter,
+// and a deleted customer takes their sessions with them.
+model Session {
+  id         String   @id
+  accountId  String   @map("account_id")
+  kind       String
+  customerId String?  @map("customer_id")
+  createdAt  DateTime @default(now()) @map("created_at")
+  expiresAt  DateTime @map("expires_at")
+
+  account  Account   @relation(fields: [accountId], references: [id])
+  customer Customer? @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@index([customerId])
+  @@index([expiresAt])
+  @@map("sessions")
 }
 
 // A person who works events: a DJ, a photographer, a coordinator. Admin
@@ -231,6 +255,7 @@ model Customer {
 
   account  Account   @relation(fields: [accountId], references: [id])
   bookings Booking[]
+  sessions Session[]
 
   @@unique([accountId, phone])
   @@unique([accountId, email])

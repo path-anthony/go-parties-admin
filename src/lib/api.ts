@@ -66,6 +66,12 @@ export async function login(password: string): Promise<{ ok: true }> {
   return body;
 }
 
+// Ends the session on the server (the row is deleted), then the gate
+// shows the login screen.
+export function logout(): Promise<{ ok: true }> {
+  return fetch("/api/auth/logout", jsonRequest("POST")).then(asJson<{ ok: true }>);
+}
+
 export function getItems(): Promise<Item[]> {
   return fetch("/api/items").then(asJson<Item[]>);
 }

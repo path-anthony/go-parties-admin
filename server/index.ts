@@ -31,8 +31,23 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DIST_DIR = path.join(__dirname, "..", "dist");
 
 if (!process.env.ADMIN_PASSWORD) {
-  console.error("ADMIN_PASSWORD is not set. Refusing to start — every session would be unforgeable to check.");
+  console.error("ADMIN_PASSWORD is not set. Refusing to start: there would be no password to check a login against.");
   process.exit(1);
+}
+// Cookies are signed with their own secret, never the admin password: a
+// leaked password must not let anyone forge a customer's session, and
+// rotating either value must not depend on the other. Missing means stop,
+// not fall back; equal to the password means the separation is fake.
+if (!process.env.COOKIE_SECRET) {
+  console.error("COOKIE_SECRET is not set. Refusing to start: session cookies need their own signing secret. Set it to a long random string.");
+  process.exit(1);
+}
+if (process.env.COOKIE_SECRET === process.env.ADMIN_PASSWORD) {
+  console.error("COOKIE_SECRET must not equal ADMIN_PASSWORD. Refusing to start: a leaked password would forge every session.");
+  process.exit(1);
+}
+if (process.env.COOKIE_SECRET.length < 32) {
+  console.warn("[startup] COOKIE_SECRET is shorter than 32 characters; a longer random value is recommended.");
 }
 
 const app = express();
@@ -68,8 +83,10 @@ app.use("/api", (req, res, next) => {
 // src/lib/photo.ts), so a PATCH can carry a few hundred KB. The default
 // 100kb limit would reject them.
 app.use(express.json({ limit: "4mb" }));
-// Signing secret is ADMIN_PASSWORD itself — see server/auth.ts.
-app.use(cookieParser(process.env.ADMIN_PASSWORD));
+// One signing secret for both the admin and the customer cookie; what each
+// cookie carries is a session id checked against the sessions table on
+// every gated request (see server/sessions.ts).
+app.use(cookieParser(process.env.COOKIE_SECRET));
 
 // Everything below requires a session except:
 // - /api/auth: you need to reach login while logged out.

@@ -10,13 +10,13 @@ import {
   serializeCustomerBooking,
 } from "../bookingOps.js";
 import {
-  clearCustomerSession,
+  endCustomerSession,
   normalizeEmail,
   normalizePhone,
   passwordProblem,
   publicCustomer,
   requireCustomer,
-  setCustomerSession,
+  startCustomerSession,
 } from "../customerAuth.js";
 import { prisma } from "../db.js";
 import { BOOKING_GIGS_SELECT, NoCrewFree } from "../gigs.js";
@@ -79,7 +79,7 @@ router.post("/signup", customerSignupLimiter, async (req, res) => {
     throw err;
   }
 
-  setCustomerSession(res, customer.id);
+  await startCustomerSession(res, customer.id);
   res.status(201).json({ customer: publicCustomer(customer) });
 });
 
@@ -105,12 +105,14 @@ router.post("/login", customerLoginLimiter, async (req, res) => {
     return res.status(401).json({ error: BAD_LOGIN });
   }
 
-  setCustomerSession(res, customer.id);
+  await startCustomerSession(res, customer.id);
   res.json({ customer: publicCustomer(customer) });
 });
 
-router.post("/logout", (_req, res) => {
-  clearCustomerSession(res);
+// Deletes the session row behind this cookie, so a copy of the cookie
+// stops working too, then clears the cookie.
+router.post("/logout", async (req, res) => {
+  await endCustomerSession(req, res);
   res.json({ ok: true });
 });
 
