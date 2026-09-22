@@ -1427,6 +1427,12 @@ select:focus {
   color: var(--good);
 }
 
+.lead-source-concierge {
+  background: var(--charcoal);
+  border-color: transparent;
+  color: var(--white);
+}
+
 .lead-time {
   font-size: 11px;
   white-space: nowrap;

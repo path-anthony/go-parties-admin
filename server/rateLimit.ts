@@ -23,6 +23,16 @@ export const directBookingLimiter = rateLimit({
   message: { error: "Too many requests. Try again in a few minutes." },
 });
 
+// POST /api/leads/concierge is public and writes a Lead per call, so it
+// gets the same tight per-IP cap as direct booking, in its own bucket.
+export const conciergeLeadLimiter = rateLimit({
+  windowMs: 10 * 60 * 1000, // 10 minutes
+  limit: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many requests. Try again in a few minutes." },
+});
+
 // GET /api/items/:id/availability is public and read-only; a storefront
 // date picker may call it once per date the customer hovers, so it's loose.
 export const availabilityLimiter = rateLimit({

@@ -28,10 +28,12 @@ type LeadItem = { id: string; name: string; category: string; price: number | nu
 // awaited on the response path, and errors are swallowed (logged, not
 // thrown): a slow or failed insert must not add latency or block the
 // customer's answer.
-function logLead(accountId: string, theme: string, items: LeadItem[], total: number) {
+function logLead(accountId: string, theme: string, items: LeadItem[], total: number, suggestConcierge = false) {
   getDefaultStatus(accountId)
     .then((status) =>
-      prisma.lead.create({ data: { accountId, source: "ask-go", status, theme, itemsReturned: { items, total } } }),
+      prisma.lead.create({
+        data: { accountId, source: "ask-go", status, theme, itemsReturned: { items, total, suggestConcierge } },
+      }),
     )
     .catch((err: unknown) => {
       console.error("[lead] failed to log lead:", err);
@@ -84,6 +86,14 @@ const RESPOND_TOOL: Anthropic.Tool = {
           "missing signal (occasion, guest count, or budget, in that order). If ready is true: a short " +
           "closing line, 1-3 sentences, on why these items fit.",
       },
+      suggest_concierge: {
+        type: "boolean",
+        description:
+          "True when this party would be better served by a planning call with a real person than by a cart: " +
+          "a wedding, a large guest count (roughly 100 or more), or a total well above a typical booking " +
+          "(several thousand dollars). It is a nudge, not a gate: still give the full recommendation. False " +
+          "for an ordinary party and whenever ready is false.",
+      },
       item_ids: {
         type: "array",
         items: { type: "string" },
@@ -94,7 +104,7 @@ const RESPOND_TOOL: Anthropic.Tool = {
           "a safe middle. Leave empty when ready is false.",
       },
     },
-    required: ["ready", "message", "item_ids"],
+    required: ["ready", "message", "item_ids", "suggest_concierge"],
   },
 };
 
@@ -131,7 +141,7 @@ router.post("/", async (req, res) => {
 
   if (catalogItems.length === 0) {
     logLead(account.id, theme, [], 0);
-    return res.json({ ready: true, message: "No priced items in the catalog yet.", items: [], total: 0 });
+    return res.json({ ready: true, message: "No priced items in the catalog yet.", items: [], total: 0, suggestConcierge: false });
   }
 
   const catalogText = catalogItems
@@ -167,6 +177,10 @@ router.post("/", async (req, res) => {
     "are details you can reasonably assume or the customer can adjust later, not a reason to hold back a " +
     "recommendation. Ask at most one clarifying question per turn, for exactly one missing signal, never a " +
     "list of questions. Recommend at most 20 items.\n\n" +
+    "Concierge: GO also offers a planning call with a real person. When you are ready and the party is a wedding, " +
+    "has a large guest count (roughly 100 or more), or comes to a total well above a typical booking (several " +
+    "thousand dollars), set suggest_concierge true alongside your normal recommendation. It's a nudge for the " +
+    "storefront to offer the call, not a reason to hold back items or to mention it in your message.\n\n" +
     "Voice: short, sure, chill. 1-3 sentences. No exclamation points, no emoji, no 'Great question', no hype " +
     "words ('unforgettable', 'elevate', 'seamless', 'magical'). Matter-of-fact, then a little warmth. No em " +
     "dashes, use a period or comma instead.\n\n" +
@@ -180,6 +194,7 @@ router.post("/", async (req, res) => {
   let ready = false;
   let message = "";
   let requestedIds: string[] = [];
+  let suggestConcierge = false;
 
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
     const response = await anthropic.messages.create({
@@ -200,8 +215,9 @@ router.post("/", async (req, res) => {
       continue;
     }
 
-    const input = toolUse.input as { ready?: unknown; message?: unknown; item_ids?: unknown };
+    const input = toolUse.input as { ready?: unknown; message?: unknown; item_ids?: unknown; suggest_concierge?: unknown };
     ready = input.ready === true;
+    suggestConcierge = input.suggest_concierge === true;
     message = typeof input.message === "string" ? input.message : "";
     requestedIds = Array.isArray(input.item_ids)
       ? input.item_ids.filter((id): id is string => typeof id === "string").slice(0, MAX_RECOMMENDED_ITEMS)
@@ -224,7 +240,7 @@ router.post("/", async (req, res) => {
   }
 
   if (!ready) {
-    return res.json({ ready: false, message });
+    return res.json({ ready: false, message, suggestConcierge: false });
   }
 
   const catalogById = new Map(catalogItems.map((item: Item) => [item.id, item]));
@@ -239,7 +255,7 @@ router.post("/", async (req, res) => {
 
   const total = recommended.reduce((sum, item) => sum + Number(item.price), 0);
 
-  logLead(account.id, theme, toLeadItems(recommended), total);
+  logLead(account.id, theme, toLeadItems(recommended), total, suggestConcierge);
 
   // The full rows were loaded because the prompt needs the notes. What
   // goes back to the customer is the same allowlist the public catalog
@@ -247,7 +263,9 @@ router.post("/", async (req, res) => {
   // been chosen yet.
   const items = recommended.map(toPublicItem);
 
-  res.json({ ready: true, message, items, total });
+  // suggestConcierge is a signal for the storefront to offer a planning
+  // call; it never changes what is recommended.
+  res.json({ ready: true, message, items, total, suggestConcierge });
 });
 
 export default router;

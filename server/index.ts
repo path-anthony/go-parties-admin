@@ -7,10 +7,11 @@ import cors from "cors";
 import express, { type ErrorRequestHandler } from "express";
 import { requireAuth } from "./auth.js";
 import { isOriginAllowed } from "./cors.js";
-import { directBookingLimiter, externalLeadLimiter, recommendLimiter } from "./rateLimit.js";
+import { conciergeLeadLimiter, directBookingLimiter, externalLeadLimiter, recommendLimiter } from "./rateLimit.js";
 import addonGroupsRouter from "./routes/addonGroups.js";
 import authRouter from "./routes/auth.js";
 import bookingsRouter from "./routes/bookings.js";
+import conciergeLeadsRouter from "./routes/conciergeLeads.js";
 import crewRouter from "./routes/crew.js";
 import gigsRouter from "./routes/gigs.js";
 import customerRouter from "./routes/customer.js";
@@ -79,6 +80,9 @@ app.use(cookieParser(process.env.ADMIN_PASSWORD));
 // - /api/leads/external: n8n posting website leads, authenticated by a
 //   shared secret header instead of a cookie (see server/webhookAuth.ts).
 //   Mounted before /api/leads so the session gate never sees it.
+// - /api/leads/concierge: the storefront logging a "talk to a person"
+//   request before sending the customer to Calendly. Public and rate
+//   limited like direct booking, mounted ahead of the gate the same way.
 // - GET /api/items/:id/availability and POST /api/bookings/direct: the
 //   storefront's direct single-item booking, public like /api/recommend and
 //   rate limited. Each is mounted ahead of the gated router for its path
@@ -87,6 +91,7 @@ app.use("/api/auth", authRouter);
 app.use("/api/items", publicItemsRouter);
 app.use("/api/items", requireAuth, itemsRouter);
 app.use("/api/leads/external", externalLeadLimiter, requireWebhookSecret, externalLeadsRouter);
+app.use("/api/leads/concierge", conciergeLeadLimiter, conciergeLeadsRouter);
 app.use("/api/leads", requireAuth, leadsRouter);
 app.use("/api/lead-statuses", requireAuth, leadStatusesRouter);
 app.use("/api/units", requireAuth, unitsRouter);

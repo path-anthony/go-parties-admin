@@ -160,13 +160,13 @@ export type RecommendItem = {
 };
 
 export type RecommendResponse =
-  | { ready: false; message: string }
-  | { ready: true; message: string; items: RecommendItem[]; total: number };
+  | { ready: false; message: string; suggestConcierge: false }
+  | { ready: true; message: string; items: RecommendItem[]; total: number; suggestConcierge: boolean };
 
 // The name of a LeadStatusRow. Columns are configurable in Settings, so
 // this is a plain string, not a fixed union.
 export type LeadStatus = string;
-export type LeadSource = "ask-go" | "manual" | "website" | "storefront";
+export type LeadSource = "ask-go" | "manual" | "website" | "storefront" | "concierge";
 
 export type LeadStatusRow = {
   id: string;
@@ -179,6 +179,8 @@ export type LeadStatusRow = {
 export type LeadItems = {
   items: { id: string; name: string; category: string; price: number | null; priceUnit: string | null }[];
   total: number;
+  // Ask GO thought this party warranted a planning call. Absent on older leads.
+  suggestConcierge?: boolean;
 };
 
 export type Lead = {
