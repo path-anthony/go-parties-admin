@@ -7,6 +7,7 @@ export const SKILLS = [
   "Day-of Coordinator",
   "Waitstaff",
   "Bartender",
+  "Live Musician",
 ] as const;
 export type Skill = (typeof SKILLS)[number];
 
