@@ -58,6 +58,22 @@ export type NewItem = {
   photoUrl: string;
 };
 
+// What deleting an item would touch. packages is every package, Draft or
+// Published, that lists it, with how many distinct items each holds (so a
+// count of 1 means the package would be left empty). heldByBookings is the
+// number of Confirmed or Completed bookings holding one of the item's
+// units; the delete is refused while that is above zero.
+export type ItemUsage = {
+  packages: { id: string; name: string; status: PackageStatus; itemCount: number }[];
+  heldByBookings: number;
+};
+
+export type ItemDeleteResult = {
+  ok: true;
+  removedFrom: { id: string; name: string }[];
+  unpublished: { id: string; name: string }[];
+};
+
 export type AskGoMessage = { role: "user" | "assistant"; content: string };
 
 // An item as customers see it: the same allowlist the public catalog uses.

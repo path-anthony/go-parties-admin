@@ -33,6 +33,20 @@ export const availabilityLimiter = rateLimit({
   message: { error: "Too many requests. Try again in a minute." },
 });
 
+// The admin login is one shared password behind everything else in the
+// admin, so it gets the same cap as the customer login: 5 failed attempts
+// per 15 minutes per IP. Successful logins don't count, so a typo on the
+// first try isn't punished, and a locked-out IP gets a clear message rather
+// than a generic 401.
+export const adminLoginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 5,
+  skipSuccessfulRequests: true,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many failed login attempts from this connection. Try again in 15 minutes." },
+});
+
 // Customer login is a public password endpoint, so it's the strictest cap
 // here: 5 failed attempts per 15 minutes per IP. Successful logins don't
 // count, so a customer who gets it right on the third try isn't punished.

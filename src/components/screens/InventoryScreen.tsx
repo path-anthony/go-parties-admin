@@ -1,7 +1,7 @@
 import { type FormEvent, useEffect, useState } from "react";
 import { Plus } from "lucide-react";
 import { createUnitsBulk, getItems, getUnits } from "../../lib/api";
-import { UNIT_STATUSES, type Item, type Unit, type UnitStatus } from "../../lib/types";
+import { UNIT_STATUSES, type Item, type ItemDeleteResult, type Unit, type UnitStatus } from "../../lib/types";
 import { ItemModal } from "../ItemModal";
 import { ItemsTable } from "../ItemsTable";
 
@@ -11,6 +11,25 @@ function matches(item: Item, query: string, category: string): boolean {
   if (category !== ALL_CATEGORIES && item.category !== category) return false;
   if (query === "") return true;
   return item.name.toLowerCase().includes(query) || (item.notes ?? "").toLowerCase().includes(query);
+}
+
+const names = (rows: { name: string }[]) => rows.map((row) => row.name).join(", ");
+
+// One plain sentence about what a delete did, for the line above the list.
+function describeDelete(item: Item, result: ItemDeleteResult): string {
+  const parts = [`Deleted ${item.name}.`];
+  if (result.removedFrom.length > 0) {
+    parts.push(
+      `Removed it from ${result.removedFrom.length === 1 ? "the package" : "packages"} ${names(result.removedFrom)}.`,
+    );
+  }
+  if (result.unpublished.length > 0) {
+    parts.push(
+      `${names(result.unpublished)} ${result.unpublished.length === 1 ? "was" : "were"} left with no items and ` +
+        `${result.unpublished.length === 1 ? "is" : "are"} now unpublished, kept as a draft.`,
+    );
+  }
+  return parts.join(" ");
 }
 
 export function InventoryScreen() {
@@ -24,7 +43,8 @@ export function InventoryScreen() {
   const [category, setCategory] = useState(ALL_CATEGORIES);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [bulkOpen, setBulkOpen] = useState(false);
-  const [bulkResult, setBulkResult] = useState<string | null>(null);
+  // One line about the last bulk add or delete, shown above the list.
+  const [notice, setNotice] = useState<string | null>(null);
 
   useEffect(() => {
     Promise.all([getItems(), getUnits()])
@@ -37,6 +57,21 @@ export function InventoryScreen() {
 
   function handleItemUpdated(updated: Item) {
     setItems((prev) => (prev ?? []).map((item) => (item.id === updated.id ? updated : item)));
+  }
+
+  // The item is gone from the server; drop it here too, along with its
+  // units and any selection of it, close the popup, and say what happened.
+  function handleItemDeleted(item: Item, result: ItemDeleteResult) {
+    setItems((prev) => (prev ?? []).filter((row) => row.id !== item.id));
+    setUnits((prev) => prev.filter((unit) => unit.itemId !== item.id));
+    setSelected((prev) => {
+      if (!prev.has(item.id)) return prev;
+      const next = new Set(prev);
+      next.delete(item.id);
+      return next;
+    });
+    setModal(null);
+    setNotice(describeDelete(item, result));
   }
 
   function toggleSelect(id: string, checked: boolean) {
@@ -72,7 +107,7 @@ export function InventoryScreen() {
 
   async function handleBulkCreated(created: number, itemCount: number) {
     setUnits(await getUnits());
-    setBulkResult(`Created ${created} ${created === 1 ? "unit" : "units"} across ${itemCount} ${itemCount === 1 ? "item" : "items"}.`);
+    setNotice(`Created ${created} ${created === 1 ? "unit" : "units"} across ${itemCount} ${itemCount === 1 ? "item" : "items"}.`);
     setSelected(new Set());
     setBulkOpen(false);
   }
@@ -157,7 +192,11 @@ export function InventoryScreen() {
             onCancel={() => setBulkOpen(false)}
           />
         )}
-        {bulkResult && <p className="bulk-result">{bulkResult}</p>}
+        {notice && (
+          <p className="bulk-result" role="status">
+            {notice}
+          </p>
+        )}
 
         {error && <p className="form-error">{error}</p>}
         {!items && !error && <p className="muted">Loading…</p>}
@@ -181,6 +220,7 @@ export function InventoryScreen() {
           onClose={() => setModal(null)}
           onCreated={handleAdded}
           onItemUpdated={handleItemUpdated}
+          onDeleted={handleItemDeleted}
         />
       )}
     </div>

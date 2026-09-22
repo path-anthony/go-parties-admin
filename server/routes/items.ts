@@ -30,6 +30,33 @@ function photoUrlTooLong(value: unknown): boolean {
   return typeof value === "string" && value.length > MAX_PHOTO_URL_LENGTH;
 }
 
+// Everything that would be affected by deleting an item, so the admin can
+// be told before it happens and the delete itself can refuse when it must.
+//
+// - packages: every package (Draft or Published) that lists the item, with
+//   how many distinct items it holds, so the caller can see which ones
+//   would be left empty.
+// - heldByBookings: Confirmed or Completed bookings holding one of this
+//   item's units. Deleting the item would cascade through its units and
+//   silently strip those bookings of what they hold, so the delete refuses
+//   while this is above zero.
+async function describeUsage(itemId: string) {
+  const [packages, heldByBookings] = await Promise.all([
+    prisma.package.findMany({
+      where: { items: { some: { itemId } } },
+      select: { id: true, name: true, status: true, _count: { select: { items: true } } },
+      orderBy: { name: "asc" },
+    }),
+    prisma.booking.count({
+      where: { status: { not: "Cancelled" }, units: { some: { unit: { itemId } } } },
+    }),
+  ]);
+  return {
+    packages: packages.map((pkg) => ({ id: pkg.id, name: pkg.name, status: pkg.status, itemCount: pkg._count.items })),
+    heldByBookings,
+  };
+}
+
 router.get("/", async (_req, res) => {
   const account = await getDefaultAccount();
   const items = await prisma.item.findMany({
@@ -99,10 +126,11 @@ router.post("/", async (req, res) => {
 });
 
 router.patch("/:id", async (req, res) => {
-  const { id } = req.params;
+  const id = String(req.params.id);
   const body = req.body ?? {};
 
-  const existing = await prisma.item.findUnique({ where: { id } });
+  const account = await getDefaultAccount();
+  const existing = await prisma.item.findFirst({ where: { id, accountId: account.id } });
   if (!existing) {
     return res.status(404).json({ error: "item not found" });
   }
@@ -139,6 +167,79 @@ router.patch("/:id", async (req, res) => {
 
   const item = await prisma.item.update({ where: { id }, data, include: ADDON_GROUPS_INCLUDE });
   res.json(item);
+});
+
+// What deleting this item would touch, for the confirmation step. Read
+// only; nothing changes here.
+router.get("/:id/usage", async (req, res) => {
+  const id = String(req.params.id);
+  const account = await getDefaultAccount();
+  const item = await prisma.item.findFirst({ where: { id, accountId: account.id }, select: { id: true } });
+  if (!item) {
+    return res.status(404).json({ error: "item not found" });
+  }
+  res.json(await describeUsage(id));
+});
+
+// A real delete. The database cascades the item's units, add-on groups and
+// package rows, and that cascade is exactly what has to be handled with
+// care:
+//
+// - If any Confirmed or Completed booking holds one of the item's units,
+//   the delete is refused (409): cascading would silently release those
+//   units and leave real bookings holding nothing.
+// - Every package that listed the item loses it. A Published package that
+//   is left with no items at all is set back to Draft in the same
+//   transaction, so nothing empty stays on the storefront. Packages that
+//   still have other items stay as they are, Published or not.
+// - Bookings that chose one of this item's add-ons keep their copy of the
+//   names and price (BookingAddon.itemId becomes null), so the record of
+//   what was sold is untouched.
+//
+// The response says what happened so the admin can be told plainly.
+router.delete("/:id", async (req, res) => {
+  const id = String(req.params.id);
+  const account = await getDefaultAccount();
+  const item = await prisma.item.findFirst({ where: { id, accountId: account.id }, select: { id: true, name: true } });
+  if (!item) {
+    return res.status(404).json({ error: "item not found" });
+  }
+
+  const usage = await describeUsage(id);
+  if (usage.heldByBookings > 0) {
+    return res.status(409).json({
+      error:
+        `${item.name} is on ${usage.heldByBookings} ${usage.heldByBookings === 1 ? "booking that isn't" : "bookings that aren't"} ` +
+        "cancelled. Remove it from those bookings first, or cancel them, then delete the item.",
+      reason: "in-use",
+      heldByBookings: usage.heldByBookings,
+    });
+  }
+
+  const result = await prisma.$transaction(async (tx) => {
+    await tx.item.delete({ where: { id } });
+
+    // The cascade has already removed this item's package rows. Any
+    // affected package that was Published and now holds nothing comes off
+    // the storefront. Counted after the delete, inside the transaction, so
+    // it reflects exactly what the cascade left behind.
+    const unpublished: { id: string; name: string }[] = [];
+    for (const pkg of usage.packages) {
+      if (pkg.status !== "Published") continue;
+      const remaining = await tx.packageItem.count({ where: { packageId: pkg.id } });
+      if (remaining === 0) {
+        await tx.package.update({ where: { id: pkg.id }, data: { status: "Draft" } });
+        unpublished.push({ id: pkg.id, name: pkg.name });
+      }
+    }
+    return { unpublished };
+  });
+
+  res.json({
+    ok: true,
+    removedFrom: usage.packages.map((pkg) => ({ id: pkg.id, name: pkg.name })),
+    unpublished: result.unpublished,
+  });
 });
 
 export default router;

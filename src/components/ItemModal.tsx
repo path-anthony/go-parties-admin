@@ -5,6 +5,8 @@ import {
   createAddonGroup,
   deleteAddon,
   deleteAddonGroup,
+  deleteItem,
+  getItemUsage,
   updateAddon,
   updateAddonGroup,
   updateItem,
@@ -12,7 +14,7 @@ import {
 } from "../lib/api";
 import { deltaLabel } from "../lib/addons";
 import { isUploadedPhoto } from "../lib/photo";
-import type { AddonGroup, Item } from "../lib/types";
+import type { AddonGroup, Item, ItemDeleteResult, ItemUsage } from "../lib/types";
 import { AddItemForm } from "./AddItemForm";
 import { EditableCell } from "./EditableCell";
 import { PhotoDropZone } from "./PhotoDropZone";
@@ -28,11 +30,13 @@ export function ItemModal({
   onClose,
   onCreated,
   onItemUpdated,
+  onDeleted,
 }: {
   item: Item | null;
   onClose: () => void;
   onCreated: (item: Item) => void;
   onItemUpdated: (item: Item) => void;
+  onDeleted: (item: Item, result: ItemDeleteResult) => void;
 }) {
   useEffect(() => {
     function onKey(e: globalThis.KeyboardEvent) {
@@ -71,10 +75,13 @@ export function ItemModal({
             <ItemDetail item={item} onItemUpdated={onItemUpdated} />
             <AddonsSection item={item} onItemUpdated={onItemUpdated} />
             <div className="modal-foot">
-              <span className="muted">Changes save as you go.</span>
-              <button type="button" className="btn-primary" onClick={onClose}>
-                Done
-              </button>
+              <div className="form-actions">
+                <button type="button" className="btn-primary" onClick={onClose}>
+                  Done
+                </button>
+                <span className="muted">Changes save as you go.</span>
+              </div>
+              <DeleteItemControl item={item} onDeleted={onDeleted} />
             </div>
           </>
         ) : (
@@ -190,6 +197,118 @@ function PhotoField({ item, onSave }: { item: Item; onSave: (patch: ItemPatch) =
       </div>
       {error && <p className="form-error">{error}</p>}
     </>
+  );
+}
+
+// Deleting an item is a real delete, so it goes through a confirmation
+// that says exactly what it will touch: every package that lists the item
+// (Draft or Published), which of those would be left empty and so taken
+// off the storefront, and whether live bookings hold the item's units, in
+// which case the server refuses and this says so instead of offering a
+// confirm button. The usage is fetched fresh when the confirmation opens,
+// not guessed from what the screen has loaded.
+function DeleteItemControl({ item, onDeleted }: { item: Item; onDeleted: (item: Item, result: ItemDeleteResult) => void }) {
+  const [usage, setUsage] = useState<ItemUsage | null>(null);
+  const [open, setOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function openConfirmation() {
+    setBusy(true);
+    setError(null);
+    try {
+      setUsage(await getItemUsage(item.id));
+      setOpen(true);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Couldn't check where this item is used");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function confirm() {
+    setBusy(true);
+    setError(null);
+    try {
+      onDeleted(item, await deleteItem(item.id));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Couldn't delete the item");
+      setBusy(false);
+    }
+  }
+
+  if (!open || !usage) {
+    return (
+      <div className="form-actions">
+        <button type="button" className="btn-secondary btn-danger" onClick={openConfirmation} disabled={busy}>
+          {busy ? "Checking…" : "Delete item"}
+        </button>
+        {error && <span className="form-error">{error}</span>}
+      </div>
+    );
+  }
+
+  const blocked = usage.heldByBookings > 0;
+  const emptied = usage.packages.filter((pkg) => pkg.status === "Published" && pkg.itemCount <= 1);
+  const stillLive = usage.packages.filter((pkg) => pkg.status === "Published" && pkg.itemCount > 1);
+  const drafts = usage.packages.filter((pkg) => pkg.status !== "Published");
+
+  return (
+    <div className="modal-section" role="alertdialog" aria-label={`Delete ${item.name}?`}>
+      <strong>Delete {item.name} for good?</strong>
+
+      {blocked && (
+        <p className="form-error">
+          It can't be deleted yet: {usage.heldByBookings} {usage.heldByBookings === 1 ? "booking that isn't" : "bookings that aren't"}{" "}
+          cancelled {usage.heldByBookings === 1 ? "holds" : "hold"} one of its units. Remove it from those bookings in
+          Scheduling, or cancel them, then try again. Nothing was changed.
+        </p>
+      )}
+
+      {!blocked && usage.packages.length === 0 && (
+        <p className="muted">It isn't in any package and no booking holds it, so nothing else is affected.</p>
+      )}
+
+      {!blocked && usage.packages.length > 0 && (
+        <>
+          <p className="muted">
+            It will be removed from {usage.packages.length} {usage.packages.length === 1 ? "package" : "packages"}:
+          </p>
+          <ul className="addon-list">
+            {stillLive.map((pkg) => (
+              <li key={pkg.id}>
+                <strong>{pkg.name}</strong> <span className="muted">· published, keeps its other items and stays live</span>
+              </li>
+            ))}
+            {emptied.map((pkg) => (
+              <li key={pkg.id}>
+                <strong>{pkg.name}</strong>{" "}
+                <span className="form-error">
+                  · published, this is its only item, so it will be unpublished (kept as a draft, taken off the storefront)
+                </span>
+              </li>
+            ))}
+            {drafts.map((pkg) => (
+              <li key={pkg.id}>
+                <strong>{pkg.name}</strong> <span className="muted">· draft</span>
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+
+      <div className="form-actions">
+        {!blocked && (
+          <button type="button" className="btn-secondary btn-danger" onClick={confirm} disabled={busy}>
+            {busy ? "Deleting…" : "Yes, delete"}
+          </button>
+        )}
+        <button type="button" className="btn-secondary" onClick={() => setOpen(false)} disabled={busy}>
+          {blocked ? "Close" : "Keep it"}
+        </button>
+        {error && <span className="form-error">{error}</span>}
+      </div>
+    </div>
   );
 }
 

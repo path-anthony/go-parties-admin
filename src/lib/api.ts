@@ -6,6 +6,8 @@ import type {
   BulkUnitsRequest,
   BulkUnitsResult,
   Item,
+  ItemDeleteResult,
+  ItemUsage,
   Lead,
   LeadActivity,
   LeadPatch,
@@ -50,6 +52,8 @@ export function getAuthStatus(): Promise<{ authenticated: boolean }> {
 export async function login(password: string): Promise<{ ok: true }> {
   // Doesn't go through asJson: a wrong password here is an expected login
   // failure, not an expired session, so it shouldn't fire AUTH_EXPIRED_EVENT.
+  // A 429 (too many failed attempts) arrives the same way, with the
+  // server's own message, and is shown as is.
   const res = await fetch("/api/auth/login", jsonRequest("POST", { password }));
   const body = await res.json();
   if (!res.ok) {
@@ -72,6 +76,19 @@ export type ItemPatch = Partial<Pick<Item, "name" | "category" | "priceUnit" | "
 
 export function updateItem(id: string, patch: ItemPatch): Promise<Item> {
   return fetch(`/api/items/${id}`, jsonRequest("PATCH", patch)).then(asJson<Item>);
+}
+
+// What deleting the item would touch: the packages that list it and the
+// live bookings holding its units. Read only.
+export function getItemUsage(id: string): Promise<ItemUsage> {
+  return fetch(`/api/items/${id}/usage`).then(asJson<ItemUsage>);
+}
+
+// Refused (409) while any non-cancelled booking holds one of the item's
+// units. Otherwise the item goes, every package loses it, and a published
+// package left empty is set back to Draft; the result says which.
+export function deleteItem(id: string): Promise<ItemDeleteResult> {
+  return fetch(`/api/items/${id}`, jsonRequest("DELETE")).then(asJson<ItemDeleteResult>);
 }
 
 export function createAddonGroup(input: { itemId: string; name: string; required: boolean }): Promise<AddonGroup> {
