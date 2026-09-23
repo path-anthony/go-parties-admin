@@ -21,7 +21,7 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { Settings2, X } from "lucide-react";
-import { FOLLOW_UP_DAYS, findStage, needsFollowUp } from "../../lib/navigation";
+import { FOLLOW_UP_DAYS, daysSinceUpdate, findStage, needsFollowUp } from "../../lib/navigation";
 import { getLeadStatuses, getLeads, reorderLeads, updateLead } from "../../lib/api";
 import type { Lead, LeadStatus, LeadStatusRow } from "../../lib/types";
 import { AddLeadForm } from "../AddLeadForm";
@@ -121,9 +121,13 @@ function PipelineColumn({
 // initialStatus opens the board on one column; initialFollowUp on the
 // leads in New or Contacted that nobody has touched for a while. Either
 // way the rest is one click away.
-export function LeadsScreen({ initialStatus, initialFollowUp = false }: { initialStatus?: string; initialFollowUp?: boolean } = {}) {
-  const [filter, setFilter] = useState<{ status?: string; followUp?: boolean } | null>(
-    initialStatus ? { status: initialStatus } : initialFollowUp ? { followUp: true } : null,
+export function LeadsScreen({
+  initialStatus,
+  initialFollowUp = false,
+  initialStaleDays,
+}: { initialStatus?: string; initialFollowUp?: boolean; initialStaleDays?: number } = {}) {
+  const [filter, setFilter] = useState<{ status?: string; followUp?: boolean; staleDays?: number } | null>(
+    initialStatus ? { status: initialStatus, staleDays: initialStaleDays } : initialFollowUp ? { followUp: true } : null,
   );
   const [statuses, setStatuses] = useState<LeadStatus[] | null>(null);
   const [leads, setLeads] = useState<Lead[] | null>(null);
@@ -310,7 +314,7 @@ export function LeadsScreen({ initialStatus, initialFollowUp = false }: { initia
     ? (leads ?? [])
     : filter.followUp
       ? (leads ?? []).filter((l) => needsFollowUp(l, earlyStages))
-      : (leads ?? []).filter((l) => l.status === filter.status);
+      : (leads ?? []).filter((l) => l.status === filter.status && (!filter.staleDays || daysSinceUpdate(l) >= filter.staleDays));
   const shownStatuses = !filter ? (statuses ?? []) : filter.followUp ? earlyStages : (statuses ?? []).filter((s) => s === filter.status);
 
   return (
@@ -381,7 +385,9 @@ export function LeadsScreen({ initialStatus, initialFollowUp = false }: { initia
           <span>
             {filter.followUp
               ? `Showing ${shownLeads.length} ${shownLeads.length === 1 ? "lead" : "leads"} in New or Contacted untouched for ${FOLLOW_UP_DAYS}+ days.`
-              : `Showing the ${filter.status} column, ${shownLeads.length} ${shownLeads.length === 1 ? "lead" : "leads"}.`}
+              : filter.staleDays
+                ? `Showing the ${filter.status} column, only the ${shownLeads.length} ${shownLeads.length === 1 ? "lead" : "leads"} untouched for ${filter.staleDays}+ days.`
+                : `Showing the ${filter.status} column, ${shownLeads.length} ${shownLeads.length === 1 ? "lead" : "leads"}.`}
           </span>
           <button type="button" className="btn-secondary" onClick={() => setFilter(null)}>
             Show all columns

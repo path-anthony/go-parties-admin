@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { getDefaultAccount } from "../account.js";
 import { prisma } from "../db.js";
-import { SKILLS, isSkill } from "../skills.js";
+import { listSkillNames, validateSkills } from "../skills.js";
 import { normalizeText } from "../validate.js";
 
 const MAX_NAME_LENGTH = 120;
@@ -16,7 +16,7 @@ type Fields = { name?: string; phone?: string | null; email?: string | null; ski
 
 // Reads and checks the editable fields present in a body. Returns a
 // message on the first problem. `creating` makes name required.
-function readFields(body: Record<string, unknown>, creating: boolean): Fields | string {
+async function readFields(accountId: string, body: Record<string, unknown>, creating: boolean): Promise<Fields | string> {
   const data: Fields = {};
   if ("name" in body || creating) {
     const name = normalizeText(body.name);
@@ -30,11 +30,9 @@ function readFields(body: Record<string, unknown>, creating: boolean): Fields | 
     data[field] = text;
   }
   if ("skills" in body) {
-    const skills = body.skills;
-    if (!Array.isArray(skills) || !skills.every(isSkill)) {
-      return `skills must be a list from: ${SKILLS.join(", ")}`;
-    }
-    data.skills = [...new Set(skills)];
+    const skills = await validateSkills(accountId, body.skills);
+    if (typeof skills === "string") return skills;
+    data.skills = skills;
   }
   if ("active" in body) {
     if (typeof body.active !== "boolean") return "active must be true or false";
@@ -48,10 +46,10 @@ function readFields(body: Record<string, unknown>, creating: boolean): Fields | 
   return data;
 }
 
-// The fixed skill list, so the admin's form and the storefront never have
-// to hard-code it apart from the server.
-router.get("/skills", (_req, res) => {
-  res.json(SKILLS);
+// The skill names, from the table, for anything that only needs names.
+router.get("/skills", async (_req, res) => {
+  const account = await getDefaultAccount();
+  res.json(await listSkillNames(account.id));
 });
 
 router.get("/", async (_req, res) => {
@@ -60,9 +58,9 @@ router.get("/", async (_req, res) => {
 });
 
 router.post("/", async (req, res) => {
-  const fields = readFields((req.body ?? {}) as Record<string, unknown>, true);
-  if (typeof fields === "string") return res.status(400).json({ error: fields });
   const account = await getDefaultAccount();
+  const fields = await readFields(account.id, (req.body ?? {}) as Record<string, unknown>, true);
+  if (typeof fields === "string") return res.status(400).json({ error: fields });
   const member = await prisma.crewMember.create({
     data: {
       accountId: account.id,
@@ -85,7 +83,7 @@ router.patch("/:id", async (req, res) => {
   const account = await getDefaultAccount();
   const existing = await prisma.crewMember.findFirst({ where: { id, accountId: account.id }, select: { id: true } });
   if (!existing) return res.status(404).json({ error: "crew member not found" });
-  const fields = readFields((req.body ?? {}) as Record<string, unknown>, false);
+  const fields = await readFields(account.id, (req.body ?? {}) as Record<string, unknown>, false);
   if (typeof fields === "string") return res.status(400).json({ error: fields });
   if (Object.keys(fields).length === 0) return res.status(400).json({ error: "no editable fields provided" });
   res.json(await prisma.crewMember.update({ where: { id }, data: fields }));

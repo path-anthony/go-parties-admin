@@ -1,7 +1,7 @@
 import { type FormEvent, useId, useState } from "react";
 import { createItem } from "../lib/api";
 import { isUploadedPhoto } from "../lib/photo";
-import { SKILLS, type Skill } from "../lib/skills";
+import type { Skill } from "../lib/skills";
 import type { Item, NewItem } from "../lib/types";
 import { PhotoDropZone } from "./PhotoDropZone";
 
@@ -9,11 +9,14 @@ const EMPTY: NewItem = { name: "", category: "", price: "", priceUnit: "", notes
 
 export function AddItemForm({
   categories,
+  skillNames,
   onAdded,
   onCancel,
 }: {
   // Every category in use across the catalog, the picker's options.
   categories: string[];
+  // The skill names from Settings.
+  skillNames: string[];
   onAdded: (item: Item) => void;
   onCancel?: () => void;
 }) {
@@ -99,7 +102,8 @@ export function AddItemForm({
       <div className="detail-field">
         <span className="detail-field-label">Crew skills needed</span>
         <div className="skill-grid" role="group" aria-label="Crew skills needed">
-          {SKILLS.map((skill) => (
+          {skillNames.length === 0 && <span className="muted">No skills yet. Add them under Settings.</span>}
+          {skillNames.map((skill) => (
             <label key={skill} className="checkbox-label">
               <input type="checkbox" checked={form.skills.includes(skill)} onChange={(e) => toggleSkill(skill, e.target.checked)} disabled={saving} />
               {skill}

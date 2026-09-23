@@ -67,6 +67,17 @@ export type NewItem = {
   startingUnits: number;
 };
 
+// A skill as Settings manages it, with how many items and crew list it.
+export type SkillRow = {
+  id: string;
+  accountId: string;
+  name: string;
+  position: number;
+  createdAt: string;
+  usedByItems: number;
+  usedByCrew: number;
+};
+
 export type CrewMember = {
   id: string;
   accountId: string;
@@ -304,8 +315,10 @@ export type Package = {
   description: string | null;
   price: string; // serialized Decimal, the manual bundle price
   status: PackageStatus;
-  theme: string | null;
-  occasion: string | null;
+  // Short customer-facing search terms, suggested by Claude and edited.
+  keywords: string[];
+  // The storefront sub-occasions it is offered under; one or more to publish.
+  occasions: string[];
   photoUrl: string | null;
   items: PackageItemRow[];
   createdAt: string;
@@ -315,8 +328,8 @@ export type Package = {
 export type PackageInput = {
   name: string;
   description: string;
-  theme: string;
-  occasion: string;
+  keywords: string[];
+  occasions: string[];
   price: string;
   photoUrl: string;
   items: { itemId: string; quantity: number }[];

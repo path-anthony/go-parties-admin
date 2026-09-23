@@ -2407,3 +2407,76 @@ button.kpi-card:focus-visible {
   color: var(--orange-deep);
   margin-left: 6px;
 }
+
+/* ---------- settings: skills ---------- */
+
+.skill-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.skill-row:last-child {
+  border-bottom: none;
+}
+
+.skill-row .editable-cell {
+  min-width: 0;
+}
+
+.skill-row .cell-input {
+  width: 100%;
+  border-color: var(--line);
+}
+
+.skill-usage {
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.skill-row-error {
+  grid-column: 1 / -1;
+  margin: 0;
+}
+
+/* ---------- packages: occasions and keywords ---------- */
+
+.occasion-groups {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  gap: 10px 14px;
+  border: 1.5px solid var(--line);
+  border-radius: 6px;
+  padding: 10px 12px;
+  background: var(--cream);
+}
+
+.occasion-group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.occasion-group-label {
+  font-size: 10.5px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--taupe);
+  margin-bottom: 2px;
+}
+
+.keyword-editor {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 6px;
+}
+
+.btn-suggest {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}

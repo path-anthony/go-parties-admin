@@ -1,6 +1,6 @@
 import { type FormEvent, useEffect, useState } from "react";
 import { Plus, Upload } from "lucide-react";
-import { createUnitsBulk, getItems, getUnits } from "../../lib/api";
+import { createUnitsBulk, getItems, getSkills, getUnits } from "../../lib/api";
 import { UNIT_STATUSES, type Item, type ItemDeleteResult, type Unit, type UnitStatus } from "../../lib/types";
 import { BulkAddModal } from "../BulkAddModal";
 import { ItemModal } from "../ItemModal";
@@ -37,6 +37,8 @@ function describeDelete(item: Item, result: ItemDeleteResult): string {
 export function InventoryScreen() {
   const [items, setItems] = useState<Item[] | null>(null);
   const [units, setUnits] = useState<Unit[]>([]);
+  // Skill names from Settings, for the item popup's checkboxes.
+  const [skillNames, setSkillNames] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   // The item popup: a new item, or an existing one by id (looked up in
   // items on each render, so saves inside the popup show up in it).
@@ -50,10 +52,11 @@ export function InventoryScreen() {
   const [notice, setNotice] = useState<string | null>(null);
 
   useEffect(() => {
-    Promise.all([getItems(), getUnits()])
-      .then(([itemList, unitList]) => {
+    Promise.all([getItems(), getUnits(), getSkills()])
+      .then(([itemList, unitList, skillRows]) => {
         setItems(itemList);
         setUnits(unitList);
+        setSkillNames(skillRows.map((row) => row.name));
       })
       .catch((err) => setError(err instanceof Error ? err.message : "Failed to load items"));
   }, []);
@@ -250,6 +253,7 @@ export function InventoryScreen() {
           item={modal.mode === "edit" ? (modalItem ?? null) : null}
           units={modalItem ? units.filter((unit) => unit.itemId === modalItem.id) : []}
           categories={categories}
+          skills={skillNames}
           onClose={() => setModal(null)}
           onCreated={handleAdded}
           onItemUpdated={handleItemUpdated}

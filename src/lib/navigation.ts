@@ -8,6 +8,8 @@ import type { ScreenKey } from "../components/AdminShell";
 export type ScreenParams = {
   leadStatus?: string;
   leadFollowUp?: boolean;
+  // With leadStatus: only the leads in that column untouched for this many days.
+  leadStaleDays?: number;
   gigStatus?: string;
   gigId?: string;
 };
@@ -31,6 +33,13 @@ export function needsFollowUp(lead: { status: string; updatedAt: string }, early
 
 // The board's columns are configurable, so the well-known stages are
 // found by name, case-insensitively, and may be absent.
+// A proposal that has sat this long without a touch needs chasing.
+export const PROPOSAL_FOLLOW_UP_DAYS = 5;
+
+export function daysSinceUpdate(lead: { updatedAt: string }, now = Date.now()): number {
+  return (now - new Date(lead.updatedAt).getTime()) / (24 * 60 * 60 * 1000);
+}
+
 export function findStage(statuses: string[], name: string): string | undefined {
   return statuses.find((s) => s.toLowerCase() === name.toLowerCase());
 }

@@ -25,8 +25,27 @@ model Account {
   crewMembers  CrewMember[]
   gigs         Gig[]
   sessions     Session[]
+  skills       Skill[]
 
   @@map("accounts")
+}
+
+// The crew skills an account uses, managed in Settings. Item.skills,
+// CrewMember.skills and Gig.skill hold names from here as plain strings
+// (a rename rewrites them all in one transaction); a skill can't be
+// deleted while an item or a crew member still lists it.
+model Skill {
+  id        String   @id @default(cuid())
+  accountId String   @map("account_id")
+  name      String
+  position  Int      @default(0)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  account Account @relation(fields: [accountId], references: [id])
+
+  @@unique([accountId, name])
+  @@index([accountId, position])
+  @@map("skills")
 }
 
 // One signed-in session, admin or customer. The cookie carries only this
@@ -263,11 +282,12 @@ model Customer {
 }
 
 // A Package is a curated bundle of real catalog items with one manual
-// price (not a sum; the gap is Andy's discount). theme is a plain tag for
-// now, not the approval layer GO-PRODUCT.md describes. occasion matches
-// one of the storefront's sub-occasion strings so the public endpoint can
-// serve packages by occasion. status is Draft or Published, validated at
-// the API; only Published packages are public.
+// price (not a sum; the gap is Andy's discount). occasions are the
+// storefront sub-occasion strings the package is offered under (one or
+// more; publishing needs at least one). keywords are short customer-facing
+// search terms, suggested by Claude from the package's contents and
+// edited by the admin before saving. status is Draft or Published,
+// validated at the API; only Published packages are public.
 model Package {
   id          String   @id @default(cuid())
   accountId   String   @map("account_id")
@@ -275,8 +295,8 @@ model Package {
   description String?
   price       Decimal  @db.Decimal(10, 2)
   status      String   @default("Draft")
-  theme       String?
-  occasion    String?
+  keywords    String[] @default([])
+  occasions   String[] @default([])
   photoUrl    String?  @map("photo_url")
   createdAt   DateTime @default(now()) @map("created_at")
   updatedAt   DateTime @default(now()) @updatedAt @map("updated_at")
@@ -285,7 +305,7 @@ model Package {
   items    PackageItem[]
   bookings Booking[]
 
-  @@index([accountId, status, occasion])
+  @@index([accountId, status])
   @@map("packages")
 }
 

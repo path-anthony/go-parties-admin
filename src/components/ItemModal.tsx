@@ -16,7 +16,6 @@ import {
 } from "../lib/api";
 import { deltaLabel } from "../lib/addons";
 import { isUploadedPhoto } from "../lib/photo";
-import { SKILLS } from "../lib/skills";
 import { UNIT_STATUSES, type AddonGroup, type Item, type ItemDeleteResult, type ItemUsage, type Unit, type UnitStatus } from "../lib/types";
 import { AddItemForm } from "./AddItemForm";
 import { EditableCell } from "./EditableCell";
@@ -32,6 +31,7 @@ export function ItemModal({
   item,
   units,
   categories,
+  skills,
   onClose,
   onCreated,
   onItemUpdated,
@@ -44,6 +44,8 @@ export function ItemModal({
   units: Unit[];
   // Every category in use, for the new-item form's picker.
   categories: string[];
+  // The skill names from Settings, for the checkboxes.
+  skills: string[];
   onClose: () => void;
   onCreated: (item: Item) => void;
   onItemUpdated: (item: Item) => void;
@@ -85,7 +87,7 @@ export function ItemModal({
 
         {item ? (
           <>
-            <ItemDetail item={item} onItemUpdated={onItemUpdated} />
+            <ItemDetail item={item} skillNames={skills} onItemUpdated={onItemUpdated} />
             <UnitsSection item={item} units={units} onUnitsAdded={onUnitsAdded} onUnitRemoved={onUnitRemoved} />
             <AddonsSection item={item} onItemUpdated={onItemUpdated} />
             <div className="modal-foot">
@@ -100,7 +102,7 @@ export function ItemModal({
           </>
         ) : (
           <>
-            <AddItemForm categories={categories} onAdded={onCreated} onCancel={onClose} />
+            <AddItemForm categories={categories} skillNames={skills} onAdded={onCreated} onCancel={onClose} />
             <div className="modal-section">
               <span className="detail-field-label">Add-ons</span>
               <p className="muted">Add the item first. Its add-on groups and options are set up right after, here.</p>
@@ -112,7 +114,7 @@ export function ItemModal({
   );
 }
 
-function ItemDetail({ item, onItemUpdated }: { item: Item; onItemUpdated: (item: Item) => void }) {
+function ItemDetail({ item, skillNames, onItemUpdated }: { item: Item; skillNames: string[]; onItemUpdated: (item: Item) => void }) {
   async function save(patch: ItemPatch) {
     onItemUpdated(await updateItem(item.id, patch));
   }
@@ -154,7 +156,8 @@ function ItemDetail({ item, onItemUpdated }: { item: Item; onItemUpdated: (item:
       <div className="detail-field detail-field-span">
         <span className="detail-field-label">Crew skills needed</span>
         <div className="skill-grid" role="group" aria-label={`Crew skills needed for ${item.name}`}>
-          {SKILLS.map((skill) => (
+          {skillNames.length === 0 && <span className="muted">No skills yet. Add them under Settings.</span>}
+          {skillNames.map((skill) => (
             <label key={skill} className="checkbox-label">
               <input
                 type="checkbox"

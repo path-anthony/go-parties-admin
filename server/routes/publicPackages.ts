@@ -5,7 +5,8 @@ import { prisma } from "../db.js";
 import { availabilityLimiter } from "../rateLimit.js";
 
 // Public, no session: the storefront asks for the published packages of
-// one occasion. Mounted on /api/packages ahead of the session-gated
+// one occasion; a package offered under several occasions appears under
+// each of them. Mounted on /api/packages ahead of the session-gated
 // packages router and defines only this path, so everything else there
 // still hits the gate. The select is the allowlist of public fields.
 const router = Router();
@@ -18,15 +19,15 @@ router.get("/public", availabilityLimiter, async (req, res) => {
 
   const account = await getDefaultAccount();
   const packages = await prisma.package.findMany({
-    where: { accountId: account.id, status: "Published", occasion },
+    where: { accountId: account.id, status: "Published", occasions: { has: occasion } },
     orderBy: [{ price: "asc" }, { name: "asc" }],
     select: {
       id: true,
       name: true,
       description: true,
       price: true,
-      theme: true,
-      occasion: true,
+      keywords: true,
+      occasions: true,
       photoUrl: true,
       items: {
         select: {
@@ -52,6 +53,8 @@ router.get("/public", availabilityLimiter, async (req, res) => {
     occasion,
     packages: packages.map(({ price, items, ...pkg }) => ({
       ...pkg,
+      // The occasion asked for, kept for callers that read one value.
+      occasion,
       price: Number(price),
       items: items.map(({ quantity, item }) => ({
         itemId: item.id,

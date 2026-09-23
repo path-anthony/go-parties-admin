@@ -1,15 +1,6 @@
-// Mirror of server/skills.ts. Keep the two in step.
-export const SKILLS = [
-  "DJ/MC",
-  "Photographer",
-  "Videographer",
-  "Photo Booth Attendant",
-  "Day-of Coordinator",
-  "Waitstaff",
-  "Bartender",
-  "Live Musician",
-] as const;
-export type Skill = (typeof SKILLS)[number];
+// Skills come from the server (the skills table, managed in Settings);
+// the fixed sets that stay in code are the gig and offer statuses.
+export type Skill = string;
 
 export const GIG_STATUSES = ["Needs Crew", "Offered", "Filled", "Cancelled"] as const;
 export type GigStatus = (typeof GIG_STATUSES)[number];

@@ -4,7 +4,7 @@ import { ADDON_GROUPS_INCLUDE } from "../addons.js";
 import { TEMPLATE_HEADERS, importCsv, previewCsv } from "../bulkItems.js";
 import { toCsv } from "../csv.js";
 import { prisma } from "../db.js";
-import { isSkill } from "../skills.js";
+import { validateSkills } from "../skills.js";
 
 const CSV_HEADERS = ["name", "category", "price", "price_unit", "notes", "photo_url"];
 
@@ -153,10 +153,11 @@ router.post("/", async (req, res) => {
   if (photoUrlTooLong(photoUrl)) {
     return res.status(400).json({ error: "photoUrl is too large" });
   }
-  if (skills !== undefined && (!Array.isArray(skills) || !skills.every(isSkill))) {
-    return res.status(400).json({ error: "skills must be a list of crew skills" });
+  const account = await getDefaultAccount();
+  const skillList = skills === undefined ? [] : await validateSkills(account.id, skills);
+  if (typeof skillList === "string") {
+    return res.status(400).json({ error: skillList });
   }
-  const skillList: string[] = skills === undefined ? [] : [...new Set(skills as string[])];
   let unitCount = 1;
   if (startingUnits !== undefined) {
     if (!Number.isInteger(startingUnits) || startingUnits < 0 || startingUnits > MAX_STARTING_UNITS) {
@@ -166,7 +167,6 @@ router.post("/", async (req, res) => {
   }
   if (skillList.length > 0) unitCount = 0;
 
-  const account = await getDefaultAccount();
   const item = await prisma.$transaction(async (tx) => {
     const created = await tx.item.create({
       data: {
@@ -232,11 +232,11 @@ router.patch("/:id", async (req, res) => {
     // The crew skills the item needs, any number from the fixed list,
     // independent of whether it has units.
     if (field === "skills") {
-      const skills = body.skills;
-      if (!Array.isArray(skills) || !skills.every(isSkill)) {
-        return res.status(400).json({ error: "skills must be a list of crew skills" });
+      const skills = await validateSkills(account.id, body.skills);
+      if (typeof skills === "string") {
+        return res.status(400).json({ error: skills });
       }
-      data.skills = [...new Set(skills)];
+      data.skills = skills;
       continue;
     }
 

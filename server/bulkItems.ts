@@ -1,5 +1,5 @@
 import { prisma } from "./db.js";
-import { SKILLS, isSkill } from "./skills.js";
+import { listSkillNames } from "./skills.js";
 
 // The bulk importer behind Inventory's "Bulk add items" and behind
 // one-off imports. One parser, one validation, one creation rule, so a
@@ -84,10 +84,12 @@ export async function previewCsv(text: string, accountId: string): Promise<Previ
   // The old template's names for two columns are accepted too.
   if (idx.billed_per < 0) idx.billed_per = col("price_unit");
 
-  const [existingItems, existingCategoryRows] = await Promise.all([
+  const [existingItems, existingCategoryRows, skillNames] = await Promise.all([
     prisma.item.findMany({ where: { accountId }, select: { name: true } }),
     prisma.item.findMany({ where: { accountId }, distinct: ["category"], select: { category: true } }),
+    listSkillNames(accountId),
   ]);
+  const knownSkills = new Set(skillNames);
   const existingNames = new Set(existingItems.map((i) => i.name.trim().toLowerCase()));
   // lowercase -> canonical casing. New categories found in the file are
   // added as they appear, so later rows reuse the first row's spelling.
@@ -126,9 +128,9 @@ export async function previewCsv(text: string, accountId: string): Promise<Previ
     const skills = skillsText
       ? [...new Set(skillsText.split(/[,;|]/).map((s) => s.trim()).filter((s) => s !== ""))]
       : [];
-    const unknown = skills.filter((s) => !isSkill(s));
+    const unknown = skills.filter((s) => !knownSkills.has(s));
     if (unknown.length > 0) {
-      problems.push(`unknown skill${unknown.length === 1 ? "" : "s"} ${unknown.map((s) => `"${s}"`).join(", ")} (known: ${SKILLS.join(", ")})`);
+      problems.push(`unknown skill${unknown.length === 1 ? "" : "s"} ${unknown.map((s) => `"${s}"`).join(", ")} (known: ${skillNames.join(", ")})`);
     }
 
     let startingUnits = 1;

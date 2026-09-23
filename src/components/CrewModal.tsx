@@ -1,7 +1,7 @@
 import { type FormEvent, useEffect, useState } from "react";
 import { X } from "lucide-react";
 import { createCrewMember, updateCrewMember } from "../lib/api";
-import { SKILLS, type Skill } from "../lib/skills";
+import type { Skill } from "../lib/skills";
 import type { CrewMember, CrewMemberInput } from "../lib/types";
 
 function toInput(member: CrewMember | null): CrewMemberInput {
@@ -20,10 +20,13 @@ function toInput(member: CrewMember | null): CrewMemberInput {
 // someone is retired, which keeps the gigs they filled.
 export function CrewModal({
   member,
+  skillNames,
   onClose,
   onSaved,
 }: {
   member: CrewMember | null;
+  // The skill names from Settings.
+  skillNames: string[];
   onClose: () => void;
   onSaved: (member: CrewMember) => void;
 }) {
@@ -92,7 +95,8 @@ export function CrewModal({
           <div className="detail-field">
             <span className="detail-field-label">Skills</span>
             <div className="skill-grid" role="group" aria-label="Skills">
-              {SKILLS.map((skill) => (
+              {skillNames.length === 0 && <span className="muted">No skills yet. Add them under Settings.</span>}
+              {skillNames.map((skill) => (
                 <label key={skill} className="checkbox-label">
                   <input type="checkbox" checked={form.skills.includes(skill)} onChange={(e) => toggleSkill(skill, e.target.checked)} />
                   {skill}

@@ -1,11 +1,12 @@
 import { type FormEvent, useEffect, useState } from "react";
-import { X } from "lucide-react";
+import { Sparkles, X } from "lucide-react";
 import {
   createPackage,
   deletePackage,
   getItems,
   getPackages,
   publishPackage,
+  suggestPackageKeywords,
   unpublishPackage,
   updatePackage,
 } from "../../lib/api";
@@ -104,7 +105,7 @@ export function PackagesScreen() {
                   <tr>
                     <th aria-label="Photo" />
                     <th>Name</th>
-                    <th>Occasion</th>
+                    <th>Occasions</th>
                     <th>Items</th>
                     <th>Bundle price</th>
                     <th>Items add up to</th>
@@ -126,9 +127,9 @@ export function PackagesScreen() {
                         </td>
                         <td>
                           <div className="catalog-name">{pkg.name}</div>
-                          {pkg.theme && <div className="muted">{pkg.theme}</div>}
+                          {pkg.keywords.length > 0 && <div className="muted">{pkg.keywords.join(", ")}</div>}
                         </td>
-                        <td>{pkg.occasion ?? <span className="muted">Not set</span>}</td>
+                        <td>{pkg.occasions.length > 0 ? pkg.occasions.join(", ") : <span className="muted">Not set</span>}</td>
                         <td>{pkg.items.reduce((n, row) => n + row.quantity, 0)}</td>
                         <td>
                           <strong>{usd(Number(pkg.price))}</strong>
@@ -191,8 +192,8 @@ function toInput(pkg: Package | null): PackageInput {
   return {
     name: pkg?.name ?? "",
     description: pkg?.description ?? "",
-    theme: pkg?.theme ?? "",
-    occasion: pkg?.occasion ?? "",
+    keywords: pkg?.keywords ?? [],
+    occasions: pkg?.occasions ?? [],
     price: pkg?.price ?? "",
     photoUrl: pkg?.photoUrl ?? "",
     items: pkg?.items.map((row) => ({ itemId: row.itemId, quantity: row.quantity })) ?? [],
@@ -224,6 +225,48 @@ function PackageModal({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [keywordDraft, setKeywordDraft] = useState("");
+  const [suggesting, setSuggesting] = useState(false);
+  const [suggestNote, setSuggestNote] = useState<string | null>(null);
+
+  function addKeyword(raw: string) {
+    const text = raw.trim();
+    if (!text) return;
+    setForm((f) => (f.keywords.some((k) => k.toLowerCase() === text.toLowerCase()) ? f : { ...f, keywords: [...f.keywords, text] }));
+    setKeywordDraft("");
+  }
+
+  function toggleOccasion(occ: string, on: boolean) {
+    setForm((f) => ({ ...f, occasions: on ? [...new Set([...f.occasions, occ])] : f.occasions.filter((o) => o !== occ) }));
+  }
+
+  // Asks for suggestions from what the form holds right now, adds the
+  // new ones as tags to edit, saves nothing.
+  async function handleSuggest() {
+    setSuggesting(true);
+    setSuggestNote(null);
+    setError(null);
+    try {
+      const { keywords } = await suggestPackageKeywords({
+        name: form.name,
+        occasions: form.occasions,
+        itemNames: chosen.map((c) => c.item.name),
+        description: form.description || undefined,
+      });
+      const have = new Set(form.keywords.map((k) => k.toLowerCase()));
+      const fresh = keywords.filter((k) => !have.has(k.toLowerCase()));
+      setForm((f) => ({ ...f, keywords: [...f.keywords, ...fresh] }));
+      setSuggestNote(
+        fresh.length === 0
+          ? "Nothing new to add; every suggestion was already here."
+          : `Added ${fresh.length} ${fresh.length === 1 ? "suggestion" : "suggestions"}. Remove any that don't fit, add your own, then save.`,
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Couldn't get suggestions");
+    } finally {
+      setSuggesting(false);
+    }
+  }
 
   useEffect(() => {
     function onKey(e: globalThis.KeyboardEvent) {
@@ -294,25 +337,6 @@ function PackageModal({
               <input value={form.name} onChange={(e) => set("name", e.target.value)} required autoFocus />
             </label>
             <label>
-              Theme tag
-              <input value={form.theme} onChange={(e) => set("theme", e.target.value)} placeholder="e.g. Bluey Birthday" />
-            </label>
-            <label>
-              Occasion
-              <select value={form.occasion} onChange={(e) => set("occasion", e.target.value)}>
-                <option value="">Not set</option>
-                {OCCASION_GROUPS.map((group) => (
-                  <optgroup key={group.label} label={group.label}>
-                    {group.occasions.map((occ) => (
-                      <option key={`${group.label}:${occ}`} value={occ}>
-                        {occ}
-                      </option>
-                    ))}
-                  </optgroup>
-                ))}
-              </select>
-            </label>
-            <label>
               Bundle price*
               <input
                 type="number"
@@ -328,6 +352,77 @@ function PackageModal({
               Description
               <textarea rows={2} value={form.description} onChange={(e) => set("description", e.target.value)} />
             </label>
+          </div>
+
+          <div className="detail-field">
+            <span className="detail-field-label">Occasions</span>
+            <span className="muted field-help">
+              Every occasion this package is offered under on the storefront. Publishing needs at least one.
+              {form.occasions.length > 0 && ` Chosen: ${form.occasions.join(", ")}.`}
+            </span>
+            <div className="occasion-groups" role="group" aria-label="Occasions">
+              {OCCASION_GROUPS.map((group) => (
+                <div key={group.label} className="occasion-group">
+                  <span className="occasion-group-label">{group.label}</span>
+                  {group.occasions.map((occ) => (
+                    <label key={`${group.label}:${occ}`} className="checkbox-label">
+                      <input type="checkbox" checked={form.occasions.includes(occ)} onChange={(e) => toggleOccasion(occ, e.target.checked)} />
+                      {occ}
+                    </label>
+                  ))}
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="detail-field">
+            <span className="detail-field-label">Search keywords</span>
+            <span className="muted field-help">
+              Short terms a customer might type to find this package ("dogs", "cartoon", "toddler", "outdoor"). Suggest
+              keywords asks Claude for 5 to 8 from the name, occasions and items; edit the list, then save.
+            </span>
+            {form.keywords.length > 0 ? (
+              <div className="tag-list">
+                {form.keywords.map((kw) => (
+                  <span key={kw} className="tag-chip">
+                    {kw}
+                    <button
+                      type="button"
+                      className="tag-chip-remove"
+                      aria-label={`Remove keyword ${kw}`}
+                      onClick={() => set("keywords", form.keywords.filter((k) => k !== kw))}
+                    >
+                      <X size={11} />
+                    </button>
+                  </span>
+                ))}
+              </div>
+            ) : (
+              <p className="muted">No keywords yet.</p>
+            )}
+            <div className="keyword-editor">
+              <input
+                value={keywordDraft}
+                onChange={(e) => setKeywordDraft(e.target.value)}
+                placeholder="Add a keyword"
+                aria-label="New keyword"
+                maxLength={40}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    addKeyword(keywordDraft);
+                  }
+                }}
+              />
+              <button type="button" className="btn-secondary" onClick={() => addKeyword(keywordDraft)} disabled={keywordDraft.trim() === ""}>
+                Add
+              </button>
+              <button type="button" className="btn-secondary btn-suggest" onClick={handleSuggest} disabled={suggesting || form.name.trim() === ""}>
+                <Sparkles size={13} />
+                {suggesting ? "Asking…" : "Suggest keywords"}
+              </button>
+            </div>
+            {suggestNote && <span className="muted field-help">{suggestNote}</span>}
           </div>
 
           <div className="detail-field">

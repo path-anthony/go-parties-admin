@@ -1,6 +1,6 @@
 import { type KeyboardEvent, useEffect, useState } from "react";
 import { ChevronRight, Plus } from "lucide-react";
-import { getCrew, getGigs } from "../../lib/api";
+import { getCrew, getGigs, getSkills } from "../../lib/api";
 import { GIG_STATUSES, type GigStatus } from "../../lib/skills";
 import type { CrewMember, Gig } from "../../lib/types";
 import { CrewModal } from "../CrewModal";
@@ -28,16 +28,18 @@ export function CrewGigsScreen({ initialStatus, openGigId: initialGigId }: { ini
   const [tab, setTab] = useState<Tab>("gigs");
   const [gigs, setGigs] = useState<Gig[] | null>(null);
   const [crew, setCrew] = useState<CrewMember[] | null>(null);
+  const [skillNames, setSkillNames] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState<Filter>(initialStatus && (GIG_STATUSES as readonly string[]).includes(initialStatus) ? (initialStatus as GigStatus) : "All");
   const [openGigId, setOpenGigId] = useState<string | null>(initialGigId ?? null);
   const [crewModal, setCrewModal] = useState<{ mode: "create" } | { mode: "edit"; id: string } | null>(null);
 
   useEffect(() => {
-    Promise.all([getGigs(), getCrew()])
-      .then(([gigList, crewList]) => {
+    Promise.all([getGigs(), getCrew(), getSkills()])
+      .then(([gigList, crewList, skillRows]) => {
         setGigs(gigList);
         setCrew(crewList);
+        setSkillNames(skillRows.map((row) => row.name));
       })
       .catch((err) => setError(err instanceof Error ? err.message : "Failed to load"));
   }, []);
@@ -205,6 +207,7 @@ export function CrewGigsScreen({ initialStatus, openGigId: initialGigId }: { ini
       {crewModal && (crewModal.mode === "create" || editingMember) && (
         <CrewModal
           member={editingMember ?? null}
+          skillNames={skillNames}
           onClose={() => setCrewModal(null)}
           onSaved={(saved) => {
             setCrew((prev) => {

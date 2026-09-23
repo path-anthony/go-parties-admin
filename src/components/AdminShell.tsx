@@ -31,7 +31,7 @@ function ScreenBody({ screen, params }: { screen: ScreenKey; params: ScreenParam
     case "inventory":
       return <InventoryScreen />;
     case "leads":
-      return <LeadsScreen initialStatus={params.leadStatus} initialFollowUp={params.leadFollowUp} />;
+      return <LeadsScreen initialStatus={params.leadStatus} initialFollowUp={params.leadFollowUp} initialStaleDays={params.leadStaleDays} />;
     case "scheduling":
       return <SchedulingScreen />;
     case "settings":

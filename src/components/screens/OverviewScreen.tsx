@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { getGigs, getLeadStatuses, getLeads } from "../../lib/api";
 import { formatEventDay } from "../../lib/gigs";
-import { FOLLOW_UP_DAYS, findStage, needsFollowUp, useNavigate } from "../../lib/navigation";
+import { FOLLOW_UP_DAYS, PROPOSAL_FOLLOW_UP_DAYS, daysSinceUpdate, findStage, needsFollowUp, useNavigate } from "../../lib/navigation";
 import type { Gig, Lead } from "../../lib/types";
 import { StatCard, StatGrid } from "../StatCard";
 
@@ -46,7 +46,20 @@ export function OverviewScreen() {
   const earlyStages = [stageNew, stageContacted].filter((s): s is string => !!s);
   const countIn = (stage: string | undefined) => (stage ? (leads ?? []).filter((l) => l.status === stage).length : 0);
   const followUps = (leads ?? []).filter((l) => needsFollowUp(l, earlyStages));
-  const byStage = (statuses ?? []).map((name) => ({ name, count: countIn(name) }));
+  // One row per column, except Proposal sent, which splits into the
+  // proposals still fresh and the ones that have sat 5+ days without a
+  // touch. Same last-updated clock as the follow-up card; any edit resets
+  // it.
+  const stageProposal = statuses ? findStage(statuses, "Proposal sent") : undefined;
+  const byStage = (statuses ?? []).flatMap((name) => {
+    if (name !== stageProposal) return [{ key: name, label: name, count: countIn(name), status: name, staleDays: undefined as number | undefined }];
+    const inStage = (leads ?? []).filter((l) => l.status === name);
+    const stale = inStage.filter((l) => daysSinceUpdate(l) >= PROPOSAL_FOLLOW_UP_DAYS);
+    return [
+      { key: `${name}:recent`, label: "Proposal sent", count: inStage.length - stale.length, status: name, staleDays: undefined },
+      { key: `${name}:stale`, label: "Needs follow-up", count: stale.length, status: name, staleDays: PROPOSAL_FOLLOW_UP_DAYS },
+    ];
+  });
   const maxStage = Math.max(1, ...byStage.map((s) => s.count));
 
   const upcoming = (needsCrew ?? []).filter((g) => g.eventDate.slice(0, 10) >= today());
@@ -96,10 +109,15 @@ export function OverviewScreen() {
             <div className="stage-block">
               <span className="kpi-label">Leads by stage</span>
               <ul className="stage-bars" aria-label="Leads by stage">
-                {byStage.map(({ name, count }) => (
-                  <li key={name}>
-                    <button type="button" className="stage-bar" onClick={() => navigate("leads", { leadStatus: name })}>
-                      <span className="stage-bar-name">{name}</span>
+                {byStage.map(({ key, label, count, status, staleDays }) => (
+                  <li key={key}>
+                    <button
+                      type="button"
+                      className="stage-bar"
+                      title={staleDays ? `Proposals untouched for ${staleDays}+ days` : undefined}
+                      onClick={() => navigate("leads", { leadStatus: status, leadStaleDays: staleDays })}
+                    >
+                      <span className="stage-bar-name">{label}</span>
                       <span className="stage-bar-track" aria-hidden="true">
                         <span className="stage-bar-fill" style={{ width: `${Math.round((count / maxStage) * 100)}%` }} />
                       </span>

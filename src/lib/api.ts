@@ -26,6 +26,7 @@ import type {
   Package,
   PackageInput,
   RecommendResponse,
+  SkillRow,
   Unit,
   UnitPatch,
 } from "./types";
@@ -226,6 +227,12 @@ export function unpublishPackage(id: string): Promise<Package> {
   return fetch(`/api/packages/${id}/unpublish`, jsonRequest("POST")).then(asJson<Package>);
 }
 
+// Claude's suggested search terms for a package, from its name, occasions
+// and items. Nothing is saved; the admin edits and then saves the package.
+export function suggestPackageKeywords(input: { name: string; occasions: string[]; itemNames: string[]; description?: string }): Promise<{ keywords: string[] }> {
+  return fetch("/api/packages/suggest-keywords", jsonRequest("POST", input)).then(asJson<{ keywords: string[] }>);
+}
+
 export function deletePackage(id: string): Promise<{ ok: true }> {
   return fetch(`/api/packages/${id}`, jsonRequest("DELETE")).then(asJson<{ ok: true }>);
 }
@@ -255,6 +262,24 @@ export function removeBookingUnit(id: string, unitId: string): Promise<Booking> 
 
 export function setBookingAddons(id: string, itemId: string, addonIds: string[]): Promise<Booking> {
   return fetch(`/api/bookings/${id}/addons`, jsonRequest("PUT", { itemId, addonIds })).then(asJson<Booking>);
+}
+
+export function getSkills(): Promise<SkillRow[]> {
+  return fetch("/api/skills").then(asJson<SkillRow[]>);
+}
+
+export function createSkill(name: string): Promise<SkillRow> {
+  return fetch("/api/skills", jsonRequest("POST", { name })).then(asJson<SkillRow>);
+}
+
+// A rename follows through to every item, crew member and gig holding it.
+export function renameSkill(id: string, name: string): Promise<SkillRow> {
+  return fetch(`/api/skills/${id}`, jsonRequest("PATCH", { name })).then(asJson<SkillRow>);
+}
+
+// Refused (409) while any item or crew member still lists the skill.
+export function deleteSkill(id: string): Promise<{ ok: true }> {
+  return fetch(`/api/skills/${id}`, jsonRequest("DELETE")).then(asJson<{ ok: true }>);
 }
 
 export function getCrew(): Promise<CrewMember[]> {
