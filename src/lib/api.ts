@@ -3,6 +3,8 @@ import type {
   AskGoMessage,
   Booking,
   BookingPatch,
+  BulkPreview,
+  BulkSummary,
   BulkUnitsRequest,
   BulkUnitsResult,
   CrewMember,
@@ -87,6 +89,15 @@ export type ItemPatch = Partial<Pick<Item, "name" | "category" | "priceUnit" | "
 
 export function updateItem(id: string, patch: ItemPatch): Promise<Item> {
   return fetch(`/api/items/${id}`, jsonRequest("PATCH", patch)).then(asJson<Item>);
+}
+
+// Bulk add: the file's text goes up as JSON; preview writes nothing.
+export function previewBulkItems(csv: string): Promise<BulkPreview> {
+  return fetch("/api/items/bulk/preview", jsonRequest("POST", { csv })).then(asJson<BulkPreview>);
+}
+
+export function importBulkItems(csv: string): Promise<BulkSummary> {
+  return fetch("/api/items/bulk", jsonRequest("POST", { csv })).then(asJson<BulkSummary>);
 }
 
 // What deleting the item would touch: the packages that list it and the

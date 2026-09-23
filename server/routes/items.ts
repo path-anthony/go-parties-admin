@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { getDefaultAccount } from "../account.js";
 import { ADDON_GROUPS_INCLUDE } from "../addons.js";
+import { TEMPLATE_HEADERS, importCsv, previewCsv } from "../bulkItems.js";
 import { toCsv } from "../csv.js";
 import { prisma } from "../db.js";
 import { isSkill } from "../skills.js";
@@ -103,6 +104,39 @@ const MAX_STARTING_UNITS = 50;
 // skills, since a service item is covered by crew and a unit on it would
 // cap it at one booking a day. Units are labelled "Unit #1", "Unit #2",
 // the same default the bulk action and the catalog-wide default used.
+// The empty template for a bulk add: the exact headers the importer
+// reads, nothing else, so a filled-in copy imports as is.
+router.get("/bulk/template.csv", (_req, res) => {
+  res.setHeader("Content-Type", "text/csv; charset=utf-8");
+  res.setHeader("Content-Disposition", 'attachment; filename="items-bulk-template.csv"');
+  res.send(toCsv([...TEMPLATE_HEADERS], []));
+});
+
+const MAX_CSV_LENGTH = 2_000_000;
+
+function readCsvBody(body: unknown): string | null {
+  const csv = (body as { csv?: unknown } | null)?.csv;
+  return typeof csv === "string" && csv.trim() !== "" && csv.length <= MAX_CSV_LENGTH ? csv : null;
+}
+
+// What a file would create, row by row, with every problem named.
+// Nothing is written.
+router.post("/bulk/preview", async (req, res) => {
+  const csv = readCsvBody(req.body);
+  if (!csv) return res.status(400).json({ error: "csv is required: the file's text, up to 2 MB" });
+  const account = await getDefaultAccount();
+  res.json(await previewCsv(csv, account.id));
+});
+
+// Creates every row without problems, in one transaction, and reports
+// what was created and what was skipped and why.
+router.post("/bulk", async (req, res) => {
+  const csv = readCsvBody(req.body);
+  if (!csv) return res.status(400).json({ error: "csv is required: the file's text, up to 2 MB" });
+  const account = await getDefaultAccount();
+  res.status(201).json(await importCsv(csv, account.id));
+});
+
 router.post("/", async (req, res) => {
   const { name, category, price, priceUnit, notes, photoUrl, skills, startingUnits } = req.body ?? {};
 

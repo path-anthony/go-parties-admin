@@ -132,6 +132,38 @@ export type BookingGig = {
   filledBy: { id: string; name: string } | null;
 };
 
+// One row of a bulk-add file as the server read it. problems empty means
+// it will be created.
+export type BulkRow = {
+  line: number;
+  name: string;
+  category: string;
+  categoryNew: boolean;
+  price: number | null;
+  billedPer: string | null;
+  skills: Skill[];
+  startingUnits: number;
+  notes: string | null;
+  problems: string[];
+};
+
+export type BulkPreview = {
+  headers: string[];
+  missingHeaders: string[];
+  rows: BulkRow[];
+  creatable: number;
+  categoriesNew: string[];
+  categoriesReused: string[];
+};
+
+export type BulkSummary = {
+  created: number;
+  skipped: { line: number; name: string; reasons: string[] }[];
+  categoriesNew: string[];
+  categoriesReused: string[];
+  itemIds: string[];
+};
+
 // What deleting an item would touch. packages is every package, Draft or
 // Published, that lists it, with how many distinct items each holds (so a
 // count of 1 means the package would be left empty). heldByBookings is the

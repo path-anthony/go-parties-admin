@@ -1,7 +1,8 @@
 import { type FormEvent, useEffect, useState } from "react";
-import { Plus } from "lucide-react";
+import { Plus, Upload } from "lucide-react";
 import { createUnitsBulk, getItems, getUnits } from "../../lib/api";
 import { UNIT_STATUSES, type Item, type ItemDeleteResult, type Unit, type UnitStatus } from "../../lib/types";
+import { BulkAddModal } from "../BulkAddModal";
 import { ItemModal } from "../ItemModal";
 import { ItemsTable } from "../ItemsTable";
 import { StatCard, StatGrid } from "../StatCard";
@@ -40,6 +41,7 @@ export function InventoryScreen() {
   // The item popup: a new item, or an existing one by id (looked up in
   // items on each render, so saves inside the popup show up in it).
   const [modal, setModal] = useState<{ mode: "create" } | { mode: "edit"; id: string } | null>(null);
+  const [bulkAddOpen, setBulkAddOpen] = useState(false);
   const [search, setSearch] = useState("");
   const [category, setCategory] = useState(ALL_CATEGORIES);
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -137,6 +139,10 @@ export function InventoryScreen() {
               <Plus size={18} strokeWidth={2.75} />
               Add an item
             </button>
+            <button type="button" className="btn-secondary btn-bulk-add" onClick={() => setBulkAddOpen(true)}>
+              <Upload size={14} />
+              Bulk add items
+            </button>
           </div>
         </div>
 
@@ -225,6 +231,19 @@ export function InventoryScreen() {
           />
         )}
       </section>
+
+      {bulkAddOpen && (
+        <BulkAddModal
+          onClose={() => setBulkAddOpen(false)}
+          onImported={async (summary) => {
+            // Reload both lists: the new items and the units made with them.
+            const [itemList, unitList] = await Promise.all([getItems(), getUnits()]);
+            setItems(itemList);
+            setUnits(unitList);
+            setNotice(`Bulk add: ${summary.created} ${summary.created === 1 ? "item" : "items"} created, ${summary.skipped.length} skipped.`);
+          }}
+        />
+      )}
 
       {modal && (modal.mode === "create" || modalItem) && (
         <ItemModal

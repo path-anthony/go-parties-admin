@@ -2326,3 +2326,84 @@ button.kpi-card:focus-visible {
     grid-template-columns: repeat(4, 1fr);
   }
 }
+
+/* ---------- bulk add ---------- */
+
+.btn-bulk-add {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.bulk-drop {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 18px;
+  border: 1.5px dashed var(--line);
+  border-radius: 8px;
+  background: var(--cream);
+  align-items: flex-start;
+}
+
+.bulk-table-wrap {
+  max-height: 360px;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+
+.bulk-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12.5px;
+}
+
+.bulk-table th,
+.bulk-table td {
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+  vertical-align: top;
+}
+
+.bulk-table th {
+  position: sticky;
+  top: 0;
+  background: var(--white);
+  font-size: 10.5px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--taupe);
+}
+
+.bulk-row-bad td {
+  background: #fdf1ef;
+}
+
+.bulk-problem {
+  color: var(--bad);
+  font-weight: 700;
+  font-size: 12px;
+}
+
+.bulk-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.bulk-summary ul {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 12.5px;
+}
+
+.bulk-tag-new {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--orange-deep);
+  margin-left: 6px;
+}
