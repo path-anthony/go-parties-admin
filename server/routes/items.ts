@@ -95,8 +95,16 @@ router.get("/export.csv", async (_req, res) => {
   res.send(toCsv(CSV_HEADERS, rows));
 });
 
+const MAX_STARTING_UNITS = 50;
+
+// Creates an item and, in the same transaction, its starting units.
+// skills: any number from the fixed list, default none. startingUnits:
+// how many unit rows to create, default 1; forced to 0 when the item has
+// skills, since a service item is covered by crew and a unit on it would
+// cap it at one booking a day. Units are labelled "Unit #1", "Unit #2",
+// the same default the bulk action and the catalog-wide default used.
 router.post("/", async (req, res) => {
-  const { name, category, price, priceUnit, notes, photoUrl } = req.body ?? {};
+  const { name, category, price, priceUnit, notes, photoUrl, skills, startingUnits } = req.body ?? {};
 
   if (typeof name !== "string" || name.trim() === "") {
     return res.status(400).json({ error: "name is required" });
@@ -111,22 +119,43 @@ router.post("/", async (req, res) => {
   if (photoUrlTooLong(photoUrl)) {
     return res.status(400).json({ error: "photoUrl is too large" });
   }
+  if (skills !== undefined && (!Array.isArray(skills) || !skills.every(isSkill))) {
+    return res.status(400).json({ error: "skills must be a list of crew skills" });
+  }
+  const skillList: string[] = skills === undefined ? [] : [...new Set(skills as string[])];
+  let unitCount = 1;
+  if (startingUnits !== undefined) {
+    if (!Number.isInteger(startingUnits) || startingUnits < 0 || startingUnits > MAX_STARTING_UNITS) {
+      return res.status(400).json({ error: `startingUnits must be a whole number from 0 to ${MAX_STARTING_UNITS}` });
+    }
+    unitCount = startingUnits;
+  }
+  if (skillList.length > 0) unitCount = 0;
 
   const account = await getDefaultAccount();
-  const item = await prisma.item.create({
-    data: {
-      accountId: account.id,
-      name: name.trim(),
-      category: category.trim(),
-      price: normalizedPrice,
-      priceUnit: normalizeText(priceUnit),
-      notes: normalizeText(notes),
-      photoUrl: normalizeText(photoUrl),
-    },
-    include: ADDON_GROUPS_INCLUDE,
+  const item = await prisma.$transaction(async (tx) => {
+    const created = await tx.item.create({
+      data: {
+        accountId: account.id,
+        name: name.trim(),
+        category: category.trim(),
+        price: normalizedPrice,
+        priceUnit: normalizeText(priceUnit),
+        notes: normalizeText(notes),
+        photoUrl: normalizeText(photoUrl),
+        skills: skillList,
+      },
+    });
+    if (unitCount > 0) {
+      await tx.unit.createMany({
+        data: Array.from({ length: unitCount }, (_, n) => ({ itemId: created.id, label: `Unit #${n + 1}`, status: "Available" })),
+      });
+    }
+    return tx.item.findUniqueOrThrow({ where: { id: created.id }, include: { ...ADDON_GROUPS_INCLUDE, _count: { select: { units: true } } } });
   });
 
-  res.status(201).json(item);
+  const { _count, ...rest } = item;
+  res.status(201).json({ ...rest, unitCount: _count.units });
 });
 
 router.patch("/:id", async (req, res) => {

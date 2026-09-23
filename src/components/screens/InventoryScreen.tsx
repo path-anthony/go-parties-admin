@@ -103,6 +103,9 @@ export function InventoryScreen() {
     setModal({ mode: "edit", id: item.id });
     setSearch("");
     setCategory(ALL_CATEGORIES);
+    // The item may have been created with starting units; pick them up so
+    // the row's count and the popup's Units section are right.
+    getUnits().then(setUnits).catch(() => undefined);
   }
 
   async function handleBulkCreated(created: number, itemCount: number) {
@@ -218,6 +221,7 @@ export function InventoryScreen() {
         <ItemModal
           item={modal.mode === "edit" ? (modalItem ?? null) : null}
           units={modalItem ? units.filter((unit) => unit.itemId === modalItem.id) : []}
+          categories={categories}
           onClose={() => setModal(null)}
           onCreated={handleAdded}
           onItemUpdated={handleItemUpdated}

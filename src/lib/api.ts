@@ -76,8 +76,9 @@ export function getItems(): Promise<Item[]> {
   return fetch("/api/items").then(asJson<Item[]>);
 }
 
-export function createItem(item: NewItem): Promise<Item> {
-  return fetch("/api/items", jsonRequest("POST", item)).then(asJson<Item>);
+// The response carries unitCount: how many units were created with it.
+export function createItem(item: NewItem): Promise<Item & { unitCount: number }> {
+  return fetch("/api/items", jsonRequest("POST", item)).then(asJson<Item & { unitCount: number }>);
 }
 
 export type ItemPatch = Partial<Pick<Item, "name" | "category" | "priceUnit" | "notes" | "photoUrl" | "skills">> & {

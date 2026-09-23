@@ -31,6 +31,7 @@ import { PhotoDropZone } from "./PhotoDropZone";
 export function ItemModal({
   item,
   units,
+  categories,
   onClose,
   onCreated,
   onItemUpdated,
@@ -41,6 +42,8 @@ export function ItemModal({
   item: Item | null;
   // This item's units, from the screen's list.
   units: Unit[];
+  // Every category in use, for the new-item form's picker.
+  categories: string[];
   onClose: () => void;
   onCreated: (item: Item) => void;
   onItemUpdated: (item: Item) => void;
@@ -97,7 +100,7 @@ export function ItemModal({
           </>
         ) : (
           <>
-            <AddItemForm onAdded={onCreated} onCancel={onClose} />
+            <AddItemForm categories={categories} onAdded={onCreated} onCancel={onClose} />
             <div className="modal-section">
               <span className="detail-field-label">Add-ons</span>
               <p className="muted">Add the item first. Its add-on groups and options are set up right after, here.</p>

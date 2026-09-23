@@ -61,6 +61,10 @@ export type NewItem = {
   priceUnit: string;
   notes: string;
   photoUrl: string;
+  skills: Skill[];
+  // Unit rows created with the item. Ignored (forced to 0) when skills
+  // are set, since a service item is covered by crew.
+  startingUnits: number;
 };
 
 export type CrewMember = {
