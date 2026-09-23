@@ -3,9 +3,11 @@ import { Trash2, X } from "lucide-react";
 import {
   createAddon,
   createAddonGroup,
+  createUnitsBulk,
   deleteAddon,
   deleteAddonGroup,
   deleteItem,
+  deleteUnit,
   getItemUsage,
   updateAddon,
   updateAddonGroup,
@@ -14,8 +16,8 @@ import {
 } from "../lib/api";
 import { deltaLabel } from "../lib/addons";
 import { isUploadedPhoto } from "../lib/photo";
-import { SKILLS, type Skill } from "../lib/skills";
-import type { AddonGroup, Item, ItemDeleteResult, ItemUsage } from "../lib/types";
+import { SKILLS } from "../lib/skills";
+import { UNIT_STATUSES, type AddonGroup, type Item, type ItemDeleteResult, type ItemUsage, type Unit, type UnitStatus } from "../lib/types";
 import { AddItemForm } from "./AddItemForm";
 import { EditableCell } from "./EditableCell";
 import { PhotoDropZone } from "./PhotoDropZone";
@@ -28,15 +30,22 @@ import { PhotoDropZone } from "./PhotoDropZone";
 // because add-ons need an item to belong to.
 export function ItemModal({
   item,
+  units,
   onClose,
   onCreated,
   onItemUpdated,
+  onUnitsAdded,
+  onUnitRemoved,
   onDeleted,
 }: {
   item: Item | null;
+  // This item's units, from the screen's list.
+  units: Unit[];
   onClose: () => void;
   onCreated: (item: Item) => void;
   onItemUpdated: (item: Item) => void;
+  onUnitsAdded: () => Promise<void>;
+  onUnitRemoved: (unitId: string) => void;
   onDeleted: (item: Item, result: ItemDeleteResult) => void;
 }) {
   useEffect(() => {
@@ -74,6 +83,7 @@ export function ItemModal({
         {item ? (
           <>
             <ItemDetail item={item} onItemUpdated={onItemUpdated} />
+            <UnitsSection item={item} units={units} onUnitsAdded={onUnitsAdded} onUnitRemoved={onUnitRemoved} />
             <AddonsSection item={item} onItemUpdated={onItemUpdated} />
             <div className="modal-foot">
               <div className="form-actions">
@@ -129,32 +139,40 @@ function ItemDetail({ item, onItemUpdated }: { item: Item; onItemUpdated: (item:
         />
       </div>
       <div className="detail-field">
-        <span className="detail-field-label">Price unit</span>
+        <span className="detail-field-label">Billed per</span>
         <EditableCell
           value={item.priceUnit ?? ""}
-          placeholder="e.g. per day"
-          ariaLabel={`Price unit for ${item.name}`}
+          placeholder="e.g. day, event, hour"
+          ariaLabel={`Billed per, for ${item.name}`}
           onSave={(priceUnit) => save({ priceUnit })}
         />
+        <span className="muted field-help">How the price reads to a customer ("per day"). Not the number of units, which is below.</span>
       </div>
-      <label className="detail-field">
-        <span className="detail-field-label">Required skill</span>
-        <select
-          value={item.requiredSkill ?? ""}
-          aria-label={`Required skill for ${item.name}`}
-          onChange={(e) => save({ requiredSkill: e.target.value === "" ? null : (e.target.value as Skill) })}
-        >
-          <option value="">None, physical inventory (tracked as units)</option>
+      <div className="detail-field detail-field-span">
+        <span className="detail-field-label">Crew skills needed</span>
+        <div className="skill-grid" role="group" aria-label={`Crew skills needed for ${item.name}`}>
           {SKILLS.map((skill) => (
-            <option key={skill} value={skill}>
+            <label key={skill} className="checkbox-label">
+              <input
+                type="checkbox"
+                checked={item.skills.includes(skill)}
+                onChange={(e) =>
+                  save({
+                    skills: e.target.checked
+                      ? [...new Set([...item.skills, skill])]
+                      : item.skills.filter((s) => s !== skill),
+                  })
+                }
+              />
               {skill}
-            </option>
+            </label>
           ))}
-        </select>
+        </div>
         <span className="muted field-help">
-          A service item (a DJ, a photographer) is a person's time. It gets no units; booking it creates a gig for the crew.
+          Every person this item needs to run, one gig each when it's booked. Independent of units: an item can be a physical
+          piece, a service, or both.
         </span>
-      </label>
+      </div>
       <div className="detail-field detail-field-span">
         <span className="detail-field-label">Notes</span>
         <EditableCell
@@ -216,6 +234,121 @@ function PhotoField({ item, onSave }: { item: Item; onSave: (patch: ItemPatch) =
       </div>
       {error && <p className="form-error">{error}</p>}
     </>
+  );
+}
+
+// The item's physical units: how many can be out on one date. Each row is
+// one real piece with its own label and status; the count is the number
+// of rows. Adding goes through the same bulk call the Inventory toolbar
+// uses; removing is refused while a live booking holds the unit.
+function UnitsSection({
+  item,
+  units,
+  onUnitsAdded,
+  onUnitRemoved,
+}: {
+  item: Item;
+  units: Unit[];
+  onUnitsAdded: () => Promise<void>;
+  onUnitRemoved: (unitId: string) => void;
+}) {
+  const [quantity, setQuantity] = useState(1);
+  // Default the pattern to the item's own naming ("Bar #1" when its units
+  // are Bar #1, Bar #2), so an added unit continues the sequence.
+  const [labelPattern, setLabelPattern] = useState(() => {
+    const first = units[0]?.label.match(/^(.*?)\s*#?\d+$/);
+    return first ? `${first[1].trim()} #1` : "Unit #1";
+  });
+  const [status, setStatus] = useState<UnitStatus>("Available");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function run(action: () => Promise<void>, fallback: string) {
+    setBusy(true);
+    setError(null);
+    try {
+      await action();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : fallback);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="modal-section">
+      <span className="detail-field-label">Units</span>
+      <p className="muted addon-help">
+        How many of this item can be out on one date. Each unit is one real piece. An item with no units and no crew skills
+        can't be booked from the storefront.
+      </p>
+      {units.length === 0 ? (
+        <p className="muted">No units. {item.skills.length > 0 ? "It's covered by crew alone." : "Add at least one so it can be booked."}</p>
+      ) : (
+        <ul className="addon-list">
+          {units.map((unit) => (
+            <li key={unit.id} className="unit-row">
+              <span>
+                <strong>{unit.label}</strong> <span className="muted">· {unit.status}</span>
+              </span>
+              <button
+                type="button"
+                className="icon-btn"
+                aria-label={`Remove ${unit.label} from ${item.name}`}
+                disabled={busy}
+                onClick={() =>
+                  run(async () => {
+                    await deleteUnit(unit.id);
+                    onUnitRemoved(unit.id);
+                  }, "Couldn't remove the unit")
+                }
+              >
+                <X size={13} />
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      <form
+        className="unit-add"
+        onSubmit={(e) => {
+          e.preventDefault();
+          run(async () => {
+            await createUnitsBulk({ itemIds: [item.id], labelPattern, quantity, status });
+            await onUnitsAdded();
+          }, "Couldn't add units");
+        }}
+      >
+        <input
+          type="number"
+          min={1}
+          max={50}
+          value={quantity}
+          aria-label={`How many units to add to ${item.name}`}
+          onChange={(e) => setQuantity(Math.max(1, Math.min(50, Number(e.target.value) || 1)))}
+          disabled={busy}
+        />
+        <input
+          value={labelPattern}
+          onChange={(e) => setLabelPattern(e.target.value)}
+          placeholder="Label pattern, e.g. Cart #1"
+          aria-label={`Label pattern for new units of ${item.name}`}
+          disabled={busy}
+          required
+        />
+        <select value={status} onChange={(e) => setStatus(e.target.value as UnitStatus)} aria-label="Status for new units" disabled={busy}>
+          {UNIT_STATUSES.map((s) => (
+            <option key={s} value={s}>
+              {s}
+            </option>
+          ))}
+        </select>
+        <button type="submit" className="btn-secondary" disabled={busy}>
+          Add {quantity === 1 ? "unit" : `${quantity} units`}
+        </button>
+      </form>
+      {error && <p className="form-error">{error}</p>}
+    </div>
   );
 }
 

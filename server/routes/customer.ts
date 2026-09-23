@@ -233,16 +233,17 @@ router.post("/bookings/:id/change-item", requireCustomer, customerActionLimiter,
   if (!item) {
     return res.status(404).json({ error: "item not found" });
   }
-  // A service item (a required skill) is booked as a gig and needs no
-  // units; anything else needs at least one unit to be promised.
-  if (item.requiredSkill === null && (await prisma.unit.count({ where: { itemId: item.id } })) === 0) {
+  // An item is promisable through its units, through the crew for its
+  // skills, or both; one with neither can't be.
+  const unitCount = await prisma.unit.count({ where: { itemId: item.id } });
+  if (item.skills.length === 0 && unitCount === 0) {
     return res.status(409).json({ error: "That item isn't available for direct booking yet.", reason: "not-tracked" });
   }
 
   try {
     const { booking: updated, unit } = await changeBookingItem(
       booking.id,
-      { id: item.id, name: item.name, requiredSkill: item.requiredSkill },
+      { id: item.id, name: item.name, skills: item.skills, unitCount },
       (b, unitLabel) => `Changed to ${item.name} (${unitLabel}) for ${b.eventDate.toISOString().slice(0, 10)} by the customer from their account.`,
     );
     res.json({ ...serializeCustomerBooking(updated), unit: { id: unit.id, label: unit.label } });

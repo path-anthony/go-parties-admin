@@ -55,6 +55,7 @@ export function ItemsTable({
           <th>Category</th>
           <th>Price</th>
           <th>Units</th>
+          <th>Crew</th>
           <th>Add-ons</th>
           <th aria-label="Open" />
         </tr>
@@ -125,9 +126,8 @@ function ItemRow({
         <td className="catalog-name">{item.name}</td>
         <td className="muted">{item.category}</td>
         <td>{priceLabel(item)}</td>
-        <td className={unitCount === 0 && !item.requiredSkill ? "muted" : ""}>
-          {item.requiredSkill ? `Crew · ${item.requiredSkill}` : unitCount === 0 ? "None" : unitCount}
-        </td>
+        <td className={unitCount === 0 ? "muted" : ""}>{unitCount === 0 ? "None" : unitCount}</td>
+        <td className={item.skills.length === 0 ? "muted" : ""}>{item.skills.length === 0 ? "None" : item.skills.join(", ")}</td>
       <td className={item.addonGroups.length === 0 ? "muted" : ""}>{addonsLabel(item)}</td>
       <td className="catalog-chevron">
         <ChevronRight size={14} />

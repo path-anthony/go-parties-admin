@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { getDefaultAccount } from "../account.js";
 import { countFreeUnits, freeUnitsByItem } from "../availability.js";
-import { crewFreeBySkill } from "../gigs.js";
+import { crewFreeBySkill, freeForItem } from "../gigs.js";
 import { prisma } from "../db.js";
 import { PUBLIC_ITEM_RELATIONS, toPublicItem } from "../publicItem.js";
 import { availabilityLimiter } from "../rateLimit.js";
@@ -29,11 +29,12 @@ router.get("/public", availabilityLimiter, async (req, res) => {
   const dateText = date ? date.toISOString().slice(0, 10) : null;
 
   const account = await getDefaultAccount();
-  // Physical items are free by unit; service items by crew with the skill.
+  // Free by unit, by the crew for every skill, or by the tighter of the
+  // two for an item that has both.
   const free = dateText ? await freeUnitsByItem(account.id, dateText) : null;
-  const crew = dateText ? await crewFreeBySkill(account.id, dateText) : null;
-  const freeFor = (item: { id: string; requiredSkill: string | null }) =>
-    item.requiredSkill !== null ? (crew?.get(item.requiredSkill)?.free ?? 0) : (free?.get(item.id) ?? 0);
+  const crew = dateText ? await crewFreeBySkill(account.id, dateText) : new Map<string, { crew: number; free: number }>();
+  const freeFor = (item: { id: string; skills: string[]; _count: { units: number } }) =>
+    freeForItem(item, item._count.units, free?.get(item.id) ?? 0, crew);
   const [items, categoryRows] = await Promise.all([
     prisma.item.findMany({
       where: {
@@ -49,7 +50,7 @@ router.get("/public", availabilityLimiter, async (req, res) => {
         price: true,
         priceUnit: true,
         photoUrl: true,
-        requiredSkill: true,
+        skills: true,
         // Unit count and each item's add-on groups and options ride along,
         // so the storefront can offer them without a second request.
         ...PUBLIC_ITEM_RELATIONS,
@@ -79,29 +80,35 @@ router.get("/:id/availability", availabilityLimiter, async (req, res) => {
   const dateText = date.toISOString().slice(0, 10);
 
   const account = await getDefaultAccount();
-  const item = await prisma.item.findFirst({ where: { id, accountId: account.id }, select: { id: true, name: true, requiredSkill: true } });
+  const item = await prisma.item.findFirst({ where: { id, accountId: account.id }, select: { id: true, name: true, skills: true } });
   if (!item) {
     return res.status(404).json({ error: "item not found" });
   }
 
-  // A service item is available when someone with its skill is free that
-  // day: active crew with the skill, minus gigs already needing it.
-  if (item.requiredSkill !== null) {
-    const crew = (await crewFreeBySkill(account.id, dateText)).get(item.requiredSkill) ?? { crew: 0, free: 0 };
+  const totalUnits = await prisma.unit.count({ where: { itemId: item.id } });
+
+  // An item with skills is available when someone is free for every one
+  // of them that day, and, if it also has units, when a unit is free too.
+  if (item.skills.length > 0) {
+    const crew = await crewFreeBySkill(account.id, dateText);
+    const unitsFree = totalUnits > 0 ? await countFreeUnits(item.id, dateText) : 0;
+    const freeUnits = freeForItem(item, totalUnits, unitsFree, crew);
+    const uncovered = item.skills.filter((skill) => (crew.get(skill)?.crew ?? 0) === 0);
     return res.json({
       itemId: item.id,
       date: dateText,
       directBooking: true,
-      available: crew.free > 0,
-      freeUnits: crew.free,
-      totalUnits: crew.crew,
-      ...(crew.crew === 0 ? { message: "No one on the crew has this skill yet." } : {}),
+      available: freeUnits > 0,
+      freeUnits,
+      // The tighter of the two capacities, or the crew's when there are no units.
+      totalUnits: totalUnits > 0 ? totalUnits : Math.min(...item.skills.map((skill) => crew.get(skill)?.crew ?? 0)),
+      skills: item.skills,
+      ...(uncovered.length > 0 ? { message: `No one on the crew has ${uncovered.join(" or ")} yet.` } : {}),
     });
   }
 
   // An item with no units has no physical pieces to promise. Say so rather
   // than reporting it free.
-  const totalUnits = await prisma.unit.count({ where: { itemId: item.id } });
   if (totalUnits === 0) {
     return res.json({
       itemId: item.id,

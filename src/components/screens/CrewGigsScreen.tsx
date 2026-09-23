@@ -53,7 +53,7 @@ export function CrewGigsScreen() {
         <div>
           <h2>Crew & Gigs</h2>
           <p className="muted">
-            A gig is one person needed for one service item on one booking. Crew are the people who can take them.
+            A gig is one person needed for one skill of one item on one booking. Crew are the people who can take them.
           </p>
         </div>
         {ready && tab === "crew" && (
@@ -90,7 +90,7 @@ export function CrewGigsScreen() {
               {visibleGigs.length === 0 ? (
                 <p className="muted">
                   {gigs.length === 0
-                    ? "No gigs yet. One appears here for each service item on a booking, the moment the booking is made."
+                    ? "No gigs yet. One appears here for each skill an item needs, the moment a booking takes it."
                     : "No gigs match."}
                 </p>
               ) : (

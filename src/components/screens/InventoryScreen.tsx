@@ -217,9 +217,12 @@ export function InventoryScreen() {
       {modal && (modal.mode === "create" || modalItem) && (
         <ItemModal
           item={modal.mode === "edit" ? (modalItem ?? null) : null}
+          units={modalItem ? units.filter((unit) => unit.itemId === modalItem.id) : []}
           onClose={() => setModal(null)}
           onCreated={handleAdded}
           onItemUpdated={handleItemUpdated}
+          onUnitsAdded={async () => setUnits(await getUnits())}
+          onUnitRemoved={(unitId) => setUnits((prev) => prev.filter((unit) => unit.id !== unitId))}
           onDeleted={handleItemDeleted}
         />
       )}

@@ -102,9 +102,9 @@ export function BookingModal({
   const heldItems = [...new Set(held.map((u) => u.itemId))]
     .map((id) => items.find((i) => i.id === id))
     .filter((i): i is Item => !!i);
-  // What "add an item" can offer: physical items with units, and service
-  // items, which are covered by crew rather than units.
-  const trackedItems = items.filter((item) => item.requiredSkill !== null || units.some((u) => u.itemId === item.id));
+  // What "add an item" can offer: anything with units, anything with
+  // skills (covered by crew), or both.
+  const trackedItems = items.filter((item) => item.skills.length > 0 || units.some((u) => u.itemId === item.id));
   const liveGigs = booking.gigs.filter((g) => g.status !== "Cancelled");
   const gigItems = [...new Set(liveGigs.map((g) => g.itemId))]
     .map((id) => items.find((i) => i.id === id))
@@ -294,10 +294,12 @@ export function BookingModal({
               <select value={addItemId} onChange={(e) => setAddItemId(e.target.value)} disabled={busy} aria-label="Item to add">
                 <option value="">Add an item for this date…</option>
                 {trackedItems.map((item) => {
-                  if (item.requiredSkill) {
+                  const hasUnits = units.some((u) => u.itemId === item.id);
+                  const crewNote = item.skills.length > 0 ? ` · needs ${item.skills.join(", ")}` : "";
+                  if (!hasUnits) {
                     return (
                       <option key={item.id} value={item.id}>
-                        {item.name} · crew, needs a {item.requiredSkill}
+                        {item.name} · crew{crewNote}
                       </option>
                     );
                   }
@@ -305,6 +307,7 @@ export function BookingModal({
                   return (
                     <option key={item.id} value={item.id} disabled={free === 0}>
                       {item.name} · {free === 0 ? "none free" : `${free} free`}
+                      {crewNote}
                     </option>
                   );
                 })}

@@ -46,9 +46,9 @@ export type Item = {
   priceUnit: string | null;
   notes: string | null;
   photoUrl: string | null;
-  // Set on a service item (a DJ, a photographer): the crew skill it needs.
-  // Such an item has no units; it is booked as a gig against the crew.
-  requiredSkill: Skill | null;
+  // The crew skills the item needs to run, any number, independent of
+  // whether it has units. Booking it creates one gig per skill.
+  skills: Skill[];
   addonGroups: AddonGroup[];
   createdAt: string;
   updatedAt: string;

@@ -80,7 +80,7 @@ export function createItem(item: NewItem): Promise<Item> {
   return fetch("/api/items", jsonRequest("POST", item)).then(asJson<Item>);
 }
 
-export type ItemPatch = Partial<Pick<Item, "name" | "category" | "priceUnit" | "notes" | "photoUrl" | "requiredSkill">> & {
+export type ItemPatch = Partial<Pick<Item, "name" | "category" | "priceUnit" | "notes" | "photoUrl" | "skills">> & {
   price?: string | number | null;
 };
 
@@ -182,6 +182,11 @@ export function createUnit(unit: NewUnit): Promise<Unit> {
 
 export function updateUnit(id: string, patch: UnitPatch): Promise<Unit> {
   return fetch(`/api/units/${id}`, jsonRequest("PATCH", patch)).then(asJson<Unit>);
+}
+
+// Refused (409) while a live booking holds the unit.
+export function deleteUnit(id: string): Promise<{ ok: true }> {
+  return fetch(`/api/units/${id}`, jsonRequest("DELETE")).then(asJson<{ ok: true }>);
 }
 
 export function createUnitsBulk(request: BulkUnitsRequest): Promise<BulkUnitsResult> {

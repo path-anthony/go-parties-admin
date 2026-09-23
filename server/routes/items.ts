@@ -9,7 +9,7 @@ const CSV_HEADERS = ["name", "category", "price", "price_unit", "notes", "photo_
 
 const router = Router();
 
-const EDITABLE_FIELDS = ["name", "category", "price", "priceUnit", "notes", "photoUrl", "requiredSkill"] as const;
+const EDITABLE_FIELDS = ["name", "category", "price", "priceUnit", "notes", "photoUrl", "skills"] as const;
 type EditableField = (typeof EDITABLE_FIELDS)[number];
 
 function normalizeText(value: unknown): string | null {
@@ -143,7 +143,7 @@ router.patch("/:id", async (req, res) => {
     return res.status(400).json({ error: "photoUrl is too large" });
   }
 
-  const data: Record<string, string | number | null> = {};
+  const data: Record<string, string | number | string[] | null> = {};
 
   for (const field of EDITABLE_FIELDS) {
     if (!(field in body)) continue;
@@ -166,19 +166,14 @@ router.patch("/:id", async (req, res) => {
       continue;
     }
 
-    // The skill an item needs, from the fixed list, or null for a
-    // physical item. Not allowed on an item that has units: it would be
-    // both a piece of inventory and a person, and availability would
-    // have to mean two things at once.
-    if (field === "requiredSkill") {
-      const skill = normalizeText(body.requiredSkill);
-      if (skill !== null && !isSkill(skill)) {
-        return res.status(400).json({ error: "requiredSkill must be one of the crew skills, or empty" });
+    // The crew skills the item needs, any number from the fixed list,
+    // independent of whether it has units.
+    if (field === "skills") {
+      const skills = body.skills;
+      if (!Array.isArray(skills) || !skills.every(isSkill)) {
+        return res.status(400).json({ error: "skills must be a list of crew skills" });
       }
-      if (skill !== null && (await prisma.unit.count({ where: { itemId: id } })) > 0) {
-        return res.status(409).json({ error: "This item has units, so it's physical inventory. Remove its units before giving it a required skill." });
-      }
-      data.requiredSkill = skill;
+      data.skills = [...new Set(skills)];
       continue;
     }
 

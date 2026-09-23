@@ -58,11 +58,11 @@ export function AddItemForm({ onAdded, onCancel }: { onAdded: (item: Item) => vo
           />
         </label>
         <label>
-          Price unit
+          Billed per
           <input
             value={form.priceUnit}
             onChange={(e) => set("priceUnit", e.target.value)}
-            placeholder="e.g. per day"
+            placeholder="e.g. day, event, hour"
           />
         </label>
       </div>

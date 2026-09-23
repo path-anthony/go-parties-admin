@@ -323,21 +323,23 @@ model BookingUnit {
 }
 
 model Item {
-  id            String   @id @default(cuid())
-  accountId     String   @map("account_id")
-  name          String
-  category      String
-  price         Decimal? @db.Decimal(10, 2)
-  priceUnit     String?  @map("price_unit")
-  notes         String?
-  photoUrl      String?  @map("photo_url")
-  // Set on service items (a DJ, a photographer): a name from the fixed
-  // skill list. Such an item is a person's time, not a physical piece, so
-  // it is never given units; its availability is the crew with that
-  // skill, and booking it creates a Gig instead of holding a unit.
-  requiredSkill String?  @map("required_skill")
-  createdAt     DateTime @default(now()) @map("created_at")
-  updatedAt     DateTime @updatedAt @map("updated_at")
+  id        String   @id @default(cuid())
+  accountId String   @map("account_id")
+  name      String
+  category  String
+  price     Decimal? @db.Decimal(10, 2)
+  priceUnit String?  @map("price_unit")
+  notes     String?
+  photoUrl  String?  @map("photo_url")
+  // The crew skills this item needs to run, from the fixed list in
+  // server/skills.ts (plain strings, like CrewMember.skills). Empty for
+  // most physical items. Independent of units: an item can be a physical
+  // piece with units, a service with skills, or both (a cigar bar that is
+  // a real setup and needs waitstaff and a bartender). Booking it creates
+  // one Gig per skill per unit wanted, on top of any unit it holds.
+  skills    String[] @default([])
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
 
   account       Account        @relation(fields: [accountId], references: [id])
   units         Unit[]

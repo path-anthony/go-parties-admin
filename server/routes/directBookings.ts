@@ -5,7 +5,7 @@ import { leadStatusForStorefrontBooking, lockFreeUnit } from "../availability.js
 import { NoFreeUnits } from "../bookingOps.js";
 import { currentCustomer } from "../customerAuth.js";
 import { prisma } from "../db.js";
-import { NoCrewFree, createGig, isServiceItem } from "../gigs.js";
+import { NoCrewFree, createGigs, needsCrew } from "../gigs.js";
 import { INVALID, normalizeDate, normalizeText, splitContact } from "../validate.js";
 
 const MAX_ADDRESS_LENGTH = 300;
@@ -171,10 +171,9 @@ router.post("/", async (req, res) => {
   if (items.length !== itemIds.length) {
     return res.status(404).json({ error: itemIds.length === 1 ? "item not found" : "One or more items were not found" });
   }
-  // A service item (a required skill) is a person's time, booked as a gig
-  // against the crew who can do it; it never has units. Anything else
-  // needs at least one unit to be promised.
-  const untracked = items.filter((item) => item._count.units === 0 && !isServiceItem(item));
+  // An item is promisable through its units, through the crew for its
+  // skills, or both. One with neither can't be promised at all.
+  const untracked = items.filter((item) => item._count.units === 0 && !needsCrew(item));
   if (untracked.length > 0) {
     return res.status(409).json({
       error:
@@ -231,7 +230,7 @@ router.post("/", async (req, res) => {
       const claimed: { item: (typeof items)[number]; unit: { id: string; label: string } }[] = [];
       const missing: string[] = [];
       for (const { item, quantity } of wanted) {
-        if (isServiceItem(item)) continue;
+        if (item._count.units === 0) continue;
         const held: string[] = [];
         for (let n = 0; n < quantity; n++) {
           const unit = await lockFreeUnit(tx, item.id, dateText, held);
@@ -243,10 +242,12 @@ router.post("/", async (req, res) => {
       }
       if (missing.length > 0) throw new NoFreeUnits(missing);
 
-      const gigItems = wanted.filter(({ item }) => isServiceItem(item));
+      const crewItems = wanted.filter(({ item }) => needsCrew(item));
       const summary = [
         ...claimed.map(({ item, unit }) => `${item.name} (${unit.label})`),
-        ...gigItems.map(({ item, quantity }) => (quantity > 1 ? `${item.name} x${quantity} (crew)` : `${item.name} (crew)`)),
+        ...crewItems
+          .filter(({ item }) => item._count.units === 0)
+          .map(({ item, quantity }) => (quantity > 1 ? `${item.name} x${quantity} (crew)` : `${item.name} (crew)`)),
       ].join(", ");
       const packageNote = pkg ? ` Package: ${pkg.name}, $${Number(pkg.price)}.` : "";
       const lead = await tx.lead.create({
@@ -299,22 +300,12 @@ router.post("/", async (req, res) => {
           },
         },
       });
-      // One gig per unit of each service item, each checked for a free
-      // person with the skill under the crew lock. A skill with nobody
-      // free on the date throws and rolls the whole booking back, the
-      // same as an item with no free unit.
-      const gigs: { item: (typeof items)[number]; gigId: string }[] = [];
-      for (const { item, quantity } of gigItems) {
-        for (let n = 0; n < quantity; n++) {
-          const gig = await createGig(tx, {
-            accountId: account.id,
-            bookingId: booking.id,
-            item: { id: item.id, name: item.name, requiredSkill: item.requiredSkill as string },
-            date,
-          });
-          gigs.push({ item, gigId: gig.id });
-        }
-      }
+      // One gig per skill per unit wanted of each item that needs crew,
+      // after every unit lock above (units first, then skills in order,
+      // so the lock order is the same in every transaction). A skill with
+      // nobody free on the date throws and rolls the whole booking back,
+      // the same as an item with no free unit.
+      const gigs = await createGigs(tx, { accountId: account.id, bookingId: booking.id, date, wanted: crewItems });
       // First booking from an account that signed up without a name: keep
       // the name so the next booking doesn't ask again.
       if (customer && !customer.name) {
@@ -331,7 +322,15 @@ router.post("/", async (req, res) => {
         name: item.name,
         unit: { id: unit.id, label: unit.label } as { id: string; label: string } | null,
       })),
-      ...result.gigs.map(({ item }) => ({ id: item.id, name: item.name, unit: null })),
+      // A skill-only item has no unit; one entry per unit wanted, not per
+      // gig, so an item needing three people still appears once.
+      ...result.gigs
+        .filter((g, i, all) => all.findIndex((x) => x.itemId === g.itemId) === i)
+        .flatMap((g) => {
+          const w = wanted.find(({ item }) => item.id === g.itemId);
+          if (!w || w.item._count.units > 0) return [];
+          return Array.from({ length: w.quantity }, () => ({ id: g.itemId, name: g.itemName, unit: null }));
+        }),
     ];
     res.status(201).json({
       bookingId: result.booking.id,
@@ -354,7 +353,7 @@ router.post("/", async (req, res) => {
       item: { id: bookedItems[0].id, name: bookedItems[0].name },
       unit: bookedItems[0].unit,
       items: bookedItems,
-      gigs: result.gigs.map(({ item, gigId }) => ({ id: gigId, itemId: item.id, itemName: item.name, skill: item.requiredSkill })),
+      gigs: result.gigs,
     });
   } catch (err) {
     // NoFreeUnits is the normal loser path. P2002 is the (unitId, eventDate)
@@ -365,7 +364,7 @@ router.post("/", async (req, res) => {
       return res.status(409).json({
         error:
           items.length === 1 && err instanceof NoCrewFree
-            ? `Nobody on the crew is free for ${err.itemName} that date. Try another date.`
+            ? `Nobody on the crew is free to cover the ${err.skill} for ${err.itemName} that date. Try another date.`
             : items.length === 1
             ? "That date was just booked by someone else. Try another date."
             : `${names.join(", ")} ${names.length === 1 ? "isn't" : "aren't"} available that date, so nothing was booked. Drop ${names.length === 1 ? "it" : "them"} or try another date.`,
