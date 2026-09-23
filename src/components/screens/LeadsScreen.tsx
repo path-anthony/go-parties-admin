@@ -21,6 +21,7 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { Settings2, X } from "lucide-react";
+import { FOLLOW_UP_DAYS, findStage, needsFollowUp } from "../../lib/navigation";
 import { getLeadStatuses, getLeads, reorderLeads, updateLead } from "../../lib/api";
 import type { Lead, LeadStatus, LeadStatusRow } from "../../lib/types";
 import { AddLeadForm } from "../AddLeadForm";
@@ -117,7 +118,13 @@ function PipelineColumn({
   );
 }
 
-export function LeadsScreen() {
+// initialStatus opens the board on one column; initialFollowUp on the
+// leads in New or Contacted that nobody has touched for a while. Either
+// way the rest is one click away.
+export function LeadsScreen({ initialStatus, initialFollowUp = false }: { initialStatus?: string; initialFollowUp?: boolean } = {}) {
+  const [filter, setFilter] = useState<{ status?: string; followUp?: boolean } | null>(
+    initialStatus ? { status: initialStatus } : initialFollowUp ? { followUp: true } : null,
+  );
   const [statuses, setStatuses] = useState<LeadStatus[] | null>(null);
   const [leads, setLeads] = useState<Lead[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -296,6 +303,15 @@ export function LeadsScreen() {
   const activeLead = activeId ? leads?.find((lead) => lead.id === activeId) ?? null : null;
   const selected = selectedId ? leads?.find((lead) => lead.id === selectedId) ?? null : null;
   const ready = statuses !== null && leads !== null;
+  // What the board shows under the current filter: one column, or the
+  // early columns holding only the leads that need a follow-up.
+  const earlyStages = statuses ? [findStage(statuses, "New"), findStage(statuses, "Contacted")].filter((s): s is string => !!s) : [];
+  const shownLeads = !filter
+    ? (leads ?? [])
+    : filter.followUp
+      ? (leads ?? []).filter((l) => needsFollowUp(l, earlyStages))
+      : (leads ?? []).filter((l) => l.status === filter.status);
+  const shownStatuses = !filter ? (statuses ?? []) : filter.followUp ? earlyStages : (statuses ?? []).filter((s) => s === filter.status);
 
   return (
     <div className="screen screen-wide">
@@ -360,6 +376,19 @@ export function LeadsScreen() {
       {error && <p className="form-error">{error}</p>}
       {!ready && !error && <p className="muted">Loading…</p>}
 
+      {ready && filter && (
+        <div className="board-filter" role="status">
+          <span>
+            {filter.followUp
+              ? `Showing ${shownLeads.length} ${shownLeads.length === 1 ? "lead" : "leads"} in New or Contacted untouched for ${FOLLOW_UP_DAYS}+ days.`
+              : `Showing the ${filter.status} column, ${shownLeads.length} ${shownLeads.length === 1 ? "lead" : "leads"}.`}
+          </span>
+          <button type="button" className="btn-secondary" onClick={() => setFilter(null)}>
+            Show all columns
+          </button>
+        </div>
+      )}
+
       {ready && (
         <DndContext
           sensors={sensors}
@@ -372,14 +401,14 @@ export function LeadsScreen() {
             finishDrag();
           }}
         >
-          <div className="pipeline" style={{ gridTemplateColumns: `repeat(${statuses.length}, minmax(230px, 1fr))` }}>
-            {statuses.map((status, index) => (
+          <div className="pipeline" style={{ gridTemplateColumns: `repeat(${shownStatuses.length}, minmax(230px, 1fr))` }}>
+            {shownStatuses.map((status) => (
               <PipelineColumn
                 key={status}
                 status={status}
-                accent={index % ACCENT_COUNT}
+                accent={statuses.indexOf(status) % ACCENT_COUNT}
                 statuses={statuses}
-                leads={leads.filter((lead) => lead.status === status)}
+                leads={shownLeads.filter((lead) => lead.status === status)}
                 onOpen={handleOpen}
                 onStatusChange={handleStatusChange}
               />

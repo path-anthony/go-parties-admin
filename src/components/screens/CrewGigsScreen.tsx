@@ -22,13 +22,15 @@ function rowKey(e: KeyboardEvent<HTMLTableRowElement>, open: () => void) {
 // service item, filterable by status, one row opening the gig popup.
 // Crew: the people, one row opening the crew popup. Both follow the
 // compact-row-plus-popup pattern Inventory and Scheduling use.
-export function CrewGigsScreen() {
+// initialStatus opens the list on one status; openGigId opens that gig's
+// popup as soon as the list has loaded. Both come from Overview's cards.
+export function CrewGigsScreen({ initialStatus, openGigId: initialGigId }: { initialStatus?: string; openGigId?: string } = {}) {
   const [tab, setTab] = useState<Tab>("gigs");
   const [gigs, setGigs] = useState<Gig[] | null>(null);
   const [crew, setCrew] = useState<CrewMember[] | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [filter, setFilter] = useState<Filter>("All");
-  const [openGigId, setOpenGigId] = useState<string | null>(null);
+  const [filter, setFilter] = useState<Filter>(initialStatus && (GIG_STATUSES as readonly string[]).includes(initialStatus) ? (initialStatus as GigStatus) : "All");
+  const [openGigId, setOpenGigId] = useState<string | null>(initialGigId ?? null);
   const [crewModal, setCrewModal] = useState<{ mode: "create" } | { mode: "edit"; id: string } | null>(null);
 
   useEffect(() => {

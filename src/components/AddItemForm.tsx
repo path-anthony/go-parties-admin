@@ -177,10 +177,12 @@ export function AddItemForm({
 }
 
 
-// A combobox over the categories in use. Typing filters the list; only
-// choosing a row sets the value, and only the explicit "+ Add new
-// category" row opens a way to type a value that isn't in the list yet.
-// Free text never becomes a category on its own.
+// One combobox over the categories in use. Typing filters the list live;
+// choosing a row sets the value. When nothing matches what was typed
+// exactly (case-insensitively), the last row offers to create it, and
+// choosing that row creates and applies it in one step. Free text on its
+// own never becomes a category, and a name that matches an existing
+// category in a different case reuses the existing one.
 function CategoryPicker({
   options,
   value,
@@ -195,32 +197,24 @@ function CategoryPicker({
   const listId = useId();
   const [query, setQuery] = useState("");
   const [open, setOpen] = useState(false);
-  const [adding, setAdding] = useState(false);
-  const [draft, setDraft] = useState("");
 
-  const q = query.trim().toLowerCase();
+  const typed = query.trim();
+  const q = typed.toLowerCase();
   const matches = q === "" ? options : options.filter((c) => c.toLowerCase().includes(q));
+  const exact = options.find((c) => c.toLowerCase() === q);
+  const canCreate = typed !== "" && !exact;
 
   function choose(category: string) {
     onChange(category);
     setQuery("");
     setOpen(false);
-    setAdding(false);
   }
 
-  function commitNew() {
-    const name = draft.trim();
-    if (name === "") return;
-    const existing = options.find((c) => c.toLowerCase() === name.toLowerCase());
-    // Same name in a different case is the same category, not a new one.
-    if (existing) choose(existing);
-    else {
-      onAddNew(name);
-      setQuery("");
-      setOpen(false);
-      setAdding(false);
-    }
-    setDraft("");
+  function createTyped() {
+    if (!canCreate) return;
+    onAddNew(typed);
+    setQuery("");
+    setOpen(false);
   }
 
   return (
@@ -233,21 +227,35 @@ function CategoryPicker({
           aria-controls={listId}
           aria-autocomplete="list"
           value={open ? query : value}
-          placeholder={options.length === 0 ? "Type to add the first category" : "Pick from the list, or search it"}
+          placeholder={options.length === 0 ? "Type a category to create it" : "Pick from the list, or type to search"}
           onFocus={() => {
             setQuery("");
             setOpen(true);
           }}
+          // A click on a field already showing a chosen value starts a new
+          // search (focus alone doesn't fire again while it stays focused).
+          onClick={() => {
+            if (!open) {
+              setQuery("");
+              setOpen(true);
+            }
+          }}
           onChange={(e) => {
-            setQuery(e.target.value);
+            // Typing straight over a chosen value: the field held that value,
+            // so the new text is the value plus what was typed. Keep only the
+            // typed part as the search.
+            const text = !open && value && e.target.value.startsWith(value) ? e.target.value.slice(value.length) : e.target.value;
+            setQuery(text);
             setOpen(true);
           }}
           onKeyDown={(e) => {
             if (e.key === "Escape") setOpen(false);
             if (e.key === "Enter") {
-              // Enter picks the single remaining match; it never creates.
               e.preventDefault();
-              if (matches.length === 1) choose(matches[0]);
+              // Enter takes the exact match, else the single remaining
+              // match, else offers nothing: creating is the explicit row.
+              if (exact) choose(exact);
+              else if (matches.length === 1) choose(matches[0]);
             }
           }}
           onBlur={() => setTimeout(() => setOpen(false), 150)}
@@ -261,45 +269,13 @@ function CategoryPicker({
               {c}
             </li>
           ))}
-          {matches.length === 0 && <li className="category-option muted">No category matches. Add it below.</li>}
-          <li
-            role="option"
-            aria-selected={false}
-            className="category-option category-option-add"
-            onMouseDown={() => {
-              setOpen(false);
-              setAdding(true);
-              setDraft(query.trim());
-            }}
-          >
-            + Add new category
-          </li>
+          {matches.length === 0 && !canCreate && <li className="category-option muted">No category matches.</li>}
+          {canCreate && (
+            <li role="option" aria-selected={false} className="category-option category-option-add" onMouseDown={createTyped}>
+              + Create "{typed}"
+            </li>
+          )}
         </ul>
-      )}
-      {adding && (
-        <div className="category-new">
-          <input
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            placeholder="New category name"
-            aria-label="New category name"
-            autoFocus
-            maxLength={60}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") {
-                e.preventDefault();
-                commitNew();
-              }
-              if (e.key === "Escape") setAdding(false);
-            }}
-          />
-          <button type="button" className="btn-secondary" onClick={commitNew} disabled={draft.trim() === ""}>
-            Use it
-          </button>
-          <button type="button" className="btn-secondary" onClick={() => setAdding(false)}>
-            Cancel
-          </button>
-        </div>
       )}
       {value && !open && <span className="muted field-help">Category: {value}</span>}
     </div>

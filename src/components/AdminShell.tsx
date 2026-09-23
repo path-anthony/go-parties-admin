@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { LogOut } from "lucide-react";
 import { AUTH_EXPIRED_EVENT, logout } from "../lib/api";
+import { NavigationContext, type ScreenParams } from "../lib/navigation";
 import { AskGoPanel } from "./AskGoPanel";
 import { NavRail } from "./NavRail";
 import { LeadsScreen } from "./screens/LeadsScreen";
@@ -23,14 +24,14 @@ const SCREEN_TITLES: Record<ScreenKey, string> = {
   settings: "Settings",
 };
 
-function ScreenBody({ screen }: { screen: ScreenKey }) {
+function ScreenBody({ screen, params }: { screen: ScreenKey; params: ScreenParams }) {
   switch (screen) {
     case "overview":
       return <OverviewScreen />;
     case "inventory":
       return <InventoryScreen />;
     case "leads":
-      return <LeadsScreen />;
+      return <LeadsScreen initialStatus={params.leadStatus} initialFollowUp={params.leadFollowUp} />;
     case "scheduling":
       return <SchedulingScreen />;
     case "settings":
@@ -38,16 +39,21 @@ function ScreenBody({ screen }: { screen: ScreenKey }) {
     case "packages":
       return <PackagesScreen />;
     case "crew":
-      return <CrewGigsScreen />;
+      return <CrewGigsScreen initialStatus={params.gigStatus} openGigId={params.gigId} />;
   }
 }
 
 export function AdminShell() {
-  const [screen, setScreen] = useState<ScreenKey>("overview");
+  // The screen plus what it was opened with; a visit counter keys the
+  // body so opening the same screen with new params remounts it fresh.
+  const [view, setView] = useState<{ screen: ScreenKey; params: ScreenParams; visit: number }>({ screen: "overview", params: {}, visit: 0 });
+  const screen = view.screen;
+  const setScreen = (next: ScreenKey, params: ScreenParams = {}) => setView((v) => ({ screen: next, params, visit: v.visit + 1 }));
   const [pinned, setPinned] = useState(false);
   const [askGoOpen, setAskGoOpen] = useState(false);
 
   return (
+    <NavigationContext.Provider value={setScreen}>
     <div className="admin-shell">
       <NavRail
         active={screen}
@@ -77,10 +83,11 @@ export function AdminShell() {
           </button>
         </header>
         <div className="admin-content">
-          <ScreenBody screen={screen} />
+          <ScreenBody key={view.visit} screen={screen} params={view.params} />
         </div>
       </div>
       <AskGoPanel open={askGoOpen} onClose={() => setAskGoOpen(false)} />
     </div>
+    </NavigationContext.Provider>
   );
 }

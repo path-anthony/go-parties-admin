@@ -1,138 +1,156 @@
 import { useEffect, useState } from "react";
-import { getGigs, getItems, getLeadStatuses, getLeads } from "../../lib/api";
-import type { Gig, Item, Lead } from "../../lib/types";
+import { getGigs, getLeadStatuses, getLeads } from "../../lib/api";
 import { formatEventDay } from "../../lib/gigs";
+import { FOLLOW_UP_DAYS, findStage, needsFollowUp, useNavigate } from "../../lib/navigation";
+import type { Gig, Lead } from "../../lib/types";
+import { StatCard, StatGrid } from "../StatCard";
 
-type Stats = {
-  total: number;
-  priced: number;
-  tbd: number;
-  categories: number;
-  leadsCaptured: number;
-  leadsByStage: { name: string; count: number }[];
-};
+// What is not measured yet, and what each one is waiting on, so the
+// dashes read as a plan rather than a gap.
+const NOT_TRACKED = [
+  { label: "Sales this month", waitingOn: "Waiting on payment integration: bookings carry a quoted total, nothing records money received." },
+  { label: "Upcoming events (30d)", waitingOn: "Waiting on the calendar view of Scheduling, which counts confirmed events by date." },
+  { label: "Contract signed", waitingOn: "Waiting on the e-sign integration (SignWell or Documenso, not yet chosen)." },
+  { label: "Retainer status", waitingOn: "Waiting on payment integration: retainer links are not sent or recorded yet." },
+  { label: "SMS campaign activity", waitingOn: "Waiting on n8n reporting sends, opens and replies back to this admin." },
+];
 
-const PLACEHOLDER_CARDS = [{ label: "Sales this month" }, { label: "Upcoming events (30d)" }];
+const NEAREST_GIGS = 3;
 
-function computeItemStats(items: Item[]) {
-  const priced = items.filter((item) => item.price !== null).length;
-  return {
-    total: items.length,
-    priced,
-    tbd: items.length - priced,
-    categories: new Set(items.map((item) => item.category)).size,
-  };
-}
-
-function computeLeadStats(leads: Lead[], stages: string[]) {
-  const counts = new Map(stages.map((name) => [name, 0]));
-  for (const lead of leads) counts.set(lead.status, (counts.get(lead.status) ?? 0) + 1);
-  return {
-    leadsCaptured: leads.length,
-    leadsByStage: stages.map((name) => ({ name, count: counts.get(name) ?? 0 })),
-  };
-}
+// The day as a plain YYYY-MM-DD, for comparing event dates to today.
+const today = () => new Date().toISOString().slice(0, 10);
 
 export function OverviewScreen() {
-  const [stats, setStats] = useState<Stats | null>(null);
-  // Gigs still needing someone, soonest first, for the crew card.
+  const navigate = useNavigate();
+  const [leads, setLeads] = useState<Lead[] | null>(null);
+  const [statuses, setStatuses] = useState<string[] | null>(null);
   const [needsCrew, setNeedsCrew] = useState<Gig[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    Promise.all([getItems(), getLeads(), getLeadStatuses(), getGigs("Needs Crew")])
-      .then(([items, leads, statuses, gigs]) => {
-        setStats({
-          ...computeItemStats(items),
-          ...computeLeadStats(
-            leads,
-            statuses.map((row) => row.name),
-          ),
-        });
+    Promise.all([getLeads(), getLeadStatuses(), getGigs("Needs Crew")])
+      .then(([leadList, rows, gigs]) => {
+        setLeads(leadList);
+        setStatuses(rows.map((row) => row.name));
         setNeedsCrew(gigs);
       })
       .catch((err) => setError(err instanceof Error ? err.message : "Failed to load"));
   }, []);
 
+  const ready = leads !== null && statuses !== null && needsCrew !== null;
+
+  // The well-known stages, found by name in the configurable columns.
+  const stageNew = statuses ? findStage(statuses, "New") : undefined;
+  const stageContacted = statuses ? findStage(statuses, "Contacted") : undefined;
+  const stageBooked = statuses ? findStage(statuses, "Booked") : undefined;
+  const earlyStages = [stageNew, stageContacted].filter((s): s is string => !!s);
+  const countIn = (stage: string | undefined) => (stage ? (leads ?? []).filter((l) => l.status === stage).length : 0);
+  const followUps = (leads ?? []).filter((l) => needsFollowUp(l, earlyStages));
+  const byStage = (statuses ?? []).map((name) => ({ name, count: countIn(name) }));
+  const maxStage = Math.max(1, ...byStage.map((s) => s.count));
+
+  const upcoming = (needsCrew ?? []).filter((g) => g.eventDate.slice(0, 10) >= today());
+  const nearest = (upcoming.length > 0 ? upcoming : (needsCrew ?? [])).slice(0, NEAREST_GIGS);
+
   return (
     <div className="screen">
       <div className="screen-head">
         <h2>Overview</h2>
-        <p className="muted">Live counts from the catalog and captured interest.</p>
+        <p className="muted">What needs attention today. Every number opens the view behind it.</p>
       </div>
 
       {error && <p className="form-error">{error}</p>}
-      {!stats && !error && <p className="muted">Loading…</p>}
+      {!ready && !error && <p className="muted">Loading…</p>}
 
-      {stats && (
-        <div className="kpi-section">
-          <span className="kpi-section-label">Live</span>
-          <div className="kpi-grid">
-            <div className="kpi-card">
-              <span className="kpi-label">Total items</span>
-              <span className="kpi-value">{stats.total}</span>
-            </div>
-            <div className="kpi-card">
-              <span className="kpi-label">Priced</span>
-              <span className="kpi-value">{stats.priced}</span>
-            </div>
-            <div className="kpi-card">
-              <span className="kpi-label">TBD / no price</span>
-              <span className="kpi-value">{stats.tbd}</span>
-            </div>
-            <div className="kpi-card">
-              <span className="kpi-label">Categories</span>
-              <span className="kpi-value">{stats.categories}</span>
-            </div>
-            <div className="kpi-card">
-              <span className="kpi-label">Leads captured (total)</span>
-              <span className="kpi-value">{stats.leadsCaptured}</span>
-            </div>
-            <div className="kpi-card kpi-card-wide">
-              <span className="kpi-label">Bookings needing crew</span>
-              <span className="kpi-value">{needsCrew?.length ?? 0}</span>
-              {needsCrew && needsCrew.length > 0 && (
-                <ul className="kpi-list" aria-label="Gigs needing crew">
-                  {needsCrew.slice(0, 6).map((g) => (
-                    <li key={g.id}>
-                      <span className="kpi-list-when">{formatEventDay(g.eventDate)}</span> {g.booking.customerName}
-                      <span className="muted">
-                        {" "}
-                        · {g.itemName} · needs a {g.skill}
+      {ready && (
+        <>
+          <section className="kpi-section kpi-section-leads">
+            <span className="kpi-section-label">Leads</span>
+            <StatGrid className="kpi-grid-leads">
+              <StatCard
+                label="New leads"
+                value={countIn(stageNew)}
+                note={stageNew ? "Opens the New column" : "No column named New"}
+                onClick={stageNew ? () => navigate("leads", { leadStatus: stageNew }) : undefined}
+              />
+              <StatCard
+                label="Contacted"
+                value={countIn(stageContacted)}
+                note={stageContacted ? "Opens the Contacted column" : "No column named Contacted"}
+                onClick={stageContacted ? () => navigate("leads", { leadStatus: stageContacted }) : undefined}
+              />
+              <StatCard
+                label="Follow up needed"
+                value={followUps.length}
+                note={`New or Contacted, untouched for ${FOLLOW_UP_DAYS}+ days`}
+                onClick={earlyStages.length > 0 ? () => navigate("leads", { leadFollowUp: true }) : undefined}
+              />
+              <StatCard
+                label="Booked"
+                value={countIn(stageBooked)}
+                note={stageBooked ? "Opens the Booked column" : "No column named Booked"}
+                onClick={stageBooked ? () => navigate("leads", { leadStatus: stageBooked }) : undefined}
+              />
+            </StatGrid>
+
+            <div className="stage-block">
+              <span className="kpi-label">Leads by stage</span>
+              <ul className="stage-bars" aria-label="Leads by stage">
+                {byStage.map(({ name, count }) => (
+                  <li key={name}>
+                    <button type="button" className="stage-bar" onClick={() => navigate("leads", { leadStatus: name })}>
+                      <span className="stage-bar-name">{name}</span>
+                      <span className="stage-bar-track" aria-hidden="true">
+                        <span className="stage-bar-fill" style={{ width: `${Math.round((count / maxStage) * 100)}%` }} />
                       </span>
+                      <span className="stage-bar-count">{count}</span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </section>
+
+          <section className="kpi-section">
+            <span className="kpi-section-label">Crew</span>
+            <div className="crew-card">
+              <div className="crew-card-head">
+                <div>
+                  <span className="kpi-label">Bookings needing crew</span>
+                  <span className="kpi-value">{needsCrew.length}</span>
+                </div>
+                <button type="button" className="btn-secondary" onClick={() => navigate("crew", { gigStatus: "Needs Crew" })}>
+                  View all ({needsCrew.length})
+                </button>
+              </div>
+              {nearest.length === 0 ? (
+                <p className="muted">Every booked service item has someone on it.</p>
+              ) : (
+                <ul className="crew-card-list" aria-label="Nearest gigs needing crew">
+                  {nearest.map((g) => (
+                    <li key={g.id}>
+                      <button type="button" className="crew-card-row" onClick={() => navigate("crew", { gigStatus: "Needs Crew", gigId: g.id })}>
+                        <span className="kpi-list-when">{formatEventDay(g.eventDate)}</span>
+                        <span className="crew-card-customer">{g.booking.customerName}</span>
+                        <span className="muted">needs a {g.skill}</span>
+                      </button>
                     </li>
                   ))}
-                  {needsCrew.length > 6 && <li className="muted">and {needsCrew.length - 6} more under Crew & Gigs</li>}
                 </ul>
               )}
-              {needsCrew && needsCrew.length === 0 && <span className="muted kpi-note">Every booked service item has someone on it.</span>}
             </div>
-            <div className="kpi-card kpi-card-wide">
-              <span className="kpi-label">Leads by stage</span>
-              <div className="kpi-stages">
-                {stats.leadsByStage.map(({ name, count }) => (
-                  <div key={name} className="kpi-stage">
-                    <span className="kpi-stage-value">{count}</span>
-                    <span className="kpi-stage-label">{name}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-        </div>
+          </section>
+        </>
       )}
 
-      <div className="kpi-section">
+      <section className="kpi-section">
         <span className="kpi-section-label">Not yet tracked</span>
-        <div className="kpi-grid">
-          {PLACEHOLDER_CARDS.map(({ label }) => (
-            <div key={label} className="kpi-card kpi-card-placeholder">
-              <span className="kpi-label">{label}</span>
-              <span className="kpi-value">--</span>
-            </div>
+        <StatGrid>
+          {NOT_TRACKED.map(({ label, waitingOn }) => (
+            <StatCard key={label} label={label} value="--" placeholder note={waitingOn} />
           ))}
-        </div>
-      </div>
+        </StatGrid>
+      </section>
     </div>
   );
 }

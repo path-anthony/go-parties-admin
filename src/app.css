@@ -295,9 +295,28 @@
 
 .kpi-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
   gap: 10px;
-  max-width: 640px;
+  max-width: 900px;
+}
+
+/* One column on a phone, two on a tablet, the flowing grid only on a desktop. */
+@media (max-width: 560px) {
+  .kpi-grid {
+    grid-template-columns: 1fr;
+  }
+  .kpi-card-wide {
+    grid-column: auto;
+  }
+  .admin-content {
+    padding: 14px 16px 40px;
+  }
+}
+
+@media (min-width: 561px) and (max-width: 900px) {
+  .kpi-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
 }
 
 .kpi-card {
@@ -762,37 +781,8 @@ select:focus {
 /* Sticks to the top of the scrolling content area (.admin-content), so
    adding an item never means scrolling back up. Negative margins pull it
    flush with the panel's edges; the background covers rows scrolling under. */
-.quick-add {
-  position: sticky;
-  /* Cancels .admin-content's 20px top padding so nothing peeks above the bar. */
-  top: -20px;
-  z-index: 5;
-  background: var(--white);
-  margin: 0 -16px 8px;
-  padding: 6px 16px;
-  border-bottom: 1px solid var(--line);
-}
 
-.quick-add-toggle {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  width: 100%;
-  border: 1.5px dashed var(--line);
-  border-radius: 6px;
-  background: var(--cream);
-  color: var(--charcoal-soft);
-  padding: 6px 12px;
-  font-size: 12.5px;
-  font-weight: 700;
-  cursor: pointer;
-  text-align: left;
-}
 
-.quick-add-toggle:hover {
-  border-color: var(--charcoal-soft);
-  color: var(--charcoal);
-}
 
 
 .filter-row {
@@ -2112,4 +2102,227 @@ select:focus {
 
 .field-muted {
   opacity: 0.55;
+}
+
+/* ---------- overview: control panel ---------- */
+
+button.kpi-card {
+  font: inherit;
+  text-align: left;
+  border: 1.5px solid transparent;
+  cursor: pointer;
+}
+
+button.kpi-card:hover,
+button.kpi-card:focus-visible {
+  border-color: var(--orange);
+  outline: none;
+}
+
+.kpi-note {
+  font-size: 11.5px;
+  line-height: 1.4;
+}
+
+.kpi-section-leads .kpi-value {
+  font-size: 30px;
+}
+
+.stage-block {
+  background: var(--surface-1);
+  border-radius: 6px;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-width: 900px;
+}
+
+.stage-bars {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.stage-bar {
+  display: grid;
+  grid-template-columns: 120px minmax(0, 1fr) 36px;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 3px 4px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  font: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+  text-align: left;
+}
+
+.stage-bar:hover,
+.stage-bar:focus-visible {
+  background: var(--white);
+  outline: none;
+}
+
+.stage-bar-name {
+  font-weight: 700;
+  color: var(--charcoal-soft);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.stage-bar-track {
+  height: 8px;
+  border-radius: 4px;
+  background: var(--white);
+  overflow: hidden;
+}
+
+.stage-bar-fill {
+  display: block;
+  height: 100%;
+  background: var(--orange);
+  border-radius: 4px;
+  min-width: 2px;
+}
+
+.stage-bar-count {
+  font-weight: 800;
+  text-align: right;
+}
+
+.crew-card {
+  background: var(--surface-1);
+  border-radius: 6px;
+  padding: 13px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-width: 900px;
+}
+
+.crew-card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.crew-card-head > div {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.crew-card-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.crew-card-row {
+  display: grid;
+  grid-template-columns: 150px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 7px 10px;
+  border: 1.5px solid transparent;
+  border-radius: 6px;
+  background: var(--white);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.crew-card-row:hover,
+.crew-card-row:focus-visible {
+  border-color: var(--orange);
+  outline: none;
+}
+
+.crew-card-customer {
+  font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (max-width: 560px) {
+  .stage-bar {
+    grid-template-columns: 90px minmax(0, 1fr) 30px;
+  }
+  .crew-card-row {
+    grid-template-columns: 1fr;
+    gap: 2px;
+  }
+  .crew-card-head {
+    flex-direction: column;
+  }
+}
+
+.board-filter {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 8px 12px;
+  border: 1.5px solid var(--orange);
+  border-radius: 6px;
+  background: var(--orange-tint);
+  font-size: 13px;
+}
+
+/* ---------- inventory head ---------- */
+
+.inventory-head {
+  align-items: flex-start;
+}
+
+.inventory-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+}
+
+.btn-add-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 20px;
+  font-size: 15px;
+  border-radius: 8px;
+  box-shadow: 0 6px 16px rgba(244, 155, 31, 0.32);
+}
+
+.kpi-grid-strip {
+  max-width: none;
+}
+
+.kpi-grid-strip .kpi-card {
+  padding: 9px 12px;
+  gap: 2px;
+}
+
+.kpi-grid-strip .kpi-value {
+  font-size: 20px;
+}
+
+/* The four lead cards sit in one row on a desktop, never five tracks for four cards. */
+@media (min-width: 901px) {
+  .kpi-grid-leads {
+    grid-template-columns: repeat(4, 1fr);
+  }
 }

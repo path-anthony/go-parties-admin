@@ -4,6 +4,7 @@ import { createUnitsBulk, getItems, getUnits } from "../../lib/api";
 import { UNIT_STATUSES, type Item, type ItemDeleteResult, type Unit, type UnitStatus } from "../../lib/types";
 import { ItemModal } from "../ItemModal";
 import { ItemsTable } from "../ItemsTable";
+import { StatCard, StatGrid } from "../StatCard";
 
 const ALL_CATEGORIES = "";
 
@@ -126,19 +127,27 @@ export function InventoryScreen() {
   return (
     <div className="screen">
       <section className="panel">
-        <div className="panel-header-row">
+        <div className="panel-header-row inventory-head">
           <h2>Catalog{items ? ` (${items.length})` : ""}</h2>
-          <a className="btn-secondary" href="/api/items/export.csv" download="items-export.csv">
-            Export CSV
-          </a>
+          <div className="inventory-actions">
+            <a className="btn-secondary" href="/api/items/export.csv" download="items-export.csv">
+              Export CSV
+            </a>
+            <button type="button" className="btn-primary btn-add-item" onClick={() => setModal({ mode: "create" })}>
+              <Plus size={18} strokeWidth={2.75} />
+              Add an item
+            </button>
+          </div>
         </div>
 
-        <div className="quick-add">
-          <button type="button" className="quick-add-toggle" onClick={() => setModal({ mode: "create" })}>
-            <Plus size={14} />
-            Add an item
-          </button>
-        </div>
+        {items && (
+          <StatGrid className="kpi-grid-strip">
+            <StatCard label="Total items" value={items.length} />
+            <StatCard label="Priced" value={items.filter((item) => item.price !== null).length} />
+            <StatCard label="TBD / no price" value={items.filter((item) => item.price === null).length} />
+            <StatCard label="Categories" value={categories.length} />
+          </StatGrid>
+        )}
 
         {items && items.length > 0 && (
           <div className="filter-row">
