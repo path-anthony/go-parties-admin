@@ -1,6 +1,14 @@
 import { type FormEvent, type KeyboardEvent, useEffect, useState } from "react";
 import { ChevronRight } from "lucide-react";
-import { createBooking, createUnit, getBookings, getItems, getLeads, getUnits, updateUnit } from "../../lib/api";
+import {
+  createBooking,
+  createUnit,
+  getBookings,
+  getItems,
+  getLeads,
+  getUnits,
+  updateUnit,
+} from "../../lib/api";
 import { leadTitle } from "../../lib/leads";
 import {
   BOOKING_STATUSES,
@@ -37,19 +45,27 @@ function looksLikeEmail(value: string): boolean {
 }
 
 function sortItems(items: Item[]): Item[] {
-  return [...items].sort((a, b) => a.category.localeCompare(b.category) || a.name.localeCompare(b.name));
+  return [...items].sort(
+    (a, b) =>
+      a.category.localeCompare(b.category) || a.name.localeCompare(b.name),
+  );
 }
 
 function sortUnits(units: Unit[], itemsById: ItemsById): Unit[] {
   return [...units].sort(
     (a, b) =>
-      (itemsById.get(a.itemId)?.name ?? "").localeCompare(itemsById.get(b.itemId)?.name ?? "") ||
-      a.label.localeCompare(b.label),
+      (itemsById.get(a.itemId)?.name ?? "").localeCompare(
+        itemsById.get(b.itemId)?.name ?? "",
+      ) || a.label.localeCompare(b.label),
   );
 }
 
 function sortBookings(bookings: Booking[]): Booking[] {
-  return [...bookings].sort((a, b) => a.eventDate.localeCompare(b.eventDate) || a.createdAt.localeCompare(b.createdAt));
+  return [...bookings].sort(
+    (a, b) =>
+      a.eventDate.localeCompare(b.eventDate) ||
+      a.createdAt.localeCompare(b.createdAt),
+  );
 }
 
 export function SchedulingScreen() {
@@ -61,6 +77,10 @@ export function SchedulingScreen() {
   // The booking popup, by id: looked up in bookings on each render so a
   // save inside the popup shows in it and in the row behind it.
   const [openId, setOpenId] = useState<string | null>(null);
+  // Bookings are the daily view and open first; the units live behind
+  // their own tab, searchable, since there are hundreds of them.
+  const [tab, setTab] = useState<"bookings" | "units">("bookings");
+  const [unitSearch, setUnitSearch] = useState("");
 
   useEffect(() => {
     Promise.all([getItems(), getUnits(), getBookings(), getLeads()])
@@ -70,18 +90,43 @@ export function SchedulingScreen() {
         setBookings(bookingList);
         setLeads(leadList);
       })
-      .catch((err) => setError(err instanceof Error ? err.message : "Failed to load"));
+      .catch((err) =>
+        setError(err instanceof Error ? err.message : "Failed to load"),
+      );
   }, []);
 
-  const openBooking = openId ? (bookings ?? []).find((b) => b.id === openId) : undefined;
-  const ready = items !== null && units !== null && bookings !== null && leads !== null;
-  const itemsById: ItemsById = new Map((items ?? []).map((item) => [item.id, item]));
+  const openBooking = openId
+    ? (bookings ?? []).find((b) => b.id === openId)
+    : undefined;
+  const ready =
+    items !== null && units !== null && bookings !== null && leads !== null;
+  const itemsById: ItemsById = new Map(
+    (items ?? []).map((item) => [item.id, item]),
+  );
+  const unitQuery = unitSearch.trim().toLowerCase();
+  const visibleUnits = (units ?? []).filter(
+    (unit) =>
+      unitQuery === "" ||
+      (itemsById.get(unit.itemId)?.name ?? "")
+        .toLowerCase()
+        .includes(unitQuery) ||
+      unit.label.toLowerCase().includes(unitQuery),
+  );
+  const unitStatusCounts = new Map<string, number>();
+  for (const unit of units ?? [])
+    unitStatusCounts.set(
+      unit.status,
+      (unitStatusCounts.get(unit.status) ?? 0) + 1,
+    );
 
   return (
     <div className="screen screen-wide">
       <div className="screen-head">
         <h2>Scheduling</h2>
-        <p className="muted">Physical units per item, and confirmed bookings. No calendar yet.</p>
+        <p className="muted">
+          Confirmed bookings by date, and behind them the physical units each
+          item has. No calendar yet.
+        </p>
       </div>
 
       {error && <p className="form-error">{error}</p>}
@@ -90,73 +135,137 @@ export function SchedulingScreen() {
       {ready && (
         <>
           <section className="panel">
-            <h2>Units ({units.length})</h2>
-            <AddUnitForm items={items} onAdded={(unit) => setUnits((prev) => sortUnits([...(prev ?? []), unit], itemsById))} />
-            {units.length === 0 ? (
-              <p className="muted">Nothing here yet.</p>
-            ) : (
-              <div className="table-scroll">
-                <table className="items-table scheduling-table">
-                  <thead>
-                    <tr>
-                      <th>Item</th>
-                      <th>Label</th>
-                      <th>Status</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {units.map((unit) => (
-                      <UnitRow
-                        key={unit.id}
-                        unit={unit}
-                        item={itemsById.get(unit.itemId)}
-                        onUpdated={(updated) =>
-                          setUnits((prev) => (prev ?? []).map((u) => (u.id === updated.id ? updated : u)))
-                        }
-                      />
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </section>
+            <div className="filter-row tab-row" role="tablist">
+              <button
+                type="button"
+                role="tab"
+                aria-selected={tab === "bookings"}
+                className={tab === "bookings" ? "btn-primary" : "btn-secondary"}
+                onClick={() => setTab("bookings")}
+              >
+                Bookings ({bookings.length})
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={tab === "units"}
+                className={tab === "units" ? "btn-primary" : "btn-secondary"}
+                onClick={() => setTab("units")}
+              >
+                Inventory status ({units.length} units)
+              </button>
+            </div>
 
-          <section className="panel">
-            <h2>Bookings ({bookings.length})</h2>
-            <AddBookingForm
-              leads={leads}
-              units={units}
-              itemsById={itemsById}
-              onAdded={(booking) => setBookings((prev) => sortBookings([...(prev ?? []), booking]))}
-            />
-            {bookings.length === 0 ? (
-              <p className="muted">Nothing here yet.</p>
-            ) : (
-              <div className="table-scroll">
-                <table className="items-table scheduling-table">
-                  <thead>
-                    <tr>
-                      <th>Date</th>
-                      <th>Time</th>
-                      <th>Customer</th>
-                      <th>Status</th>
-                      <th>Items</th>
-                      <th aria-label="Open" />
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {bookings.map((booking) => (
-                      <BookingSummaryRow
-                        key={booking.id}
-                        booking={booking}
-                        units={units}
-                        itemsById={itemsById}
-                        onOpen={() => setOpenId(booking.id)}
-                      />
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+            {tab === "units" && (
+              <>
+                <p className="muted">
+                  Every physical unit, one row each, with its manual status.{" "}
+                  {UNIT_STATUSES.map(
+                    (s) => `${unitStatusCounts.get(s) ?? 0} ${s.toLowerCase()}`,
+                  ).join(", ")}
+                  . Availability by date comes from bookings, not from this
+                  status.
+                </p>
+                <AddUnitForm
+                  items={items}
+                  onAdded={(unit) =>
+                    setUnits((prev) =>
+                      sortUnits([...(prev ?? []), unit], itemsById),
+                    )
+                  }
+                />
+                <div className="filter-row">
+                  <input
+                    type="search"
+                    value={unitSearch}
+                    onChange={(e) => setUnitSearch(e.target.value)}
+                    placeholder="Search by item or label"
+                    aria-label="Search units by item or label"
+                  />
+                  {unitQuery !== "" && (
+                    <span className="filter-count">
+                      {visibleUnits.length} of {units.length} units
+                    </span>
+                  )}
+                </div>
+                {units.length === 0 ? (
+                  <p className="muted">Nothing here yet.</p>
+                ) : visibleUnits.length === 0 ? (
+                  <p className="muted">No units match.</p>
+                ) : (
+                  <div className="table-scroll">
+                    <table className="items-table scheduling-table">
+                      <thead>
+                        <tr>
+                          <th>Item</th>
+                          <th>Label</th>
+                          <th>Status</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {visibleUnits.map((unit) => (
+                          <UnitRow
+                            key={unit.id}
+                            unit={unit}
+                            item={itemsById.get(unit.itemId)}
+                            onUpdated={(updated) =>
+                              setUnits((prev) =>
+                                (prev ?? []).map((u) =>
+                                  u.id === updated.id ? updated : u,
+                                ),
+                              )
+                            }
+                          />
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </>
+            )}
+
+            {tab === "bookings" && (
+              <>
+                <AddBookingForm
+                  leads={leads}
+                  units={units}
+                  itemsById={itemsById}
+                  onAdded={(booking) =>
+                    setBookings((prev) =>
+                      sortBookings([...(prev ?? []), booking]),
+                    )
+                  }
+                />
+                {bookings.length === 0 ? (
+                  <p className="muted">Nothing here yet.</p>
+                ) : (
+                  <div className="table-scroll">
+                    <table className="items-table scheduling-table">
+                      <thead>
+                        <tr>
+                          <th>Date</th>
+                          <th>Time</th>
+                          <th>Customer</th>
+                          <th>Status</th>
+                          <th>Items</th>
+                          <th aria-label="Open" />
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {bookings.map((booking) => (
+                          <BookingSummaryRow
+                            key={booking.id}
+                            booking={booking}
+                            units={units}
+                            itemsById={itemsById}
+                            onOpen={() => setOpenId(booking.id)}
+                          />
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </>
             )}
           </section>
 
@@ -168,7 +277,13 @@ export function SchedulingScreen() {
               items={items}
               bookings={bookings}
               onUpdated={(updated) =>
-                setBookings((prev) => sortBookings((prev ?? []).map((b) => (b.id === updated.id ? updated : b))))
+                setBookings((prev) =>
+                  sortBookings(
+                    (prev ?? []).map((b) =>
+                      b.id === updated.id ? updated : b,
+                    ),
+                  ),
+                )
               }
               onClose={() => setOpenId(null)}
             />
@@ -201,9 +316,16 @@ function BookingSummaryRow({
   itemsById: ItemsById;
   onOpen: () => void;
 }) {
-  const held = booking.unitIds.map((id) => units.find((u) => u.id === id)).filter((u): u is Unit => !!u);
+  const held = booking.unitIds
+    .map((id) => units.find((u) => u.id === id))
+    .filter((u): u is Unit => !!u);
   const liveGigs = booking.gigs.filter((g) => g.status !== "Cancelled");
-  const names = [...new Set([...held.map((u) => itemsById.get(u.itemId)?.name ?? "Unknown item"), ...liveGigs.map((g) => g.itemName)])];
+  const names = [
+    ...new Set([
+      ...held.map((u) => itemsById.get(u.itemId)?.name ?? "Unknown item"),
+      ...liveGigs.map((g) => g.itemName),
+    ]),
+  ];
   const count = held.length + liveGigs.length;
 
   function handleKey(e: KeyboardEvent<HTMLTableRowElement>) {
@@ -224,18 +346,34 @@ function BookingSummaryRow({
       aria-label={`Open the booking for ${booking.customerName} on ${formatDay(booking.eventDate)}`}
     >
       <td className="booking-date">{formatDay(booking.eventDate)}</td>
-      <td className={booking.eventTime ? "booking-time" : "booking-time muted"}>{booking.eventTime ?? "No time"}</td>
+      <td className={booking.eventTime ? "booking-time" : "booking-time muted"}>
+        {booking.eventTime ?? "No time"}
+      </td>
       <td className="catalog-name">{booking.customerName}</td>
       <td>
-        <span className={booking.status === "Cancelled" ? "status-pill" : "status-pill status-pill-live"}>{booking.status}</span>
+        <span
+          className={
+            booking.status === "Cancelled"
+              ? "status-pill"
+              : "status-pill status-pill-live"
+          }
+        >
+          {booking.status}
+        </span>
       </td>
       <td className={count === 0 ? "muted" : ""}>
         {count === 0 ? "None" : `${count} ${count === 1 ? "item" : "items"}`}
-        {names.length > 0 && <span className="muted booking-item-names"> · {names.join(", ")}</span>}
+        {names.length > 0 && (
+          <span className="muted booking-item-names">
+            {" "}
+            · {names.join(", ")}
+          </span>
+        )}
         {booking.addons.length > 0 && (
           <span className="muted booking-item-names">
             {" "}
-            · {booking.addons.length} {booking.addons.length === 1 ? "add-on" : "add-ons"}
+            · {booking.addons.length}{" "}
+            {booking.addons.length === 1 ? "add-on" : "add-ons"}
           </span>
         )}
       </td>
@@ -246,8 +384,18 @@ function BookingSummaryRow({
   );
 }
 
-function AddUnitForm({ items, onAdded }: { items: Item[]; onAdded: (unit: Unit) => void }) {
-  const [form, setForm] = useState<NewUnit>({ itemId: items[0]?.id ?? "", label: "", status: "Available" });
+function AddUnitForm({
+  items,
+  onAdded,
+}: {
+  items: Item[];
+  onAdded: (unit: Unit) => void;
+}) {
+  const [form, setForm] = useState<NewUnit>({
+    itemId: items[0]?.id ?? "",
+    label: "",
+    status: "Available",
+  });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -269,7 +417,11 @@ function AddUnitForm({ items, onAdded }: { items: Item[]; onAdded: (unit: Unit) 
     <form className="inline-form" onSubmit={handleSubmit}>
       <label>
         Item
-        <select value={form.itemId} onChange={(e) => setForm((f) => ({ ...f, itemId: e.target.value }))} required>
+        <select
+          value={form.itemId}
+          onChange={(e) => setForm((f) => ({ ...f, itemId: e.target.value }))}
+          required
+        >
           {items.map((item) => (
             <option key={item.id} value={item.id}>
               {itemLabel(item)}
@@ -288,7 +440,12 @@ function AddUnitForm({ items, onAdded }: { items: Item[]; onAdded: (unit: Unit) 
       </label>
       <label>
         Status
-        <select value={form.status} onChange={(e) => setForm((f) => ({ ...f, status: e.target.value as UnitStatus }))}>
+        <select
+          value={form.status}
+          onChange={(e) =>
+            setForm((f) => ({ ...f, status: e.target.value as UnitStatus }))
+          }
+        >
           {UNIT_STATUSES.map((status) => (
             <option key={status} value={status}>
               {status}
@@ -296,7 +453,11 @@ function AddUnitForm({ items, onAdded }: { items: Item[]; onAdded: (unit: Unit) 
           ))}
         </select>
       </label>
-      <button type="submit" className="btn-primary" disabled={saving || items.length === 0}>
+      <button
+        type="submit"
+        className="btn-primary"
+        disabled={saving || items.length === 0}
+      >
         {saving ? "Adding…" : "Add unit"}
       </button>
       {error && <p className="form-error inline-form-wide">{error}</p>}
@@ -304,7 +465,15 @@ function AddUnitForm({ items, onAdded }: { items: Item[]; onAdded: (unit: Unit) 
   );
 }
 
-function UnitRow({ unit, item, onUpdated }: { unit: Unit; item: Item | undefined; onUpdated: (unit: Unit) => void }) {
+function UnitRow({
+  unit,
+  item,
+  onUpdated,
+}: {
+  unit: Unit;
+  item: Item | undefined;
+  onUpdated: (unit: Unit) => void;
+}) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -331,7 +500,11 @@ function UnitRow({ unit, item, onUpdated }: { unit: Unit; item: Item | undefined
         {item && <span className="muted"> · {item.category}</span>}
       </td>
       <td>
-        <EditableCell value={unit.label} ariaLabel={`Label for ${unit.label}`} onSave={(label) => save({ label })} />
+        <EditableCell
+          value={unit.label}
+          ariaLabel={`Label for ${unit.label}`}
+          onSave={(label) => save({ label })}
+        />
       </td>
       <td>
         <select
@@ -366,7 +539,8 @@ function UnitPicker({
   disabled?: boolean;
   onToggle: (unitId: string, checked: boolean) => void;
 }) {
-  if (units.length === 0) return <p className="muted">No units yet. Add one above.</p>;
+  if (units.length === 0)
+    return <p className="muted">No units yet. Add one above.</p>;
   return (
     <div className="unit-picker">
       {units.map((unit) => (
@@ -451,7 +625,10 @@ function AddBookingForm({
     <form className="inline-form" onSubmit={handleSubmit}>
       <label>
         Lead (optional)
-        <select value={form.leadId ?? ""} onChange={(e) => pickLead(e.target.value)}>
+        <select
+          value={form.leadId ?? ""}
+          onChange={(e) => pickLead(e.target.value)}
+        >
           <option value="">No lead</option>
           {leads.map((lead) => (
             <option key={lead.id} value={lead.id}>
@@ -462,23 +639,46 @@ function AddBookingForm({
       </label>
       <label>
         Event date*
-        <input type="date" value={form.eventDate} onChange={(e) => set("eventDate", e.target.value)} required />
+        <input
+          type="date"
+          value={form.eventDate}
+          onChange={(e) => set("eventDate", e.target.value)}
+          required
+        />
       </label>
       <label>
         Time
-        <input value={form.eventTime} onChange={(e) => set("eventTime", e.target.value)} placeholder="e.g. 2 PM" />
+        <input
+          value={form.eventTime}
+          onChange={(e) => set("eventTime", e.target.value)}
+          placeholder="e.g. 2 PM"
+        />
       </label>
       <label>
         Customer name*
-        <input value={form.customerName} onChange={(e) => set("customerName", e.target.value)} required />
+        <input
+          value={form.customerName}
+          onChange={(e) => set("customerName", e.target.value)}
+          required
+        />
       </label>
       <label>
         Phone*
-        <input type="tel" value={form.phone} onChange={(e) => set("phone", e.target.value)} required />
+        <input
+          type="tel"
+          value={form.phone}
+          onChange={(e) => set("phone", e.target.value)}
+          required
+        />
       </label>
       <label>
         Email*
-        <input type="email" value={form.email} onChange={(e) => set("email", e.target.value)} required />
+        <input
+          type="email"
+          value={form.email}
+          onChange={(e) => set("email", e.target.value)}
+          required
+        />
       </label>
       <label className="inline-form-grow">
         Address
@@ -491,7 +691,10 @@ function AddBookingForm({
       </label>
       <label>
         Status
-        <select value={form.status} onChange={(e) => set("status", e.target.value as BookingStatus)}>
+        <select
+          value={form.status}
+          onChange={(e) => set("status", e.target.value as BookingStatus)}
+        >
           {BOOKING_STATUSES.map((status) => (
             <option key={status} value={status}>
               {status}
@@ -506,7 +709,12 @@ function AddBookingForm({
           itemsById={itemsById}
           selected={form.unitIds}
           onToggle={(unitId, checked) =>
-            set("unitIds", checked ? [...form.unitIds, unitId] : form.unitIds.filter((id) => id !== unitId))
+            set(
+              "unitIds",
+              checked
+                ? [...form.unitIds, unitId]
+                : form.unitIds.filter((id) => id !== unitId),
+            )
           }
         />
       </div>
