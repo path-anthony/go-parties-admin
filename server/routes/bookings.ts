@@ -13,10 +13,10 @@ import {
 } from "../bookingOps.js";
 import { BOOKING_GIGS_SELECT, NoCrewFree } from "../gigs.js";
 import { prisma } from "../db.js";
+import { BOOKING_STAGES, displayStatus } from "../../src/lib/bookingStatus.js";
 import { rushFor } from "../settings.js";
-import { INVALID, isOneOf, normalizeDate, normalizeText } from "../validate.js";
+import { INVALID, normalizeDate, normalizeText } from "../validate.js";
 
-const BOOKING_STATUSES = ["Confirmed", "Completed", "Cancelled"] as const;
 const MAX_ADDRESS_LENGTH = 300;
 const MAX_TIME_LENGTH = 60;
 
@@ -33,9 +33,21 @@ const WITH_UNITS = {
 const ORDER = [{ eventDate: "asc" as const }, { createdAt: "asc" as const }];
 
 // The join rows are an implementation detail; clients see a flat unitIds.
-function serialize<T extends { units: { unitId: string }[] }>(booking: T) {
+function serialize<T extends { units: { unitId: string }[]; status: string; retainerPaid: boolean }>(booking: T) {
   const { units, ...rest } = booking;
-  return { ...rest, unitIds: units.map((row) => row.unitId) };
+  // status is the stage set by hand; displayStatus is what it reads as
+  // (Confirmed only when Signed and the retainer is paid).
+  return { ...rest, unitIds: units.map((row) => row.unitId), displayStatus: displayStatus(booking) };
+}
+
+// Confirmed and Retainer Paid are computed, never set, so they get their
+// own message instead of a bare "must be one of".
+function badStage(value: unknown): string | null {
+  if ((BOOKING_STAGES as readonly unknown[]).includes(value)) return null;
+  if (value === "Confirmed" || value === "Retainer Paid") {
+    return `${String(value)} can't be set directly. Confirmed is Signed with the retainer paid; tick Retainer paid and set the stage to Signed.`;
+  }
+  return `status must be one of ${BOOKING_STAGES.join(", ")}`;
 }
 
 function isUniqueViolation(err: unknown): boolean {
@@ -125,8 +137,9 @@ router.post("/", async (req, res) => {
   if (addressText === INVALID) {
     return res.status(400).json({ error: `address must be text up to ${MAX_ADDRESS_LENGTH} characters` });
   }
-  if (status !== undefined && !isOneOf(BOOKING_STATUSES, status)) {
-    return res.status(400).json({ error: `status must be one of ${BOOKING_STATUSES.join(", ")}` });
+  const stageProblem = status === undefined ? null : badStage(status);
+  if (stageProblem) {
+    return res.status(400).json({ error: stageProblem });
   }
 
   const account = await getDefaultAccount();
@@ -158,7 +171,7 @@ router.post("/", async (req, res) => {
         customerName: name,
         phone: phoneText,
         email: emailText,
-        status: status ?? "Confirmed",
+        status: status ?? "Held",
         rush: await rushFor(account.id, date),
         units: { create: resolvedUnits.map((unitId) => ({ unitId, eventDate: date })) },
       },
@@ -192,15 +205,15 @@ router.patch("/:id", async (req, res) => {
     phone?: string;
     email?: string;
     status?: string;
-    depositPaid?: boolean;
+    retainerPaid?: boolean;
     rush?: boolean;
   } = {};
 
-  if ("depositPaid" in body) {
-    if (typeof body.depositPaid !== "boolean") {
-      return res.status(400).json({ error: "depositPaid must be true or false" });
+  if ("retainerPaid" in body) {
+    if (typeof body.retainerPaid !== "boolean") {
+      return res.status(400).json({ error: "retainerPaid must be true or false" });
     }
-    data.depositPaid = body.depositPaid;
+    data.retainerPaid = body.retainerPaid;
   }
   if ("customerName" in body) {
     const name = normalizeText(body.customerName);
@@ -236,8 +249,9 @@ router.patch("/:id", async (req, res) => {
     data.address = addressText;
   }
   if ("status" in body) {
-    if (!isOneOf(BOOKING_STATUSES, body.status)) {
-      return res.status(400).json({ error: `status must be one of ${BOOKING_STATUSES.join(", ")}` });
+    const problem = badStage(body.status);
+    if (problem) {
+      return res.status(400).json({ error: problem });
     }
     data.status = body.status;
   }
@@ -268,7 +282,7 @@ router.patch("/:id", async (req, res) => {
   // same reason.
   const cancelling = nextStatus === "Cancelled";
   if (cancelling && unitIds !== null && unitIds.length > 0) {
-    return res.status(400).json({ error: "A cancelled booking can't hold units. Set it back to Confirmed first." });
+    return res.status(400).json({ error: "A cancelled booking can't hold units. Set it back to Held first." });
   }
 
   // Whatever set of units this booking will hold on its (possibly new)

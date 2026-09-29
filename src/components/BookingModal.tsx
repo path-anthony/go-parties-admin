@@ -4,7 +4,7 @@ import { addBookingUnit, removeBookingGig, removeBookingUnit, setBookingAddons, 
 import { deltaLabel, describeAddon } from "../lib/addons";
 import { leadTitle } from "../lib/leads";
 import {
-  BOOKING_STATUSES,
+  BOOKING_STAGES,
   type AddonGroup,
   type Booking,
   type BookingAddon,
@@ -16,6 +16,7 @@ import {
   type Unit,
 } from "../lib/types";
 import { EditableCell } from "./EditableCell";
+import { BookingStatusTag } from "./BookingStatusTag";
 import { RushTag } from "./RushTag";
 
 const usd = (n: number) => n.toLocaleString("en-US", { style: "currency", currency: "USD" });
@@ -120,8 +121,8 @@ export function BookingModal({
         <div className="modal-head">
           <h2>
             {who}
-            <span className={cancelled ? "status-pill booking-pill" : "status-pill status-pill-live booking-pill"}>
-              {booking.status}
+            <span className="booking-pill">
+              <BookingStatusTag booking={booking} />
             </span>
             <RushTag rush={booking.rush} cancelled={cancelled} />
           </h2>
@@ -188,21 +189,39 @@ export function BookingModal({
               onSave={(address) => save({ address: address === "" ? null : address })}
             />
           </div>
-          <label className="detail-field">
-            <span className="detail-field-label">Status</span>
-            <select
-              value={booking.status}
-              disabled={busy}
-              aria-label={`Status for ${who}`}
-              onChange={(e) => run(() => updateBooking(booking.id, { status: e.target.value as BookingStatus }))}
-            >
-              {BOOKING_STATUSES.map((s) => (
-                <option key={s} value={s}>
-                  {s}
-                </option>
-              ))}
-            </select>
-          </label>
+          <div className="status-control" role="group" aria-label={`Status for ${who}`}>
+            <span className="status-now">
+              <span className="detail-field-label">Status</span>
+              <BookingStatusTag booking={booking} />
+            </span>
+            <label>
+              <span className="detail-field-label">Stage</span>
+              <select
+                value={booking.status}
+                disabled={busy}
+                aria-label={`Stage for ${who}`}
+                onChange={(e) => run(() => updateBooking(booking.id, { status: e.target.value as BookingStatus }))}
+              >
+                {BOOKING_STAGES.map((s) => (
+                  <option key={s} value={s}>
+                    {s}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="checkbox-label">
+              <input
+                type="checkbox"
+                checked={booking.retainerPaid}
+                disabled={busy}
+                onChange={(e) => run(() => updateBooking(booking.id, { retainerPaid: e.target.checked }))}
+              />
+              Retainer paid
+            </label>
+            <span className="muted field-help">
+              Confirmed is worked out, not set: a booking is Confirmed when its stage is Signed and the retainer is paid.
+            </span>
+          </div>
           <label className="detail-field">
             <span className="detail-field-label">Lead</span>
             <select
@@ -218,15 +237,6 @@ export function BookingModal({
                 </option>
               ))}
             </select>
-          </label>
-          <label className="checkbox-label">
-            <input
-              type="checkbox"
-              checked={booking.depositPaid}
-              disabled={busy}
-              onChange={(e) => run(() => updateBooking(booking.id, { depositPaid: e.target.checked }))}
-            />
-            Deposit paid
           </label>
           <div className="booking-quote">
             {booking.total !== null ? (

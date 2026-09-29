@@ -1,7 +1,6 @@
 import { type FormEvent, type KeyboardEvent, useEffect, useState } from "react";
 import { ChevronRight } from "lucide-react";
 import {
-  createBooking,
   createUnit,
   getBookings,
   getItems,
@@ -9,21 +8,19 @@ import {
   getUnits,
   updateUnit,
 } from "../../lib/api";
-import { leadTitle } from "../../lib/leads";
 import {
-  BOOKING_STATUSES,
   UNIT_STATUSES,
   type Booking,
-  type BookingStatus,
   type Item,
   type Lead,
-  type NewBooking,
   type NewUnit,
   type Unit,
   type UnitPatch,
   type UnitStatus,
 } from "../../lib/types";
 import { BookingModal } from "../BookingModal";
+import { BookingStatusTag } from "../BookingStatusTag";
+import { NewBookingModal } from "../NewBookingModal";
 import { EditableCell } from "../EditableCell";
 import { RushTag } from "../RushTag";
 
@@ -31,18 +28,6 @@ type ItemsById = Map<string, Item>;
 
 function itemLabel(item: Item | undefined): string {
   return item ? `${item.name} · ${item.category}` : "Unknown item";
-}
-
-function unitLabel(unit: Unit, itemsById: ItemsById): string {
-  return `${itemsById.get(unit.itemId)?.name ?? "Unknown item"} · ${unit.label}`;
-}
-
-function leadLabel(lead: Lead): string {
-  return leadTitle(lead) ?? (lead.theme ? lead.theme.slice(0, 40) : "Lead");
-}
-
-function looksLikeEmail(value: string): boolean {
-  return /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(value);
 }
 
 function sortItems(items: Item[]): Item[] {
@@ -82,6 +67,7 @@ export function SchedulingScreen() {
   // their own tab, searchable, since there are hundreds of them.
   const [tab, setTab] = useState<"bookings" | "units">("bookings");
   const [unitSearch, setUnitSearch] = useState("");
+  const [newOpen, setNewOpen] = useState(false);
 
   useEffect(() => {
     Promise.all([getItems(), getUnits(), getBookings(), getLeads()])
@@ -125,7 +111,7 @@ export function SchedulingScreen() {
       <div className="screen-head">
         <h2>Scheduling</h2>
         <p className="muted">
-          Confirmed bookings by date, and behind them the physical units each
+          Bookings by date, with their status, and behind them the physical units each
           item has. No calendar yet.
         </p>
       </div>
@@ -227,16 +213,12 @@ export function SchedulingScreen() {
 
             {tab === "bookings" && (
               <>
-                <AddBookingForm
-                  leads={leads}
-                  units={units}
-                  itemsById={itemsById}
-                  onAdded={(booking) =>
-                    setBookings((prev) =>
-                      sortBookings([...(prev ?? []), booking]),
-                    )
-                  }
-                />
+                <div className="scheduling-actions">
+                  <button type="button" className="btn-primary" onClick={() => setNewOpen(true)}>
+                    New booking
+                  </button>
+                  <span className="muted">For a customer booking by phone or in person. Same availability and locks as the storefront.</span>
+                </div>
                 {bookings.length === 0 ? (
                   <p className="muted">Nothing here yet.</p>
                 ) : (
@@ -269,6 +251,22 @@ export function SchedulingScreen() {
               </>
             )}
           </section>
+
+          {newOpen && (
+            <NewBookingModal
+              onClose={() => setNewOpen(false)}
+              onCreated={async (bookingId) => {
+                // Reload what it touched: the booking, the units it now holds, and
+                // the lead it created.
+                const [bookingList, unitList, leadList] = await Promise.all([getBookings(), getUnits(), getLeads()]);
+                setBookings(sortBookings(bookingList));
+                setUnits(unitList);
+                setLeads(leadList);
+                setNewOpen(false);
+                setOpenId(bookingId);
+              }}
+            />
+          )}
 
           {openBooking && (
             <BookingModal
@@ -355,15 +353,7 @@ function BookingSummaryRow({
         <RushTag rush={booking.rush} cancelled={booking.status === "Cancelled"} />
       </td>
       <td>
-        <span
-          className={
-            booking.status === "Cancelled"
-              ? "status-pill"
-              : "status-pill status-pill-live"
-          }
-        >
-          {booking.status}
-        </span>
+        <BookingStatusTag booking={booking} />
       </td>
       <td className={count === 0 ? "muted" : ""}>
         {count === 0 ? "None" : `${count} ${count === 1 ? "item" : "items"}`}
@@ -527,205 +517,5 @@ function UnitRow({
         {error && <p className="form-error booking-row-error">{error}</p>}
       </td>
     </tr>
-  );
-}
-
-function UnitPicker({
-  units,
-  itemsById,
-  selected,
-  disabled,
-  onToggle,
-}: {
-  units: Unit[];
-  itemsById: ItemsById;
-  selected: string[];
-  disabled?: boolean;
-  onToggle: (unitId: string, checked: boolean) => void;
-}) {
-  if (units.length === 0)
-    return <p className="muted">No units yet. Add one above.</p>;
-  return (
-    <div className="unit-picker">
-      {units.map((unit) => (
-        <label key={unit.id}>
-          <input
-            type="checkbox"
-            checked={selected.includes(unit.id)}
-            disabled={disabled}
-            onChange={(e) => onToggle(unit.id, e.target.checked)}
-          />
-          {unitLabel(unit, itemsById)}
-          <span className="muted"> · {unit.status}</span>
-        </label>
-      ))}
-    </div>
-  );
-}
-
-const EMPTY_BOOKING: NewBooking = {
-  leadId: null,
-  eventDate: "",
-  eventTime: "",
-  address: "",
-  customerName: "",
-  phone: "",
-  email: "",
-  status: "Confirmed",
-  unitIds: [],
-};
-
-function AddBookingForm({
-  leads,
-  units,
-  itemsById,
-  onAdded,
-}: {
-  leads: Lead[];
-  units: Unit[];
-  itemsById: ItemsById;
-  onAdded: (booking: Booking) => void;
-}) {
-  const [form, setForm] = useState<NewBooking>(EMPTY_BOOKING);
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  function set<K extends keyof NewBooking>(key: K, value: NewBooking[K]) {
-    setForm((f) => ({ ...f, [key]: value }));
-  }
-
-  // Picking a lead fills in whatever it already knows, without overwriting
-  // anything typed by hand. A lead's single contact goes to whichever side
-  // it looks like.
-  function pickLead(leadId: string) {
-    const lead = leads.find((l) => l.id === leadId) ?? null;
-    const contact = lead?.contact ?? "";
-    const contactIsEmail = looksLikeEmail(contact);
-    setForm((f) => ({
-      ...f,
-      leadId: lead ? lead.id : null,
-      customerName: f.customerName || lead?.customerName || "",
-      email: f.email || (contactIsEmail ? contact : ""),
-      phone: f.phone || (!contactIsEmail ? contact : ""),
-      eventDate: f.eventDate || lead?.dateOfInterest?.slice(0, 10) || "",
-    }));
-  }
-
-  async function handleSubmit(e: FormEvent) {
-    e.preventDefault();
-    setSaving(true);
-    setError(null);
-    try {
-      onAdded(await createBooking(form));
-      setForm(EMPTY_BOOKING);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to add booking");
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  return (
-    <form className="inline-form" onSubmit={handleSubmit}>
-      <label>
-        Lead (optional)
-        <select
-          value={form.leadId ?? ""}
-          onChange={(e) => pickLead(e.target.value)}
-        >
-          <option value="">No lead</option>
-          {leads.map((lead) => (
-            <option key={lead.id} value={lead.id}>
-              {leadLabel(lead)}
-            </option>
-          ))}
-        </select>
-      </label>
-      <label>
-        Event date*
-        <input
-          type="date"
-          value={form.eventDate}
-          onChange={(e) => set("eventDate", e.target.value)}
-          required
-        />
-      </label>
-      <label>
-        Time
-        <input
-          value={form.eventTime}
-          onChange={(e) => set("eventTime", e.target.value)}
-          placeholder="e.g. 2 PM"
-        />
-      </label>
-      <label>
-        Customer name*
-        <input
-          value={form.customerName}
-          onChange={(e) => set("customerName", e.target.value)}
-          required
-        />
-      </label>
-      <label>
-        Phone*
-        <input
-          type="tel"
-          value={form.phone}
-          onChange={(e) => set("phone", e.target.value)}
-          required
-        />
-      </label>
-      <label>
-        Email*
-        <input
-          type="email"
-          value={form.email}
-          onChange={(e) => set("email", e.target.value)}
-          required
-        />
-      </label>
-      <label className="inline-form-grow">
-        Address
-        <input
-          value={form.address}
-          onChange={(e) => set("address", e.target.value)}
-          placeholder="Where the party is"
-          autoComplete="street-address"
-        />
-      </label>
-      <label>
-        Status
-        <select
-          value={form.status}
-          onChange={(e) => set("status", e.target.value as BookingStatus)}
-        >
-          {BOOKING_STATUSES.map((status) => (
-            <option key={status} value={status}>
-              {status}
-            </option>
-          ))}
-        </select>
-      </label>
-      <div className="inline-form-wide">
-        <span className="detail-field-label">Units</span>
-        <UnitPicker
-          units={units}
-          itemsById={itemsById}
-          selected={form.unitIds}
-          onToggle={(unitId, checked) =>
-            set(
-              "unitIds",
-              checked
-                ? [...form.unitIds, unitId]
-                : form.unitIds.filter((id) => id !== unitId),
-            )
-          }
-        />
-      </div>
-      <button type="submit" className="btn-primary" disabled={saving}>
-        {saving ? "Adding…" : "Add booking"}
-      </button>
-      {error && <p className="form-error inline-form-wide">{error}</p>}
-    </form>
   );
 }

@@ -21,7 +21,11 @@ import type {
   LeadPatch,
   LeadStatus,
   LeadStatusRow,
+  AvailableItem,
+  CustomerMatch,
   NewBooking,
+  StaffBookingRequest,
+  StaffBookingResult,
   RushSettings,
   NewItem,
   NewLead,
@@ -340,4 +344,21 @@ export function getSettings(): Promise<RushSettings> {
 
 export function updateSettings(patch: Partial<RushSettings>): Promise<RushSettings> {
   return fetch("/api/settings", jsonRequest("PATCH", patch)).then(asJson<RushSettings>);
+}
+
+// The same catalog the storefront browses for a date: only what can
+// actually be booked that day, with the count that can be.
+export async function getAvailableItems(date: string): Promise<AvailableItem[]> {
+  const res = await fetch(`/api/items/public?date=${encodeURIComponent(date)}`);
+  const body = await res.json();
+  if (!res.ok) throw new Error(body?.error ?? `Request failed (${res.status})`);
+  return body.items as AvailableItem[];
+}
+
+export function searchCustomers(q: string): Promise<CustomerMatch[]> {
+  return fetch(`/api/customers?q=${encodeURIComponent(q)}`).then(asJson<CustomerMatch[]>);
+}
+
+export function createStaffBooking(request: StaffBookingRequest): Promise<StaffBookingResult> {
+  return fetch("/api/bookings/staff", jsonRequest("POST", request)).then(asJson<StaffBookingResult>);
 }

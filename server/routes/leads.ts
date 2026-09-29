@@ -22,6 +22,7 @@ const LEAD_BOOKINGS = {
       eventTime: true,
       status: true,
       rush: true,
+      retainerPaid: true,
       total: true,
       addons: {
         select: { id: true, itemName: true, groupName: true, addonName: true, priceDelta: true, quantity: true },

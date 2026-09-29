@@ -206,10 +206,12 @@ model Unit {
   @@map("units")
 }
 
-// A confirmed event on a real date. leadId is optional: a booking can be
+// An event on a real date. leadId is optional: a booking can be
 // taken over the phone without a tracked lead behind it, and deleting a
-// lead leaves the booking in place. status is Confirmed, Completed, or
-// Cancelled, validated at the API.
+// lead leaves the booking in place. status is the stage set by hand: Held
+// (the default), Contract Sent, Signed, Completed or Cancelled. The status
+// people read is computed from it and retainerPaid (src/lib/bookingStatus.ts):
+// Confirmed is never stored, it is Signed with the retainer paid. Validated at the API.
 //
 // phone and email are both required for new bookings at the API, but the
 // columns are nullable: rows from before the split had one free-text
@@ -227,9 +229,13 @@ model Booking {
   customerName String   @map("customer_name")
   phone        String?
   email        String?
-  status       String   @default("Confirmed")
-  // Placeholder for the deposit integration that isn't built yet. Nothing
-  // sets this automatically; it's a flag Andy can tick by hand for now.
+  status       String   @default("Held")
+  // The retainer has been paid. Replaces the old deposit_paid flag. Nothing
+  // sets it automatically yet; the admin ticks it by hand.
+  retainerPaid Boolean  @default(false) @map("retainer_paid")
+  // Retired: replaced by retainerPaid and no longer read or written. The
+  // column stays until the deploy that stops using it is live, then a
+  // follow-up migration drops it.
   depositPaid  Boolean  @default(false) @map("deposit_paid")
   // Set when the booking was made, or moved, inside the account's minimum
   // notice window. Visibility only: it never blocks or changes a booking.

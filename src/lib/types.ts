@@ -1,3 +1,4 @@
+import type { BookingStage, DisplayStatus } from "./bookingStatus";
 import type { ItemSource } from "./itemFields";
 import type { GigStatus, OfferStatus, Skill } from "./skills";
 
@@ -130,7 +131,7 @@ export type Gig = {
   filledById: string | null;
   createdAt: string;
   updatedAt: string;
-  booking: { id: string; customerName: string; eventDate: string; eventTime: string | null; status: BookingStatus; leadId: string | null; rush: boolean };
+  booking: { id: string; customerName: string; eventDate: string; eventTime: string | null; status: BookingStatus; leadId: string | null; rush: boolean; retainerPaid: boolean };
   filledBy: { id: string; name: string } | null;
   offers: GigOffer[];
 };
@@ -280,6 +281,7 @@ export type LeadBooking = {
   eventTime: string | null;
   status: BookingStatus;
   rush: boolean;
+  retainerPaid: boolean;
   total: string | null;
   addons: BookingAddon[];
 };
@@ -360,8 +362,10 @@ export type PackageInput = {
   items: { itemId: string; quantity: number }[];
 };
 
-export const BOOKING_STATUSES = ["Confirmed", "Completed", "Cancelled"] as const;
-export type BookingStatus = (typeof BOOKING_STATUSES)[number];
+// The stage set by hand. What a booking reads as (Confirmed only when it is
+// Signed with the retainer paid) is displayStatus in ./bookingStatus.
+export { BOOKING_STAGES } from "./bookingStatus";
+export type BookingStatus = BookingStage;
 
 export type Booking = {
   id: string;
@@ -375,10 +379,13 @@ export type Booking = {
   // the contact split, which sorted the old single value into one side.
   phone: string | null;
   email: string | null;
+  // The stage set by hand.
   status: BookingStatus;
+  // What it reads as, computed: Confirmed only when Signed and retainerPaid.
+  displayStatus: DisplayStatus;
   // Booked or moved inside the minimum notice window. Visibility only.
   rush: boolean;
-  depositPaid: boolean;
+  retainerPaid: boolean;
   customerId: string | null; // set when booked from a customer account
   total: string | null; // what the customer was quoted, add-ons included
   addons: BookingAddon[];
@@ -403,7 +410,7 @@ export type NewBooking = {
 export type BookingPatch = Partial<Omit<NewBooking, "eventTime" | "address">> & {
   eventTime?: string | null;
   address?: string | null;
-  depositPaid?: boolean;
+  retainerPaid?: boolean;
 };
 
 // Account-wide rush order settings.
@@ -411,4 +418,34 @@ export type RushSettings = {
   minBookingNoticeHours: number;
   // Null until a real number is set.
   rushContactPhone: string | null;
+};
+
+// An item as the public catalog returns it for one date: only items with a
+// free unit or a free person that day, with how many.
+export type AvailableItem = RecommendItem & { freeUnits: number };
+
+export type CustomerMatch = { id: string; name: string | null; phone: string; email: string };
+
+// What the admin's New booking sends. It is the storefront's direct
+// booking plus a quantity per item and an optional price.
+export type StaffBookingRequest = {
+  customerId?: string;
+  customerName: string;
+  phone: string;
+  email: string;
+  itemIds: string[];
+  quantities: Record<string, number>;
+  addons: Record<string, string[]>;
+  eventDate: string;
+  eventTime?: string;
+  address?: string;
+  total?: number | null;
+};
+
+export type StaffBookingResult = {
+  bookingId: string;
+  leadId: string;
+  stage: DisplayStatus;
+  rush: boolean;
+  total: number | null;
 };

@@ -15,7 +15,8 @@ import conciergeLeadsRouter from "./routes/conciergeLeads.js";
 import crewRouter from "./routes/crew.js";
 import gigsRouter from "./routes/gigs.js";
 import customerRouter from "./routes/customer.js";
-import directBookingsRouter from "./routes/directBookings.js";
+import customersRouter from "./routes/customers.js";
+import directBookingsRouter, { staffBookingRouter } from "./routes/directBookings.js";
 import externalLeadsRouter from "./routes/externalLeads.js";
 import itemsRouter from "./routes/items.js";
 import leadStatusesRouter from "./routes/leadStatuses.js";
@@ -117,12 +118,14 @@ app.use("/api/units", requireAuth, unitsRouter);
 app.use("/api/addon-groups", requireAuth, addonGroupsRouter);
 app.use("/api/crew", requireAuth, crewRouter);
 app.use("/api/skills", requireAuth, skillsRouter);
+app.use("/api/customers", requireAuth, customersRouter);
 app.use("/api/settings", publicSettingsRouter);
 app.use("/api/settings", requireAuth, settingsRouter);
 app.use("/api/gigs", requireAuth, gigsRouter);
 app.use("/api/packages", publicPackagesRouter);
 app.use("/api/packages", requireAuth, packagesRouter);
 app.use("/api/bookings/direct", directBookingLimiter, directBookingsRouter);
+app.use("/api/bookings/staff", requireAuth, staffBookingRouter);
 app.use("/api/bookings", requireAuth, bookingsRouter);
 // Customer accounts: signup and login are public (strictly rate limited
 // inside the router), everything else there requires the customer cookie,

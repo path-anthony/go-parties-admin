@@ -3,6 +3,8 @@ import { getBookings, getGigs, getLeadStatuses, getLeads } from "../../lib/api";
 import { formatEventDay } from "../../lib/gigs";
 import { FOLLOW_UP_DAYS, PROPOSAL_FOLLOW_UP_DAYS, daysSinceUpdate, findStage, needsFollowUp, useNavigate } from "../../lib/navigation";
 import type { Booking, Gig, Lead } from "../../lib/types";
+import { displayStatus } from "../../lib/bookingStatus";
+import { BookingStatusTag } from "../BookingStatusTag";
 import { RushTag } from "../RushTag";
 import { StatCard, StatGrid } from "../StatCard";
 
@@ -70,6 +72,9 @@ export function OverviewScreen() {
   const upcoming = (needsCrew ?? []).filter((g) => g.eventDate.slice(0, 10) >= today());
   // Rush bookings still to come, soonest first (the list is already by date).
   const rushBookings = (bookings ?? []).filter((b) => b.rush && b.status !== "Cancelled" && b.eventDate.slice(0, 10) >= today());
+  // Upcoming bookings by what they read as, so Held ones can't hide.
+  const liveUpcoming = (bookings ?? []).filter((b) => b.status !== "Cancelled" && b.status !== "Completed" && b.eventDate.slice(0, 10) >= today());
+  const byStatus = (status: string) => liveUpcoming.filter((b) => displayStatus(b) === status).length;
   const nearest = (upcoming.length > 0 ? upcoming : (needsCrew ?? [])).slice(0, NEAREST_GIGS);
 
   return (
@@ -137,6 +142,21 @@ export function OverviewScreen() {
           </section>
 
           <section className="kpi-section">
+            <span className="kpi-section-label">Booking status</span>
+            <StatGrid>
+              {(["Held", "Contract Sent", "Signed", "Retainer Paid", "Confirmed"] as const).map((status) => (
+                <StatCard
+                  key={status}
+                  label={status}
+                  value={byStatus(status)}
+                  note={status === "Confirmed" ? "Signed and retainer paid" : "Upcoming bookings"}
+                  onClick={() => navigate("scheduling")}
+                />
+              ))}
+            </StatGrid>
+          </section>
+
+          <section className="kpi-section">
             <span className="kpi-section-label">Rush</span>
             <div className="crew-card">
               <div className="crew-card-head">
@@ -157,7 +177,7 @@ export function OverviewScreen() {
                       <button type="button" className="crew-card-row" onClick={() => navigate("scheduling")}>
                         <span className="kpi-list-when">{formatEventDay(b.eventDate)}</span>
                         <span className="crew-card-customer">
-                          {b.customerName}
+                          {b.customerName} <BookingStatusTag booking={b} />
                           <RushTag rush={b.rush} />
                         </span>
                         <span className="muted">{b.eventTime ?? "no time set"}</span>
@@ -190,7 +210,7 @@ export function OverviewScreen() {
                       <button type="button" className="crew-card-row" onClick={() => navigate("crew", { gigStatus: "Needs Crew", gigId: g.id })}>
                         <span className="kpi-list-when">{formatEventDay(g.eventDate)}</span>
                         <span className="crew-card-customer">
-                          {g.booking.customerName}
+                          {g.booking.customerName} <BookingStatusTag booking={g.booking} />
                           <RushTag rush={g.booking.rush} cancelled={g.booking.status === "Cancelled"} />
                         </span>
                         <span className="muted">needs a {g.skill}</span>

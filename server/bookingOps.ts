@@ -3,6 +3,7 @@ import { describeAddon, resolveAddons } from "./addons.js";
 import { lockFreeUnit } from "./availability.js";
 import { prisma } from "./db.js";
 import { BOOKING_GIGS_SELECT, cancelGigs, createGigs, moveGigs, needsCrew } from "./gigs.js";
+import { displayStatus, legacyCustomerStatus } from "../src/lib/bookingStatus.js";
 import { rushFor } from "./settings.js";
 
 // Thrown inside a transaction when no unit of an item can be locked for a
@@ -188,7 +189,7 @@ export async function addBookingItem(
   return prisma.$transaction(async (tx) => {
     const booking = await tx.booking.findUniqueOrThrow({ where: { id: bookingId }, include: WITH_UNIT_DETAILS });
     if (booking.status === "Cancelled") {
-      throw new BookingEditError("A cancelled booking can't hold items. Set it back to Confirmed first.");
+      throw new BookingEditError("A cancelled booking can't hold items. Set it back to Held first.");
     }
     if (item.unitCount === 0 && !needsCrew(item)) {
       throw new BookingEditError(`${item.name} has no units and needs no crew, so there is nothing to hold. Give it a unit first.`);
@@ -356,6 +357,13 @@ export function serializeCustomerBooking(booking: BookingWithUnits) {
   const liveGigs = gigs.filter((g) => g.status !== "Cancelled");
   return {
     ...rest,
+    // status keeps the meaning the storefront portal reads ("Confirmed" is
+    // a live booking); stage is the real one (Held, Contract Sent, ...,
+    // Confirmed only when Signed and the retainer is paid). depositPaid is
+    // the old name for retainerPaid, kept so the storefront's type holds.
+    status: legacyCustomerStatus(booking.status),
+    stage: displayStatus(booking),
+    depositPaid: booking.retainerPaid,
     gigs: liveGigs.map((g) => ({ id: g.id, itemId: g.itemId, itemName: g.itemName, skill: g.skill, status: g.status })),
     addons: addons.map((a) => ({
       itemId: a.itemId,

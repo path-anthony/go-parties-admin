@@ -1,18 +1,14 @@
 import { Router } from "express";
 import { getDefaultAccount } from "../account.js";
-import { AddonSelectionError, describeAddon, parseAddonSelections, resolveAddons, type ChosenAddon } from "../addons.js";
-import { leadStatusForStorefrontBooking, lockFreeUnit } from "../availability.js";
-import { NoFreeUnits } from "../bookingOps.js";
+import { parseAddonSelections } from "../addons.js";
 import { currentCustomer } from "../customerAuth.js";
+import { createDirectBooking, MAX_UNITS_PER_BOOKING } from "../directBooking.js";
 import { prisma } from "../db.js";
-import { NoCrewFree, createGigs, needsCrew } from "../gigs.js";
-import { rushFor } from "../settings.js";
 import { INVALID, normalizeDate, normalizeText, splitContact, todayEastern } from "../validate.js";
 
 const MAX_ADDRESS_LENGTH = 300;
 const MAX_TIME_LENGTH = 60;
 const MAX_ITEMS_PER_BOOKING = 10;
-const MAX_UNITS_PER_BOOKING = 50;
 
 const router = Router();
 
@@ -75,18 +71,6 @@ function resolvePackageId(body: Record<string, unknown>): string | null | typeof
   return typeof packageId === "string" && packageId !== "" ? packageId : INVALID;
 }
 
-// The price a direct booking is quoted at: the package's bundle price, or
-// each priced item times its quantity. Null when nothing has a price.
-function quotedTotal(
-  pkg: { price: unknown } | null,
-  wanted: { item: { price: unknown }; quantity: number }[],
-): number | null {
-  if (pkg) return Number(pkg.price);
-  const priced = wanted.filter(({ item }) => item.price !== null);
-  if (priced.length === 0) return null;
-  return Math.round(priced.reduce((sum, { item, quantity }) => sum + Number(item.price) * quantity, 0) * 100) / 100;
-}
-
 // Public, no session required, rate limited where it's mounted. A customer
 // books one or more specific items for one date. One free unit per item
 // (or, from a package, the package's quantity of each) is picked and locked
@@ -146,246 +130,98 @@ router.post("/", async (req, res) => {
     return res.status(400).json({ error: "packageId must be a package id" });
   }
 
-  const account = await getDefaultAccount();
-  const pkg = packageId
-    ? await prisma.package.findFirst({
-        where: { id: packageId, accountId: account.id, status: "Published" },
-        include: { items: { select: { itemId: true, quantity: true } } },
-      })
-    : null;
-  if (packageId && !pkg) {
-    return res.status(404).json({ error: "package not found or not published" });
-  }
-  if (pkg) {
-    const packageIds = new Set(pkg.items.map((row) => row.itemId));
-    const same = packageIds.size === itemIds.length && itemIds.every((id) => packageIds.has(id));
-    if (!same) {
-      return res.status(400).json({ error: "The items don't match the package. Book the package as it is, or book the items on their own." });
-    }
-  }
-  const found = await prisma.item.findMany({
-    where: { id: { in: itemIds }, accountId: account.id },
-    include: { _count: { select: { units: true } } },
+  const result = await createDirectBooking({
+    staff: false,
+    name,
+    contact,
+    customer: customer ? { id: customer.id, name: customer.name } : null,
+    itemIds,
+    date,
+    dateText,
+    eventTime,
+    address,
+    selections,
+    packageId,
   });
-  // Keep the caller's order so the response lines up with the request.
-  const items = itemIds.map((id) => found.find((item) => item.id === id)).filter((item) => item !== undefined);
-  if (items.length !== itemIds.length) {
-    return res.status(404).json({ error: itemIds.length === 1 ? "item not found" : "One or more items were not found" });
-  }
-  // An item is promisable through its units, through the crew for its
-  // skills, or both. One with neither can't be promised at all.
-  const untracked = items.filter((item) => item._count.units === 0 && !needsCrew(item));
-  if (untracked.length > 0) {
-    return res.status(409).json({
-      error:
-        untracked.length === 1
-          ? "This item isn't available for direct booking yet."
-          : `${untracked.map((item) => item.name).join(", ")} aren't available for direct booking yet.`,
-      reason: "not-tracked",
-      itemIds: untracked.map((item) => item.id),
-    });
-  }
-  // How many units of each item to hold: the package's quantities, or one.
-  const wanted = items.map((item) => ({
-    item,
-    quantity: pkg ? (pkg.items.find((row) => row.itemId === item.id)?.quantity ?? 1) : 1,
-  }));
-  if (wanted.reduce((sum, w) => sum + w.quantity, 0) > MAX_UNITS_PER_BOOKING) {
-    return res.status(400).json({ error: `A booking can hold at most ${MAX_UNITS_PER_BOOKING} units` });
-  }
-  let chosen: ChosenAddon[];
-  try {
-    chosen = await resolveAddons(items, selections);
-  } catch (err) {
-    if (err instanceof AddonSelectionError) {
-      return res.status(400).json({ error: err.message, reason: err.reason });
-    }
-    throw err;
-  }
-  const quantityOf = (itemId: string) => wanted.find((w) => w.item.id === itemId)?.quantity ?? 1;
-  const addonRows = chosen.map((addon) => ({ ...addon, quantity: quantityOf(addon.itemId) }));
-  const addonsTotal = Math.round(addonRows.reduce((sum, a) => sum + a.priceDelta * a.quantity, 0) * 100) / 100;
-  // Nothing priced means nothing to quote, add-ons or not.
-  const baseTotal = quotedTotal(pkg, wanted);
-  const total = baseTotal === null ? null : Math.round((baseTotal + addonsTotal) * 100) / 100;
-  // "Snow Cone Station, Flavor: Peach (+$10); Size: Large (+$50)"
-  const addonNote = items
-    .map((item) => {
-      const picks = addonRows.filter((a) => a.itemId === item.id);
-      return picks.length === 0 ? null : `${item.name}, ${picks.map(describeAddon).join("; ")}`;
-    })
-    .filter((line): line is string => line !== null)
-    .join(". ");
-
-  const leadStatus = await leadStatusForStorefrontBooking(account.id);
-  const leadContact = [contact.phone, contact.email].filter(Boolean).join(" · ");
-  const when = eventTime ? `${dateText} at ${eventTime}` : dateText;
-  const where = address ? ` Address: ${address}.` : " Address not given yet.";
-
-  try {
-    const result = await prisma.$transaction(async (tx) => {
-      // Lock every unit before writing anything: the wanted quantity of
-      // each item, each lock skipping the units this transaction already
-      // holds. An item short by even one unit is collected so the message
-      // can name all of them.
-      const claimed: { item: (typeof items)[number]; unit: { id: string; label: string } }[] = [];
-      const missing: string[] = [];
-      for (const { item, quantity } of wanted) {
-        if (item._count.units === 0) continue;
-        const held: string[] = [];
-        for (let n = 0; n < quantity; n++) {
-          const unit = await lockFreeUnit(tx, item.id, dateText, held);
-          if (!unit) break;
-          held.push(unit.id);
-          claimed.push({ item, unit });
-        }
-        if (held.length < quantity) missing.push(item.name);
-      }
-      if (missing.length > 0) throw new NoFreeUnits(missing);
-
-      const crewItems = wanted.filter(({ item }) => needsCrew(item));
-      const summary = [
-        ...claimed.map(({ item, unit }) => `${item.name} (${unit.label})`),
-        ...crewItems
-          .filter(({ item }) => item._count.units === 0)
-          .map(({ item, quantity }) => (quantity > 1 ? `${item.name} x${quantity} (crew)` : `${item.name} (crew)`)),
-      ].join(", ");
-      const packageNote = pkg ? ` Package: ${pkg.name}, $${Number(pkg.price)}.` : "";
-      const lead = await tx.lead.create({
-        data: {
-          accountId: account.id,
-          source: "storefront",
-          status: leadStatus,
-          customerName: name,
-          contact: leadContact,
-          occasion: pkg ? pkg.name : claimed.map(({ item }) => item.name).join(", "),
-          dateOfInterest: date,
-          notes: `Direct booking of ${summary} from the storefront, ${when}.${where}${packageNote}${addonNote ? ` Add-ons: ${addonNote}.` : ""}`,
-        },
-      });
-      await tx.leadActivity.create({
-        data: {
-          leadId: lead.id,
-          text: `Booked ${summary} for ${when} from the storefront.${addonNote ? ` Add-ons: ${addonNote}.` : ""}`,
-        },
-      });
-      const booking = await tx.booking.create({
-        data: {
-          accountId: account.id,
-          leadId: lead.id,
-          customerId: customer?.id ?? null,
-          eventDate: date,
-          eventTime,
-          address,
-          customerName: name,
-          phone: contact.phone,
-          email: contact.email,
-          status: "Confirmed",
-          rush: await rushFor(account.id, date),
-          packageId: pkg?.id ?? null,
-          total,
-          // eventDate is copied onto each join row for the (unitId, eventDate)
-          // unique constraint, the database-level backstop behind the lock.
-          units: { create: claimed.map(({ unit }) => ({ unitId: unit.id, eventDate: date })) },
-          // Names and the delta are copied so the booking stays readable
-          // and honest if the option is later renamed, repriced, or removed.
-          addons: {
-            create: addonRows.map((a) => ({
-              itemId: a.itemId,
-              addonId: a.addonId,
-              itemName: a.itemName,
-              groupName: a.groupName,
-              addonName: a.addonName,
-              priceDelta: a.priceDelta,
-              quantity: a.quantity,
-            })),
-          },
-        },
-      });
-      // One gig per skill per unit wanted of each item that needs crew,
-      // after every unit lock above (units first, then skills in order,
-      // so the lock order is the same in every transaction). A skill with
-      // nobody free on the date throws and rolls the whole booking back,
-      // the same as an item with no free unit.
-      const gigs = await createGigs(tx, { accountId: account.id, bookingId: booking.id, date, wanted: crewItems });
-      // First booking from an account that signed up without a name: keep
-      // the name so the next booking doesn't ask again.
-      if (customer && !customer.name) {
-        await tx.customer.update({ where: { id: customer.id }, data: { name } });
-      }
-      return { booking, lead, claimed, gigs };
-    });
-
-    // One entry per unit held and one per gig, so an item wanted twice
-    // appears twice. A gig has no unit; its entry says so with null.
-    const bookedItems = [
-      ...result.claimed.map(({ item, unit }) => ({
-        id: item.id,
-        name: item.name,
-        unit: { id: unit.id, label: unit.label } as { id: string; label: string } | null,
-      })),
-      // A skill-only item has no unit; one entry per unit wanted, not per
-      // gig, so an item needing three people still appears once.
-      ...result.gigs
-        .filter((g, i, all) => all.findIndex((x) => x.itemId === g.itemId) === i)
-        .flatMap((g) => {
-          const w = wanted.find(({ item }) => item.id === g.itemId);
-          if (!w || w.item._count.units > 0) return [];
-          return Array.from({ length: w.quantity }, () => ({ id: g.itemId, name: g.itemName, unit: null }));
-        }),
-    ];
-    res.status(201).json({
-      bookingId: result.booking.id,
-      leadId: result.lead.id,
-      customerId: result.booking.customerId,
-      eventDate: dateText,
-      eventTime: result.booking.eventTime,
-      address: result.booking.address,
-      phone: result.booking.phone,
-      email: result.booking.email,
-      status: result.booking.status,
-      // True when the event starts inside the minimum notice window; the
-      // booking is complete either way, this is so the storefront can say
-      // it is pending confirmation.
-      rush: result.booking.rush,
-      depositPaid: result.booking.depositPaid,
-      total,
-      addonsTotal,
-      addons: addonRows,
-      packageId: pkg?.id ?? null,
-      package: pkg ? { id: pkg.id, name: pkg.name, price: Number(pkg.price) } : null,
-      // item and unit are the first entry, kept for single-item callers;
-      // items has every unit held, so an item wanted twice appears twice.
-      item: { id: bookedItems[0].id, name: bookedItems[0].name },
-      unit: bookedItems[0].unit,
-      items: bookedItems,
-      gigs: result.gigs,
-    });
-  } catch (err) {
-    // NoFreeUnits is the normal loser path. P2002 is the (unitId, eventDate)
-    // unique constraint firing anyway, which the lock should make
-    // impossible here; it's handled the same way rather than as a 500.
-    if (err instanceof NoFreeUnits || err instanceof NoCrewFree) {
-      const names = err instanceof NoFreeUnits ? err.itemNames : [err.itemName];
-      return res.status(409).json({
-        error:
-          items.length === 1 && err instanceof NoCrewFree
-            ? `Nobody on the crew is free to cover the ${err.skill} for ${err.itemName} that date. Try another date.`
-            : items.length === 1
-            ? "That date was just booked by someone else. Try another date."
-            : `${names.join(", ")} ${names.length === 1 ? "isn't" : "aren't"} available that date, so nothing was booked. Drop ${names.length === 1 ? "it" : "them"} or try another date.`,
-        reason: "unavailable",
-        unavailable: names,
-      });
-    }
-    if ((err as { code?: unknown }).code === "P2002") {
-      return res.status(409).json({
-        error: "That date was just booked by someone else. Try another date.",
-        reason: "unavailable",
-      });
-    }
-    throw err;
-  }
+  res.status(result.status).json(result.body);
 });
 
 export default router;
+
+// The admin's New booking: the same booking, taken on a customer's behalf
+// by staff. It goes through createDirectBooking, so the unit locks, crew
+// checks, add-on rules, lead and RUSH flag are the storefront's exactly.
+// Differences: it needs the admin session (mounted behind it), it adds a
+// quantity per item, it can attach an existing customer's account (found
+// with GET /api/customers?q=) or take contact details inline with no
+// account, and it can confirm a price other than the computed one.
+export const staffBookingRouter = Router();
+
+staffBookingRouter.post("/", async (req, res) => {
+  const body = (req.body ?? {}) as Record<string, unknown>;
+
+  const account = await getDefaultAccount();
+  let customer: { id: string; name: string | null; phone: string; email: string } | null = null;
+  if (body.customerId !== undefined && body.customerId !== null && body.customerId !== "") {
+    customer =
+      typeof body.customerId === "string"
+        ? await prisma.customer.findFirst({ where: { id: body.customerId, accountId: account.id }, select: { id: true, name: true, phone: true, email: true } })
+        : null;
+    if (!customer) return res.status(400).json({ error: "customerId must be a customer on this account" });
+  }
+  const name = normalizeText(body.customerName) ?? customer?.name ?? null;
+  if (!name) return res.status(400).json({ error: "customerName is required" });
+  const contact = resolveContact(body, customer ? { phone: customer.phone, email: customer.email } : null);
+  if (typeof contact === "string") return res.status(400).json({ error: contact });
+
+  const itemIds = resolveItemIds(body);
+  if (typeof itemIds === "string") return res.status(400).json({ error: itemIds });
+  const quantities: Record<string, number> = {};
+  if (body.quantities !== undefined) {
+    const q = body.quantities;
+    if (typeof q !== "object" || q === null || Array.isArray(q)) return res.status(400).json({ error: "quantities must be { [itemId]: number }" });
+    for (const [id, n] of Object.entries(q)) {
+      if (!itemIds.includes(id)) return res.status(400).json({ error: "quantities can only name items being booked" });
+      if (typeof n !== "number" || !Number.isInteger(n) || n < 1 || n > MAX_UNITS_PER_BOOKING) {
+        return res.status(400).json({ error: `each quantity must be a whole number from 1 to ${MAX_UNITS_PER_BOOKING}` });
+      }
+      quantities[id] = n;
+    }
+  }
+  const date = normalizeDate(body.eventDate);
+  if (date === null || date === INVALID) return res.status(400).json({ error: "eventDate is required and must be a valid YYYY-MM-DD date" });
+  const dateText = date.toISOString().slice(0, 10);
+  if (dateText < todayEastern()) return res.status(400).json({ error: "eventDate can't be in the past" });
+  const address = optionalText(body.address, MAX_ADDRESS_LENGTH);
+  if (address === INVALID) return res.status(400).json({ error: `address must be text up to ${MAX_ADDRESS_LENGTH} characters` });
+  const eventTime = optionalText(body.eventTime, MAX_TIME_LENGTH);
+  if (eventTime === INVALID) return res.status(400).json({ error: `eventTime must be text up to ${MAX_TIME_LENGTH} characters` });
+  const selections = parseAddonSelections(body.addons, itemIds);
+  if (typeof selections === "string") return res.status(400).json({ error: selections, reason: "addon-invalid" });
+  const packageId = resolvePackageId(body);
+  if (packageId === INVALID) return res.status(400).json({ error: "packageId must be a package id" });
+
+  let totalOverride: number | null | undefined;
+  if (body.total !== undefined) {
+    if (body.total === null) totalOverride = null;
+    else if (typeof body.total === "number" && Number.isFinite(body.total) && body.total >= 0) totalOverride = Math.round(body.total * 100) / 100;
+    else return res.status(400).json({ error: "total must be a number of 0 or more, or null" });
+  }
+
+  const result = await createDirectBooking({
+    staff: true,
+    name,
+    contact,
+    customer: customer ? { id: customer.id, name: customer.name } : null,
+    itemIds,
+    quantities,
+    date,
+    dateText,
+    eventTime,
+    address,
+    selections,
+    packageId,
+    totalOverride,
+  });
+  res.status(result.status).json(result.body);
+});
