@@ -56,12 +56,25 @@ export type DirectBookingInput = {
 export async function createDirectBooking(input: DirectBookingInput): Promise<{ status: number; body: unknown }> {
   const { staff, name, contact, customer, itemIds, quantities = {}, date, dateText, eventTime, address, selections, packageId, totalOverride } = input;
   const account = await getDefaultAccount();
-  const pkg = packageId
-    ? await prisma.package.findFirst({
-        where: { id: packageId, accountId: account.id, status: "Published" },
-        include: { items: { select: { itemId: true, quantity: true } } },
-      })
-    : null;
+  // Read-only lookups that don't depend on each other run together. None of
+  // them takes a lock or feeds the transaction below, so this changes how
+  // long the request waits, not what it guarantees. The rush flag and the
+  // lead column are worked out here too rather than inside the transaction,
+  // so row locks aren't held while they are read.
+  const [pkg, found, leadStatus, rush] = await Promise.all([
+    packageId
+      ? prisma.package.findFirst({
+          where: { id: packageId, accountId: account.id, status: "Published" },
+          include: { items: { select: { itemId: true, quantity: true } } },
+        })
+      : Promise.resolve(null),
+    prisma.item.findMany({
+      where: { id: { in: itemIds }, accountId: account.id },
+      include: { _count: { select: { units: true } } },
+    }),
+    leadStatusForStorefrontBooking(account.id),
+    rushFor(account.id, date),
+  ]);
   if (packageId && !pkg) {
     return out(404, { error: "package not found or not published" });
   }
@@ -72,10 +85,6 @@ export async function createDirectBooking(input: DirectBookingInput): Promise<{ 
       return out(400, { error: "The items don't match the package. Book the package as it is, or book the items on their own." });
     }
   }
-  const found = await prisma.item.findMany({
-    where: { id: { in: itemIds }, accountId: account.id },
-    include: { _count: { select: { units: true } } },
-  });
   // Keep the caller's order so the response lines up with the request.
   const items = itemIds.map((id) => found.find((item) => item.id === id)).filter((item) => item !== undefined);
   if (items.length !== itemIds.length) {
@@ -128,7 +137,6 @@ export async function createDirectBooking(input: DirectBookingInput): Promise<{ 
     .filter((line): line is string => line !== null)
     .join(". ");
 
-  const leadStatus = await leadStatusForStorefrontBooking(account.id);
   const origin = staff ? "taken by staff in the admin" : "from the storefront";
   const leadContact = [contact.phone, contact.email].filter(Boolean).join(" · ");
   const when = eventTime ? `${dateText} at ${eventTime}` : dateText;
@@ -193,7 +201,7 @@ export async function createDirectBooking(input: DirectBookingInput): Promise<{ 
           phone: contact.phone,
           email: contact.email,
           status: "Held",
-          rush: await rushFor(account.id, date),
+          rush,
           packageId: pkg?.id ?? null,
           total,
           // eventDate is copied onto each join row for the (unitId, eventDate)
