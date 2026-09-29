@@ -230,13 +230,9 @@ model Booking {
   phone        String?
   email        String?
   status       String   @default("Held")
-  // The retainer has been paid. Replaces the old deposit_paid flag. Nothing
+  // The retainer has been paid. Replaces the old deposit_paid flag, since dropped. Nothing
   // sets it automatically yet; the admin ticks it by hand.
   retainerPaid Boolean  @default(false) @map("retainer_paid")
-  // Retired: replaced by retainerPaid and no longer read or written. The
-  // column stays until the deploy that stops using it is live, then a
-  // follow-up migration drops it.
-  depositPaid  Boolean  @default(false) @map("deposit_paid")
   // Set when the booking was made, or moved, inside the account's minimum
   // notice window. Visibility only: it never blocks or changes a booking.
   rush         Boolean  @default(false)
