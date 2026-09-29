@@ -9,7 +9,8 @@ ADD COLUMN     "source" TEXT NOT NULL DEFAULT 'Owned';
 -- gets a clean billed-per, the source it always had, and the review flag;
 -- the supplier category, item id and link stay in notes untouched. The
 -- count is checked so a changed catalog stops the migration instead of
--- tagging the wrong rows.
+-- tagging the wrong rows. Zero is allowed so the migration also replays on
+-- an empty database (a fresh setup, or the drift check's shadow database).
 DO $$
 DECLARE
   moved integer;
@@ -18,8 +19,8 @@ BEGIN
   SET "price_unit" = 'Per day', "source" = 'Partner-sourced', "needs_price_review" = true
   WHERE "price_unit" = 'per day (supplier starting price, PARTNER sourced, review before publishing)';
   GET DIAGNOSTICS moved = ROW_COUNT;
-  IF moved <> 196 THEN
-    RAISE EXCEPTION 'expected to migrate 196 imported items, matched %', moved;
+  IF moved NOT IN (0, 196) THEN
+    RAISE EXCEPTION 'expected to migrate 196 imported items or none, matched %', moved;
   END IF;
 END $$;
 
