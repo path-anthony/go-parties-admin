@@ -403,6 +403,8 @@ export type Booking = {
   retainerPaid: boolean;
   occasion: string | null;
   balancePaymentPreference: BalancePreference;
+  // The balance (total less the deposit) has been paid; ticked by hand.
+  balancePaid: boolean;
   // Null on bookings made before agreements existed.
   agreement: AgreementInfo | null;
   customerId: string | null; // set when booked from a customer account
@@ -425,6 +427,7 @@ export type BookingPatch = {
   eventTime?: string | null;
   address?: string | null;
   retainerPaid?: boolean;
+  balancePaid?: boolean;
   balancePaymentPreference?: BalancePreference;
 };
 
@@ -438,6 +441,9 @@ export type AccountSettings = {
   depositPercentage: number;
   cancellationWindowDays: number;
   requireAgreementCheckbox: boolean;
+  staffNotifyPhone: string | null;
+  staffNotifyEmail: string | null;
+  balanceReminderWindowDays: number;
 };
 
 export type PolicyVersionInfo = { id: string; version: number; text: string; createdAt: string; agreements: number };
@@ -499,3 +505,37 @@ export type DesignRequest = {
     computedTotal: number | null;
   };
 };
+
+// One line of the send log: a text or email the system tried to send.
+// status is our attempt (sent, failed, skipped-*); confirmation is what n8n
+// reported afterwards (delivered or failed), if it has.
+export type MessageLogRow = {
+  id: string;
+  channel: "sms" | "email";
+  direction: string;
+  source: "admin" | "n8n";
+  purpose: string;
+  recipient: string;
+  subject: string | null;
+  body: string;
+  status: string;
+  error: string | null;
+  providerRef: string | null;
+  bookingId: string | null;
+  designRequestId: string | null;
+  crewMemberId: string | null;
+  gigId: string | null;
+  confirmation: "delivered" | "failed" | null;
+  confirmationAt: string | null;
+  confirmationDetail: string | null;
+  createdAt: string;
+};
+
+export type MessageSummary = {
+  days: number;
+  sms: { total: number; sent: number; failed: number; skipped: number; delivered: number };
+  email: { total: number; sent: number; failed: number; skipped: number; delivered: number };
+  lastAt: string | null;
+};
+
+export type MessageTarget = { bookingId: string } | { designRequestId: string } | { leadId: string } | { crewMemberId: string };

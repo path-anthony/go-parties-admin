@@ -1,4 +1,5 @@
 import { type FormEvent, useEffect, useState } from "react";
+import { SendMessageControls } from "./SendMessageControls";
 import { X } from "lucide-react";
 import { createCrewMember, updateCrewMember } from "../lib/api";
 import type { Skill } from "../lib/skills";
@@ -110,6 +111,13 @@ export function CrewModal({
             Notes
             <textarea rows={3} value={form.notes} onChange={(e) => set("notes", e.target.value)} maxLength={2000} placeholder="Availability, rates, anything the crew lead should know" />
           </label>
+
+          {member && (
+            <div className="modal-section">
+              <SendMessageControls target={{ crewMemberId: member.id }} contract={false} label="Text this person" />
+              <span className="muted field-help">Uses the phone number above, as last saved.</span>
+            </div>
+          )}
 
           {error && <p className="form-error">{error}</p>}
 

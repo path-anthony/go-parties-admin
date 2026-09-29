@@ -4,6 +4,7 @@ import { AUTH_EXPIRED_EVENT, logout } from "../lib/api";
 import { NavigationContext, type ScreenParams } from "../lib/navigation";
 import { AskGoPanel } from "./AskGoPanel";
 import { NavRail } from "./NavRail";
+import { MessagesScreen } from "./screens/MessagesScreen";
 import { LeadsScreen } from "./screens/LeadsScreen";
 import { CrewGigsScreen } from "./screens/CrewGigsScreen";
 import { DesignRequestsScreen } from "./screens/DesignRequestsScreen";
@@ -13,7 +14,7 @@ import { PackagesScreen } from "./screens/PackagesScreen";
 import { SchedulingScreen } from "./screens/SchedulingScreen";
 import { SettingsScreen } from "./screens/SettingsScreen";
 
-export type ScreenKey = "overview" | "inventory" | "packages" | "leads" | "requests" | "scheduling" | "crew" | "settings";
+export type ScreenKey = "overview" | "inventory" | "packages" | "leads" | "requests" | "messages" | "scheduling" | "crew" | "settings";
 
 const SCREEN_TITLES: Record<ScreenKey, string> = {
   overview: "Overview",
@@ -21,6 +22,7 @@ const SCREEN_TITLES: Record<ScreenKey, string> = {
   packages: "Packages & Themes",
   leads: "Leads",
   requests: "Design requests",
+  messages: "Messages",
   scheduling: "Scheduling",
   crew: "Crew & Gigs",
   settings: "Settings",
@@ -36,6 +38,8 @@ function ScreenBody({ screen, params }: { screen: ScreenKey; params: ScreenParam
       return <LeadsScreen initialStatus={params.leadStatus} initialFollowUp={params.leadFollowUp} initialStaleDays={params.leadStaleDays} />;
     case "requests":
       return <DesignRequestsScreen />;
+    case "messages":
+      return <MessagesScreen />;
     case "scheduling":
       return <SchedulingScreen />;
     case "settings":

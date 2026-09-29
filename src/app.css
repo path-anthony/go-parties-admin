@@ -2595,3 +2595,14 @@ button.kpi-card:focus-visible {
 .scheduling-actions { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
 .agreement-detail { flex-basis: 100%; }
 .policy-text-shown { white-space: pre-wrap; font: inherit; margin: 6px 0 0; padding: 8px; background: var(--bg-muted, #f4f2ed); border-radius: 4px; }
+
+/* Send controls, contract panel, message log */
+.send-controls { display: flex; flex-direction: column; gap: 6px; }
+.send-typing { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
+.send-typing textarea { width: 100%; font: inherit; }
+.msg-status { display: inline-block; padding: 1px 8px; border-radius: 4px; font-size: 11px; font-weight: 700; white-space: nowrap; }
+.msg-sent { background: #e7f6ee; color: #067647; }
+.msg-failed { background: #fdecea; color: #b42318; }
+.msg-skipped { background: #fff4e5; color: #b54708; }
+.msg-queued { background: #eef2ff; color: #3538cd; }
+.msg-body { white-space: pre-wrap; margin: 4px 0 0; font: inherit; }

@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
-import { getBookings, getDesignRequests, getGigs, getLeadStatuses, getLeads } from "../../lib/api";
+import { getBookings, getDesignRequests, getMessageSummary, getGigs, getLeadStatuses, getLeads } from "../../lib/api";
 import { formatEventDay } from "../../lib/gigs";
 import { FOLLOW_UP_DAYS, PROPOSAL_FOLLOW_UP_DAYS, daysSinceUpdate, findStage, needsFollowUp, useNavigate } from "../../lib/navigation";
-import type { Booking, DesignRequest, Gig, Lead } from "../../lib/types";
+import type { Booking, DesignRequest, MessageSummary, Gig, Lead } from "../../lib/types";
 import { displayStatus } from "../../lib/bookingStatus";
 import { AgreementChip, BalanceLabel } from "../AgreementChip";
 import { BookingStatusTag } from "../BookingStatusTag";
@@ -16,7 +16,6 @@ const NOT_TRACKED = [
   { label: "Upcoming events (30d)", waitingOn: "Waiting on the calendar view of Scheduling, which counts confirmed events by date." },
   { label: "Contract signed", waitingOn: "Waiting on the e-sign integration (SignWell or Documenso, not yet chosen)." },
   { label: "Retainer status", waitingOn: "Waiting on payment integration: retainer links are not sent or recorded yet." },
-  { label: "SMS campaign activity", waitingOn: "Waiting on n8n reporting sends, opens and replies back to this admin." },
 ];
 
 const NEAREST_GIGS = 3;
@@ -33,12 +32,14 @@ export function OverviewScreen() {
   const [needsCrew, setNeedsCrew] = useState<Gig[] | null>(null);
   const [bookings, setBookings] = useState<Booking[] | null>(null);
   const [requests, setRequests] = useState<DesignRequest[] | null>(null);
+  const [messages, setMessages] = useState<MessageSummary | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    Promise.all([getLeads(), getLeadStatuses(), getGigs("Needs Crew"), getBookings(), getDesignRequests("Open")])
-      .then(([leadList, rows, gigs, bookingList, requestList]) => {
+    Promise.all([getLeads(), getLeadStatuses(), getGigs("Needs Crew"), getBookings(), getDesignRequests("Open"), getMessageSummary()])
+      .then(([leadList, rows, gigs, bookingList, requestList, messageSummary]) => {
         setRequests(requestList);
+        setMessages(messageSummary);
         setLeads(leadList);
         setStatuses(rows.map((row) => row.name));
         setNeedsCrew(gigs);
@@ -47,7 +48,7 @@ export function OverviewScreen() {
       .catch((err) => setError(err instanceof Error ? err.message : "Failed to load"));
   }, []);
 
-  const ready = leads !== null && statuses !== null && needsCrew !== null && bookings !== null && requests !== null;
+  const ready = leads !== null && statuses !== null && needsCrew !== null && bookings !== null && requests !== null && messages !== null;
 
   // The well-known stages, found by name in the configurable columns.
   const stageNew = statuses ? findStage(statuses, "New") : undefined;
@@ -154,6 +155,26 @@ export function OverviewScreen() {
                   value={byStatus(status)}
                   note={status === "Confirmed" ? "Signed and retainer paid" : "Upcoming bookings"}
                   onClick={() => navigate("scheduling")}
+                />
+              ))}
+            </StatGrid>
+          </section>
+
+          <section className="kpi-section">
+            <span className="kpi-section-label">Messages</span>
+            <StatGrid>
+              {(
+                [
+                  ["Texts, last 7 days", messages.sms],
+                  ["Emails, last 7 days", messages.email],
+                ] as const
+              ).map(([label, m]) => (
+                <StatCard
+                  key={label}
+                  label={label}
+                  value={m.total}
+                  note={`${m.sent} sent, ${m.delivered} delivered (n8n), ${m.failed} failed, ${m.skipped} skipped`}
+                  onClick={() => navigate("messages")}
                 />
               ))}
             </StatGrid>

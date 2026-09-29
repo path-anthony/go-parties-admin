@@ -26,6 +26,9 @@ import type {
   StaffBookingRequest,
   StaffBookingResult,
   AccountSettings,
+  MessageLogRow,
+  MessageSummary,
+  MessageTarget,
   DesignRequest,
   PolicyVersionInfo,
   NewItem,
@@ -320,8 +323,10 @@ export function getGig(id: string): Promise<GigDetail> {
 }
 
 // Records an offer to each crew member; nothing is sent anywhere yet.
-export function sendGigOffers(gigId: string, crewMemberIds: string[]): Promise<GigDetail & { offered: number; skipped: number }> {
-  return fetch(`/api/gigs/${gigId}/offers`, jsonRequest("POST", { crewMemberIds })).then(asJson<GigDetail & { offered: number; skipped: number }>);
+export function sendGigOffers(gigId: string, crewMemberIds: string[]): Promise<GigDetail & { offered: number; skipped: number; messages: { crewMemberId: string; name: string; status: string; error: string | null }[] }> {
+  return fetch(`/api/gigs/${gigId}/offers`, jsonRequest("POST", { crewMemberIds })).then(
+    asJson<GigDetail & { offered: number; skipped: number; messages: { crewMemberId: string; name: string; status: string; error: string | null }[] }>,
+  );
 }
 
 export function updateGigOffer(gigId: string, offerId: string, status: "Accepted" | "Declined"): Promise<GigDetail> {
@@ -379,4 +384,27 @@ export function searchCustomers(q: string): Promise<CustomerMatch[]> {
 
 export function createStaffBooking(request: StaffBookingRequest): Promise<StaffBookingResult> {
   return fetch("/api/bookings/staff", jsonRequest("POST", request)).then(asJson<StaffBookingResult>);
+}
+
+// The send log. Filters: channel, a status (end it with * for a prefix,
+// like skipped*), a booking or a crew member.
+export function getMessages(filter: { channel?: "sms" | "email"; status?: string; bookingId?: string; crewMemberId?: string; limit?: number } = {}): Promise<MessageLogRow[]> {
+  const q = new URLSearchParams();
+  for (const [k, v] of Object.entries(filter)) if (v !== undefined && v !== "") q.set(k, String(v));
+  return fetch(`/api/messages?${q}`).then(asJson<MessageLogRow[]>);
+}
+
+export function getMessageSummary(): Promise<MessageSummary> {
+  return fetch("/api/messages/summary").then(asJson<MessageSummary>);
+}
+
+// Send by hand, whatever the automation is doing. "contract-link" texts a
+// customer their signing link; "custom" texts exactly what was typed. The
+// answer is the log row, so what happened (sent, skipped, failed) is shown.
+export function sendMessage(target: MessageTarget, kind: "contract-link" | "custom", body?: string): Promise<MessageLogRow> {
+  return fetch("/api/messages/send", jsonRequest("POST", { target, kind, body })).then(asJson<MessageLogRow>);
+}
+
+export function issueContract(bookingId: string): Promise<{ agreementId: string; signingToken: string; link: string; signed: boolean }> {
+  return fetch("/api/contract-admin/issue", jsonRequest("POST", { bookingId })).then(asJson<{ agreementId: string; signingToken: string; link: string; signed: boolean }>);
 }

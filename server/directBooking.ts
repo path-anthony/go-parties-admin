@@ -4,6 +4,7 @@ import { NoFreeUnits } from "./bookingOps.js";
 import { prisma } from "./db.js";
 import { NoCrewFree, createGigs, needsCrew } from "./gigs.js";
 import { displayStatus, legacyCustomerStatus } from "../src/lib/bookingStatus.js";
+import { sendContractLinkSms } from "./notify.js";
 import { currentPolicy } from "./policy.js";
 import { reviewReasons } from "./review.js";
 import { getSettings, rushFor } from "./settings.js";
@@ -350,6 +351,11 @@ export async function createDirectBooking(input: DirectBookingInput): Promise<{ 
       }
       return { booking, lead, claimed, gigs, agreement };
     });
+
+    // A design request that became a booking: text the customer their
+    // contract link. After the booking is safely committed, and never in
+    // the way of its response.
+    if (designRequestId) void sendContractLinkSms({ bookingId: result.booking.id }, "design-request-converted");
 
     // One entry per unit held and one per gig, so an item wanted twice
     // appears twice. A gig has no unit; its entry says so with null.

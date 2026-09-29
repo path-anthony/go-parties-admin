@@ -15,6 +15,7 @@ import { BOOKING_GIGS_SELECT, NoCrewFree } from "../gigs.js";
 import { prisma } from "../db.js";
 import { BALANCE_PREFERENCES, BOOKING_STAGES, displayStatus } from "../../src/lib/bookingStatus.js";
 import { AGREEMENT_SELECT } from "../agreements.js";
+import { notifyStageChange } from "../notify.js";
 import { rushFor } from "../settings.js";
 import { INVALID, normalizeDate, normalizeText } from "../validate.js";
 
@@ -140,6 +141,7 @@ router.patch("/:id", async (req, res) => {
     email?: string;
     status?: string;
     retainerPaid?: boolean;
+    balancePaid?: boolean;
     rush?: boolean;
     balancePaymentPreference?: string;
   } = {};
@@ -149,6 +151,12 @@ router.patch("/:id", async (req, res) => {
       return res.status(400).json({ error: "retainerPaid must be true or false" });
     }
     data.retainerPaid = body.retainerPaid;
+  }
+  if ("balancePaid" in body) {
+    if (typeof body.balancePaid !== "boolean") {
+      return res.status(400).json({ error: "balancePaid must be true or false" });
+    }
+    data.balancePaid = body.balancePaid;
   }
   if ("balancePaymentPreference" in body) {
     if (typeof body.balancePaymentPreference !== "string" || !(BALANCE_PREFERENCES as readonly string[]).includes(body.balancePaymentPreference)) {
@@ -213,6 +221,7 @@ router.patch("/:id", async (req, res) => {
     return res.status(400).json({ error: "no editable fields provided" });
   }
 
+  const statusBefore = displayStatus(existing);
   const nextDate = data.eventDate ?? existing.eventDate;
   const nextStatus = data.status ?? existing.status;
   const dateMoved = data.eventDate !== undefined && data.eventDate.getTime() !== existing.eventDate.getTime();
@@ -291,6 +300,9 @@ router.patch("/:id", async (req, res) => {
 
   const booking = await prisma.booking.findUniqueOrThrow({ where: { id }, include: WITH_UNITS });
   res.json(serialize(booking));
+  // If the status the customer would read changed (a stage, or the
+  // retainer tick), tell them. After the reply, and never in its way.
+  void notifyStageChange(id, statusBefore, displayStatus(booking));
 });
 
 async function findOwn(id: string) {

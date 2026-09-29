@@ -19,6 +19,9 @@ export async function getSettings(accountId: string) {
       depositPercentage: true,
       cancellationWindowDays: true,
       requireAgreementCheckbox: true,
+      staffNotifyPhone: true,
+      staffNotifyEmail: true,
+      balanceReminderWindowDays: true,
     },
   });
   return {
@@ -29,6 +32,9 @@ export async function getSettings(accountId: string) {
     depositPercentage: Number(account.depositPercentage),
     cancellationWindowDays: account.cancellationWindowDays,
     requireAgreementCheckbox: account.requireAgreementCheckbox,
+    staffNotifyPhone: account.staffNotifyPhone,
+    staffNotifyEmail: account.staffNotifyEmail,
+    balanceReminderWindowDays: account.balanceReminderWindowDays,
   };
 }
 

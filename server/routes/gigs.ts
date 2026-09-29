@@ -1,4 +1,5 @@
 import { AGREEMENT_SELECT } from "../agreements.js";
+import { sendGigOfferSms } from "../notify.js";
 import { Router } from "express";
 import { getDefaultAccount } from "../account.js";
 import { prisma } from "../db.js";
@@ -76,7 +77,7 @@ router.post("/:id/offers", async (req, res) => {
   const unique = [...new Set(ids)];
   const eligible = await prisma.crewMember.findMany({
     where: { id: { in: unique }, accountId: gig.accountId, active: true, skills: { has: gig.skill } },
-    select: { id: true, name: true },
+    select: { id: true, name: true, phone: true },
   });
   if (eligible.length !== unique.length) {
     return res.status(400).json({ error: `Every person offered this gig has to be active and have the ${gig.skill} skill.` });
@@ -94,7 +95,12 @@ router.post("/:id/offers", async (req, res) => {
   if (fresh.length > 0) {
     await logActivity(gig.booking.leadId, `${gig.itemName}: offered to ${fresh.map((m) => m.name).join(", ")} from the admin.`);
   }
-  res.json({ ...(await gigWithCandidates(gig.id)), offered: fresh.length, skipped: unique.length - fresh.length });
+  // The offer is a real text now, one per person, sent after the records
+  // are saved. A text that can't go (no Twilio token yet, no phone number)
+  // is logged and reported here; the offer itself stands either way.
+  const texts = await Promise.all(fresh.map((m) => sendGigOfferSms({ crew: m, gig })));
+  const messages = fresh.map((m, i) => ({ crewMemberId: m.id, name: m.name, status: texts[i]?.status ?? "not-sent", error: texts[i]?.error ?? null }));
+  res.json({ ...(await gigWithCandidates(gig.id)), offered: fresh.length, skipped: unique.length - fresh.length, messages });
 });
 
 // Marks one offer Accepted or Declined, by hand. Accepting fills the gig

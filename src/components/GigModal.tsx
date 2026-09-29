@@ -3,6 +3,7 @@ import { X } from "lucide-react";
 import { getGig, sendGigOffers, updateGigOffer } from "../lib/api";
 import { formatEventDay, gigPillClass } from "../lib/gigs";
 import type { Gig, GigDetail } from "../lib/types";
+import { SendMessageControls } from "./SendMessageControls";
 import { AgreementChip } from "./AgreementChip";
 import { BookingStatusTag } from "./BookingStatusTag";
 import { RushTag } from "./RushTag";
@@ -134,8 +135,8 @@ export function GigModal({ gig: summary, onClose, onChanged }: { gig: Gig; onClo
               {gig && candidates.length > 0 && (
                 <>
                   <p className="muted addon-help">
-                    Every active crew member with the {g.skill} skill. Uncheck anyone you don't want to ask this round, then send. Sending
-                    only records the offer for now; no text goes out yet.
+                    Every active crew member with the {g.skill} skill. Uncheck anyone you don't want to ask this round, then send. Each person is
+                    sent a text and the offer is recorded; replies aren't read yet, so mark each answer below.
                   </p>
                   <ul className="addon-list">
                     {candidates.map((member) => {
@@ -175,8 +176,15 @@ export function GigModal({ gig: summary, onClose, onChanged }: { gig: Gig; onClo
                         run(
                           () => sendGigOffers(g.id, [...picked]),
                           (detail) => {
-                            const n = (detail as GigDetail & { offered?: number }).offered ?? picked.size;
-                            return `Recorded ${n} ${n === 1 ? "offer" : "offers"}. Nothing was sent; mark each one below as the person answers.`;
+                            const d = detail as GigDetail & { offered?: number; messages?: { status: string }[] };
+                            const n = d.offered ?? picked.size;
+                            const sent = (d.messages ?? []).filter((m) => m.status === "sent").length;
+                            const held = (d.messages ?? []).length - sent;
+                            return (
+                              `Recorded ${n} ${n === 1 ? "offer" : "offers"}. ${sent} ${sent === 1 ? "text was" : "texts were"} handed to Twilio` +
+                              (held > 0 ? `; ${held} could not go out (see Messages for why)` : "") +
+                              ". Mark each one below as the person answers."
+                            );
                           },
                         )
                       }
@@ -208,6 +216,7 @@ export function GigModal({ gig: summary, onClose, onChanged }: { gig: Gig; onClo
                             Mark accepted
                           </button>
                         )}
+                        <SendMessageControls target={{ crewMemberId: offer.crewMemberId }} contract={false} />
                         {offer.status !== "Declined" && (
                           <button type="button" className="btn-secondary" disabled={busy} onClick={() => run(() => updateGigOffer(g.id, offer.id, "Declined"))}>
                             Mark declined

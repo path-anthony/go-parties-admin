@@ -97,3 +97,14 @@ export const externalLeadLimiter = rateLimit({
   legacyHeaders: false,
   message: { error: "Too many requests. Try again in a minute." },
 });
+
+// Signing a contract is public (the customer follows an unguessable link),
+// writes a permanent document and builds a PDF, so it gets a tight per-IP
+// cap in its own bucket.
+export const contractSignLimiter = rateLimit({
+  windowMs: 10 * 60 * 1000,
+  limit: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many requests. Try again in a few minutes." },
+});

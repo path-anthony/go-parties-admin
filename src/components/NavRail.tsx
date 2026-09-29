@@ -6,6 +6,7 @@ import {
   ChartBar,
   ClipboardList,
   Contact,
+  MessageSquare,
   Layers2,
   PanelLeftClose,
   PanelLeftOpen,
@@ -21,6 +22,7 @@ const NAV_ITEMS: { key: ScreenKey; label: string; icon: LucideIcon }[] = [
   { key: "leads", label: "Leads", icon: Contact },
   { key: "requests", label: "Design requests", icon: ClipboardList },
   { key: "scheduling", label: "Scheduling", icon: CalendarDays },
+  { key: "messages", label: "Messages", icon: MessageSquare },
   { key: "crew", label: "Crew & Gigs", icon: Briefcase },
   { key: "settings", label: "Settings", icon: Settings },
 ];

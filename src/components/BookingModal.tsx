@@ -17,6 +17,7 @@ import {
   type Unit,
 } from "../lib/types";
 import { EditableCell } from "./EditableCell";
+import { SendMessageControls } from "./SendMessageControls";
 import { AgreementChip } from "./AgreementChip";
 import { BookingStatusTag } from "./BookingStatusTag";
 import { RushTag } from "./RushTag";
@@ -246,6 +247,38 @@ export function BookingModal({
             </label>
             <span className="muted field-help">Balance payment is recorded only. Nothing is charged or sent yet.</span>
             <AgreementDetail booking={booking} />
+          </div>
+          <div className="status-control" role="group" aria-label={`Contract and messages for ${who}`}>
+            <span className="status-now">
+              <span className="detail-field-label">Contract</span>
+              <span className={booking.agreement?.contractStatus === "Signed" ? "achip achip-yes" : booking.agreement?.contractStatus === "Sent" ? "achip achip-unchecked" : "achip achip-none"}>
+                {booking.agreement?.contractStatus === "Signed" ? "Signed" : booking.agreement?.contractStatus === "Sent" ? "Sent, not signed" : "Not sent"}
+              </span>
+            </span>
+            {booking.agreement?.contractStatus === "Signed" && booking.agreement.contractUrl && (
+              <a className="btn-secondary" href={booking.agreement.contractUrl} target="_blank" rel="noreferrer">
+                Open the signed PDF
+              </a>
+            )}
+            {booking.agreement?.contractStatus !== "Signed" && (
+              <a className="btn-secondary" href={`/api/contract-admin/preview/${booking.id}.pdf`} target="_blank" rel="noreferrer">
+                Preview the contract PDF
+              </a>
+            )}
+            <label className="checkbox-label">
+              <input
+                type="checkbox"
+                checked={booking.balancePaid}
+                disabled={busy}
+                onChange={(e) => run(() => updateBooking(booking.id, { balancePaid: e.target.checked }))}
+              />
+              Balance paid
+            </label>
+            <SendMessageControls target={{ bookingId: booking.id }} label="Text the customer" />
+            <span className="muted field-help">
+              Stage changes text the customer automatically. These buttons work whether or not automation is on, and every one is
+              logged under Messages.
+            </span>
           </div>
           <label className="detail-field">
             <span className="detail-field-label">Lead</span>

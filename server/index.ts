@@ -15,7 +15,11 @@ import conciergeLeadsRouter from "./routes/conciergeLeads.js";
 import crewRouter from "./routes/crew.js";
 import gigsRouter from "./routes/gigs.js";
 import customerRouter from "./routes/customer.js";
+import automationsRouter from "./routes/automations.js";
+import { adminContractsRouter, publicContractsRouter } from "./routes/contracts.js";
 import customersRouter from "./routes/customers.js";
+import messagesRouter from "./routes/messages.js";
+import n8nWebhooksRouter from "./routes/n8nWebhooks.js";
 import designRequestsRouter from "./routes/designRequests.js";
 import directBookingsRouter, { staffBookingRouter } from "./routes/directBookings.js";
 import externalLeadsRouter from "./routes/externalLeads.js";
@@ -120,6 +124,15 @@ app.use("/api/addon-groups", requireAuth, addonGroupsRouter);
 app.use("/api/crew", requireAuth, crewRouter);
 app.use("/api/skills", requireAuth, skillsRouter);
 app.use("/api/customers", requireAuth, customersRouter);
+// Contracts: the customer's side is public and reached by an unguessable
+// token; the admin's side is behind the session. Messages are the send
+// log. The automations and webhooks are n8n calling in, behind the shared
+// secret like the lead webhook.
+app.use("/api/contracts", publicContractsRouter);
+app.use("/api/contract-admin", requireAuth, adminContractsRouter);
+app.use("/api/messages", requireAuth, messagesRouter);
+app.use("/api/automations", externalLeadLimiter, requireWebhookSecret, automationsRouter);
+app.use("/api/webhooks/n8n", externalLeadLimiter, requireWebhookSecret, n8nWebhooksRouter);
 app.use("/api/design-requests", requireAuth, designRequestsRouter);
 app.use("/api/settings", publicSettingsRouter);
 app.use("/api/settings", requireAuth, settingsRouter);

@@ -47,6 +47,9 @@ router.patch("/", async (req, res) => {
     depositPercentage?: number;
     cancellationWindowDays?: number;
     requireAgreementCheckbox?: boolean;
+    staffNotifyPhone?: string | null;
+    staffNotifyEmail?: string | null;
+    balanceReminderWindowDays?: number;
   } = {};
 
   if ("minBookingNoticeHours" in body) {
@@ -95,6 +98,25 @@ router.patch("/", async (req, res) => {
       return res.status(400).json({ error: `cancellationWindowDays must be a whole number of days from 0 to ${MAX_CANCELLATION_DAYS}` });
     }
     data.cancellationWindowDays = days;
+  }
+  for (const field of ["staffNotifyPhone", "staffNotifyEmail"] as const) {
+    if (field in body) {
+      const v = body[field] === null ? null : typeof body[field] === "string" ? normalizeText(body[field]) : undefined;
+      if (v === undefined || (v !== null && v.length > 200)) {
+        return res.status(400).json({ error: `${field} must be text up to 200 characters, or blank` });
+      }
+      if (field === "staffNotifyEmail" && v !== null && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(v)) {
+        return res.status(400).json({ error: "staffNotifyEmail must be an email address" });
+      }
+      data[field] = v;
+    }
+  }
+  if ("balanceReminderWindowDays" in body) {
+    const days = body.balanceReminderWindowDays;
+    if (typeof days !== "number" || !Number.isInteger(days) || days < 0 || days > 120) {
+      return res.status(400).json({ error: "balanceReminderWindowDays must be a whole number of days from 0 to 120" });
+    }
+    data.balanceReminderWindowDays = days;
   }
   if ("requireAgreementCheckbox" in body) {
     if (typeof body.requireAgreementCheckbox !== "boolean") {

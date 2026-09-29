@@ -6,6 +6,7 @@ import { relativeTime } from "../lib/time";
 import { SOURCE_LABEL, leadTitle } from "../lib/leads";
 import { deltaLabel } from "../lib/addons";
 import { EditableCell } from "./EditableCell";
+import { SendMessageControls } from "./SendMessageControls";
 import { AgreementChip, BalanceLabel } from "./AgreementChip";
 import { BookingStatusTag } from "./BookingStatusTag";
 import { RushTag } from "./RushTag";
@@ -223,6 +224,10 @@ function LeadDetailBody({
           )}
         </div>
       )}
+
+      <div className="detail-section">
+        <SendMessageControls target={{ leadId: lead.id }} contract={!!lead.bookings && lead.bookings.length > 0} label="Text the customer" />
+      </div>
 
       {lead.bookings && lead.bookings.length > 0 && (
         <div className="detail-section">
