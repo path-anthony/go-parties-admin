@@ -11,10 +11,16 @@ datasource db {
 // Event Group), but Item is scoped to it from day one so multi-tenancy is
 // a query filter later, not a migration.
 model Account {
-  id        String   @id @default(cuid())
-  name      String
-  email     String   @unique
-  createdAt DateTime @default(now()) @map("created_at")
+  id                    String   @id @default(cuid())
+  name                  String
+  email                 String   @unique
+  createdAt             DateTime @default(now()) @map("created_at")
+  // Rush orders. A booking whose event starts less than this many hours
+  // from now is flagged rush when it is made or rescheduled. The contact
+  // number is what the storefront shows a customer booking inside that
+  // window; null until a real one is set in Settings.
+  minBookingNoticeHours Int      @default(72) @map("min_booking_notice_hours")
+  rushContactPhone      String?  @map("rush_contact_phone")
 
   items        Item[]
   leads        Lead[]
@@ -225,6 +231,9 @@ model Booking {
   // Placeholder for the deposit integration that isn't built yet. Nothing
   // sets this automatically; it's a flag Andy can tick by hand for now.
   depositPaid  Boolean  @default(false) @map("deposit_paid")
+  // Set when the booking was made, or moved, inside the account's minimum
+  // notice window. Visibility only: it never blocks or changes a booking.
+  rush         Boolean  @default(false)
   // Set when the booking was made from a logged-in customer account; null
   // for admin-entered and anonymous storefront bookings. Deleting the
   // account keeps the booking.

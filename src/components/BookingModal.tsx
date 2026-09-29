@@ -16,6 +16,7 @@ import {
   type Unit,
 } from "../lib/types";
 import { EditableCell } from "./EditableCell";
+import { RushTag } from "./RushTag";
 
 const usd = (n: number) => n.toLocaleString("en-US", { style: "currency", currency: "USD" });
 
@@ -122,11 +123,19 @@ export function BookingModal({
             <span className={cancelled ? "status-pill booking-pill" : "status-pill status-pill-live booking-pill"}>
               {booking.status}
             </span>
+            <RushTag rush={booking.rush} cancelled={cancelled} />
           </h2>
           <button type="button" className="icon-btn" onClick={onClose} aria-label="Close">
             <X size={16} />
           </button>
         </div>
+
+        {booking.rush && !cancelled && (
+          <p className="rush-banner" role="note">
+            <strong>RUSH.</strong> Booked with less than the minimum notice. It is confirmed in the system, but check with the
+            customer and the crew before you count on it.
+          </p>
+        )}
 
         {notice && (
           <p className="form-error booking-notice" role="alert">

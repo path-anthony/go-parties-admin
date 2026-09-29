@@ -6,6 +6,7 @@ import { relativeTime } from "../lib/time";
 import { SOURCE_LABEL, leadTitle } from "../lib/leads";
 import { deltaLabel } from "../lib/addons";
 import { EditableCell } from "./EditableCell";
+import { RushTag } from "./RushTag";
 
 const usd = (n: number) => n.toLocaleString("en-US", { style: "currency", currency: "USD" });
 
@@ -237,6 +238,7 @@ function LeadDetailBody({
                   })}
                   {booking.eventTime ? `, ${booking.eventTime}` : ""}
                   <span className="muted"> · {booking.status}</span>
+                  <RushTag rush={booking.rush} cancelled={booking.status === "Cancelled"} />
                 </span>
                 {booking.total !== null && <span className="item-price">{usd(Number(booking.total))}</span>}
               </div>

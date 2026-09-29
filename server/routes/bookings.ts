@@ -13,6 +13,7 @@ import {
 } from "../bookingOps.js";
 import { BOOKING_GIGS_SELECT, NoCrewFree } from "../gigs.js";
 import { prisma } from "../db.js";
+import { rushFor } from "../settings.js";
 import { INVALID, isOneOf, normalizeDate, normalizeText } from "../validate.js";
 
 const BOOKING_STATUSES = ["Confirmed", "Completed", "Cancelled"] as const;
@@ -158,6 +159,7 @@ router.post("/", async (req, res) => {
         phone: phoneText,
         email: emailText,
         status: status ?? "Confirmed",
+        rush: await rushFor(account.id, date),
         units: { create: resolvedUnits.map((unitId) => ({ unitId, eventDate: date })) },
       },
       include: WITH_UNITS,
@@ -191,6 +193,7 @@ router.patch("/:id", async (req, res) => {
     email?: string;
     status?: string;
     depositPaid?: boolean;
+    rush?: boolean;
   } = {};
 
   if ("depositPaid" in body) {
@@ -302,6 +305,11 @@ router.patch("/:id", async (req, res) => {
     }
     delete data.eventDate;
   }
+
+  // A date that moved without going through rescheduleBooking (the
+  // request also set the unit list) is re-checked against the notice
+  // window here; rescheduleBooking does its own.
+  if (data.eventDate) data.rush = await rushFor(account.id, data.eventDate);
 
   const ops = [];
   if (cancelling) {

@@ -3,6 +3,7 @@ import { describeAddon, resolveAddons } from "./addons.js";
 import { lockFreeUnit } from "./availability.js";
 import { prisma } from "./db.js";
 import { BOOKING_GIGS_SELECT, cancelGigs, createGigs, moveGigs, needsCrew } from "./gigs.js";
+import { rushFor } from "./settings.js";
 
 // Thrown inside a transaction when no unit of an item can be locked for a
 // date, so the whole transaction rolls back and nothing is left half done.
@@ -77,7 +78,7 @@ export async function rescheduleBooking(
 ): Promise<BookingWithUnits> {
   return prisma.$transaction(async (tx) => {
     const booking = await tx.booking.findUniqueOrThrow({ where: { id: bookingId }, include: WITH_UNIT_DETAILS });
-    const data: { eventDate?: Date; eventTime?: string | null } = {};
+    const data: { eventDate?: Date; eventTime?: string | null; rush?: boolean } = {};
     if (change.time !== undefined) data.eventTime = change.time;
 
     const dateChanged = change.date !== undefined && change.date.getTime() !== booking.eventDate.getTime();
@@ -99,6 +100,8 @@ export async function rescheduleBooking(
       // the new date; if any can't be covered the whole move is refused.
       await moveGigs(tx, booking.accountId, bookingId, change.date);
       data.eventDate = change.date;
+      // Moved inside (or out of) the notice window: the flag follows the new date.
+      data.rush = await rushFor(booking.accountId, change.date);
     }
 
     const updated = await tx.booking.update({ where: { id: bookingId }, data, include: WITH_UNIT_DETAILS });

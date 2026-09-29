@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
-import { getGigs, getLeadStatuses, getLeads } from "../../lib/api";
+import { getBookings, getGigs, getLeadStatuses, getLeads } from "../../lib/api";
 import { formatEventDay } from "../../lib/gigs";
 import { FOLLOW_UP_DAYS, PROPOSAL_FOLLOW_UP_DAYS, daysSinceUpdate, findStage, needsFollowUp, useNavigate } from "../../lib/navigation";
-import type { Gig, Lead } from "../../lib/types";
+import type { Booking, Gig, Lead } from "../../lib/types";
+import { RushTag } from "../RushTag";
 import { StatCard, StatGrid } from "../StatCard";
 
 // What is not measured yet, and what each one is waiting on, so the
@@ -27,19 +28,21 @@ export function OverviewScreen() {
   const [leads, setLeads] = useState<Lead[] | null>(null);
   const [statuses, setStatuses] = useState<string[] | null>(null);
   const [needsCrew, setNeedsCrew] = useState<Gig[] | null>(null);
+  const [bookings, setBookings] = useState<Booking[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    Promise.all([getLeads(), getLeadStatuses(), getGigs("Needs Crew")])
-      .then(([leadList, rows, gigs]) => {
+    Promise.all([getLeads(), getLeadStatuses(), getGigs("Needs Crew"), getBookings()])
+      .then(([leadList, rows, gigs, bookingList]) => {
         setLeads(leadList);
         setStatuses(rows.map((row) => row.name));
         setNeedsCrew(gigs);
+        setBookings(bookingList);
       })
       .catch((err) => setError(err instanceof Error ? err.message : "Failed to load"));
   }, []);
 
-  const ready = leads !== null && statuses !== null && needsCrew !== null;
+  const ready = leads !== null && statuses !== null && needsCrew !== null && bookings !== null;
 
   // The well-known stages, found by name in the configurable columns.
   const stageNew = statuses ? findStage(statuses, "New") : undefined;
@@ -65,6 +68,8 @@ export function OverviewScreen() {
   const maxStage = Math.max(1, ...byStage.map((s) => s.count));
 
   const upcoming = (needsCrew ?? []).filter((g) => g.eventDate.slice(0, 10) >= today());
+  // Rush bookings still to come, soonest first (the list is already by date).
+  const rushBookings = (bookings ?? []).filter((b) => b.rush && b.status !== "Cancelled" && b.eventDate.slice(0, 10) >= today());
   const nearest = (upcoming.length > 0 ? upcoming : (needsCrew ?? [])).slice(0, NEAREST_GIGS);
 
   return (
@@ -132,6 +137,39 @@ export function OverviewScreen() {
           </section>
 
           <section className="kpi-section">
+            <span className="kpi-section-label">Rush</span>
+            <div className="crew-card">
+              <div className="crew-card-head">
+                <div>
+                  <span className="kpi-label">Rush bookings coming up</span>
+                  <span className="kpi-value">{rushBookings.length}</span>
+                </div>
+                <button type="button" className="btn-secondary" onClick={() => navigate("scheduling")}>
+                  Open Scheduling
+                </button>
+              </div>
+              {rushBookings.length === 0 ? (
+                <p className="muted">Nothing booked inside the minimum notice window.</p>
+              ) : (
+                <ul className="crew-card-list" aria-label="Rush bookings">
+                  {rushBookings.slice(0, NEAREST_GIGS).map((b) => (
+                    <li key={b.id}>
+                      <button type="button" className="crew-card-row" onClick={() => navigate("scheduling")}>
+                        <span className="kpi-list-when">{formatEventDay(b.eventDate)}</span>
+                        <span className="crew-card-customer">
+                          {b.customerName}
+                          <RushTag rush={b.rush} />
+                        </span>
+                        <span className="muted">{b.eventTime ?? "no time set"}</span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </section>
+
+          <section className="kpi-section">
             <span className="kpi-section-label">Crew</span>
             <div className="crew-card">
               <div className="crew-card-head">
@@ -151,7 +189,10 @@ export function OverviewScreen() {
                     <li key={g.id}>
                       <button type="button" className="crew-card-row" onClick={() => navigate("crew", { gigStatus: "Needs Crew", gigId: g.id })}>
                         <span className="kpi-list-when">{formatEventDay(g.eventDate)}</span>
-                        <span className="crew-card-customer">{g.booking.customerName}</span>
+                        <span className="crew-card-customer">
+                          {g.booking.customerName}
+                          <RushTag rush={g.booking.rush} cancelled={g.booking.status === "Cancelled"} />
+                        </span>
                         <span className="muted">needs a {g.skill}</span>
                       </button>
                     </li>

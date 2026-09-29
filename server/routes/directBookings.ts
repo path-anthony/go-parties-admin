@@ -6,6 +6,7 @@ import { NoFreeUnits } from "../bookingOps.js";
 import { currentCustomer } from "../customerAuth.js";
 import { prisma } from "../db.js";
 import { NoCrewFree, createGigs, needsCrew } from "../gigs.js";
+import { rushFor } from "../settings.js";
 import { INVALID, normalizeDate, normalizeText, splitContact, todayEastern } from "../validate.js";
 
 const MAX_ADDRESS_LENGTH = 300;
@@ -280,6 +281,7 @@ router.post("/", async (req, res) => {
           phone: contact.phone,
           email: contact.email,
           status: "Confirmed",
+          rush: await rushFor(account.id, date),
           packageId: pkg?.id ?? null,
           total,
           // eventDate is copied onto each join row for the (unitId, eventDate)
@@ -342,6 +344,10 @@ router.post("/", async (req, res) => {
       phone: result.booking.phone,
       email: result.booking.email,
       status: result.booking.status,
+      // True when the event starts inside the minimum notice window; the
+      // booking is complete either way, this is so the storefront can say
+      // it is pending confirmation.
+      rush: result.booking.rush,
       depositPaid: result.booking.depositPaid,
       total,
       addonsTotal,

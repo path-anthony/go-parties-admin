@@ -1,4 +1,5 @@
 import { LeadColumnsEditor } from "../LeadColumnsEditor";
+import { RushSettings } from "../RushSettings";
 import { SkillsEditor } from "../SkillsEditor";
 
 export function SettingsScreen() {
@@ -7,6 +8,15 @@ export function SettingsScreen() {
       <div className="screen-head">
         <h2>Settings</h2>
       </div>
+
+      <section className="panel">
+        <h2>Rush orders</h2>
+        <p className="muted settings-help">
+          Bookings made, or moved, with less notice than this are tagged RUSH in Scheduling, Overview, Crew &amp; Gigs and
+          the lead panel so they can be handled differently. The storefront reads both values.
+        </p>
+        <RushSettings />
+      </section>
 
       <section className="panel">
         <h2>Lead columns</h2>

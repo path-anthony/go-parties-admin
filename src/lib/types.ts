@@ -130,7 +130,7 @@ export type Gig = {
   filledById: string | null;
   createdAt: string;
   updatedAt: string;
-  booking: { id: string; customerName: string; eventDate: string; eventTime: string | null; status: BookingStatus; leadId: string | null };
+  booking: { id: string; customerName: string; eventDate: string; eventTime: string | null; status: BookingStatus; leadId: string | null; rush: boolean };
   filledBy: { id: string; name: string } | null;
   offers: GigOffer[];
 };
@@ -279,6 +279,7 @@ export type LeadBooking = {
   eventDate: string;
   eventTime: string | null;
   status: BookingStatus;
+  rush: boolean;
   total: string | null;
   addons: BookingAddon[];
 };
@@ -375,6 +376,8 @@ export type Booking = {
   phone: string | null;
   email: string | null;
   status: BookingStatus;
+  // Booked or moved inside the minimum notice window. Visibility only.
+  rush: boolean;
   depositPaid: boolean;
   customerId: string | null; // set when booked from a customer account
   total: string | null; // what the customer was quoted, add-ons included
@@ -401,4 +404,11 @@ export type BookingPatch = Partial<Omit<NewBooking, "eventTime" | "address">> & 
   eventTime?: string | null;
   address?: string | null;
   depositPaid?: boolean;
+};
+
+// Account-wide rush order settings.
+export type RushSettings = {
+  minBookingNoticeHours: number;
+  // Null until a real number is set.
+  rushContactPhone: string | null;
 };

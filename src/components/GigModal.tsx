@@ -3,6 +3,7 @@ import { X } from "lucide-react";
 import { getGig, sendGigOffers, updateGigOffer } from "../lib/api";
 import { formatEventDay, gigPillClass } from "../lib/gigs";
 import type { Gig, GigDetail } from "../lib/types";
+import { RushTag } from "./RushTag";
 
 // One gig: where it came from, who could take it, who was asked, who said
 // yes. Offers are records only for now; nothing is sent anywhere.
@@ -96,6 +97,7 @@ export function GigModal({ gig: summary, onClose, onChanged }: { gig: Gig; onClo
             <span className="detail-field-label">Booking</span>
             <span>
               {g.booking.customerName} <span className="muted">· {g.booking.status}</span>
+              <RushTag rush={g.booking.rush} cancelled={g.booking.status === "Cancelled"} />
             </span>
           </div>
           <div className="detail-field">

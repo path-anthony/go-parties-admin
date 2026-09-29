@@ -6,6 +6,7 @@ import type { CrewMember, Gig } from "../../lib/types";
 import { CrewModal } from "../CrewModal";
 import { formatEventDay, gigPillClass } from "../../lib/gigs";
 import { GigModal } from "../GigModal";
+import { RushTag } from "../RushTag";
 
 type Tab = "gigs" | "crew";
 type Filter = "All" | GigStatus;
@@ -124,7 +125,10 @@ export function CrewGigsScreen({ initialStatus, openGigId: initialGigId }: { ini
                           onKeyDown={(e) => rowKey(e, () => setOpenGigId(g.id))}
                         >
                           <td className="booking-date">{formatEventDay(g.eventDate)}</td>
-                          <td className="catalog-name">{g.booking.customerName}</td>
+                          <td className="catalog-name">
+                            {g.booking.customerName}
+                            <RushTag rush={g.booking.rush} cancelled={g.booking.status === "Cancelled"} />
+                          </td>
                           <td>{g.itemName}</td>
                           <td>{g.skill}</td>
                           <td>

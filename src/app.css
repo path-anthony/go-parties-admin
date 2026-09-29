@@ -2510,3 +2510,26 @@ button.kpi-card:focus-visible {
   flex-direction: column;
   gap: 8px;
 }
+
+/* Rush bookings: solid and loud on purpose */
+.rush-tag {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: #b42318;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  line-height: 1.4;
+  vertical-align: middle;
+}
+.rush-banner {
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  border-left: 4px solid #b42318;
+  background: #fdecea;
+  color: #7a1810;
+  border-radius: 4px;
+}

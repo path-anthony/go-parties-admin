@@ -22,6 +22,7 @@ import type {
   LeadStatus,
   LeadStatusRow,
   NewBooking,
+  RushSettings,
   NewItem,
   NewLead,
   NewUnit,
@@ -331,4 +332,12 @@ export function removeBookingGig(id: string, gigId: string): Promise<Booking> {
 
 export function recommend(messages: AskGoMessage[], subOcc: string | null = null): Promise<RecommendResponse> {
   return fetch("/api/recommend", jsonRequest("POST", { subOcc, messages })).then(asJson<RecommendResponse>);
+}
+
+export function getSettings(): Promise<RushSettings> {
+  return fetch("/api/settings").then(asJson<RushSettings>);
+}
+
+export function updateSettings(patch: Partial<RushSettings>): Promise<RushSettings> {
+  return fetch("/api/settings", jsonRequest("PATCH", patch)).then(asJson<RushSettings>);
 }

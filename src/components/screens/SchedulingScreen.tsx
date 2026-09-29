@@ -25,6 +25,7 @@ import {
 } from "../../lib/types";
 import { BookingModal } from "../BookingModal";
 import { EditableCell } from "../EditableCell";
+import { RushTag } from "../RushTag";
 
 type ItemsById = Map<string, Item>;
 
@@ -349,7 +350,10 @@ function BookingSummaryRow({
       <td className={booking.eventTime ? "booking-time" : "booking-time muted"}>
         {booking.eventTime ?? "No time"}
       </td>
-      <td className="catalog-name">{booking.customerName}</td>
+      <td className="catalog-name">
+        {booking.customerName}
+        <RushTag rush={booking.rush} cancelled={booking.status === "Cancelled"} />
+      </td>
       <td>
         <span
           className={
