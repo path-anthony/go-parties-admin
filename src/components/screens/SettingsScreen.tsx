@@ -1,4 +1,6 @@
 import { LeadColumnsEditor } from "../LeadColumnsEditor";
+import { PolicyEditor } from "../PolicyEditor";
+import { ReviewSettings } from "../ReviewSettings";
 import { RushSettings } from "../RushSettings";
 import { SkillsEditor } from "../SkillsEditor";
 
@@ -16,6 +18,23 @@ export function SettingsScreen() {
           the lead panel so they can be handled differently. The storefront reads both values.
         </p>
         <RushSettings />
+      </section>
+
+      <section className="panel">
+        <h2>Review and deposit</h2>
+        <p className="muted settings-help">
+          Which bookings go to Design Requests for staff to look at before anything is held, and the deposit share. The
+          storefront reads all of it.
+        </p>
+        <ReviewSettings />
+      </section>
+
+      <section className="panel">
+        <h2>Cancellation and deposit policy</h2>
+        <p className="muted settings-help">
+          The text customers agree to. Each save is a new version, and every agreement records the version the customer saw.
+        </p>
+        <PolicyEditor />
       </section>
 
       <section className="panel">

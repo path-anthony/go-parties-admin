@@ -3,6 +3,7 @@ import { X } from "lucide-react";
 import { getGig, sendGigOffers, updateGigOffer } from "../lib/api";
 import { formatEventDay, gigPillClass } from "../lib/gigs";
 import type { Gig, GigDetail } from "../lib/types";
+import { AgreementChip } from "./AgreementChip";
 import { BookingStatusTag } from "./BookingStatusTag";
 import { RushTag } from "./RushTag";
 
@@ -97,7 +98,7 @@ export function GigModal({ gig: summary, onClose, onChanged }: { gig: Gig; onClo
           <div className="detail-field">
             <span className="detail-field-label">Booking</span>
             <span>
-              {g.booking.customerName} <BookingStatusTag booking={g.booking} />
+              {g.booking.customerName} <BookingStatusTag booking={g.booking} /> <AgreementChip agreement={g.booking.agreement} />
               <RushTag rush={g.booking.rush} cancelled={g.booking.status === "Cancelled"} />
             </span>
           </div>

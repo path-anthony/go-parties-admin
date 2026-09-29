@@ -13,3 +13,25 @@ export const OCCASION_GROUPS: { label: string; occasions: string[] }[] = [
 ];
 
 export const ALL_OCCASIONS: string[] = [...new Set(OCCASION_GROUPS.flatMap((group) => group.occasions))];
+
+// The four groups' names (Kids party, Adult party, Wedding, Corporate).
+export const OCCASION_GROUP_LABELS: string[] = OCCASION_GROUPS.map((group) => group.label);
+
+// Everything an occasion can be called: a group's name or one of its
+// sub-occasions. The review list and a booking's occasion draw from this.
+export const KNOWN_OCCASIONS: string[] = [...new Set([...OCCASION_GROUP_LABELS, ...ALL_OCCASIONS])];
+
+// The groups an occasion belongs to. A group's name belongs to itself; a
+// sub-occasion belongs to the group(s) that list it (Birthday is in two).
+export function groupsOf(occasion: string): string[] {
+  const key = occasion.trim().toLowerCase();
+  const own = OCCASION_GROUP_LABELS.filter((label) => label.toLowerCase() === key);
+  const containing = OCCASION_GROUPS.filter((group) => group.occasions.some((o) => o.toLowerCase() === key)).map((group) => group.label);
+  return [...new Set([...own, ...containing])];
+}
+
+// The known spelling of an occasion, ignoring case, or null.
+export function canonicalOccasion(value: string): string | null {
+  const key = value.trim().toLowerCase();
+  return KNOWN_OCCASIONS.find((o) => o.toLowerCase() === key) ?? null;
+}

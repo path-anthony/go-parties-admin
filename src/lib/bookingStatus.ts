@@ -26,3 +26,8 @@ export function displayStatus(booking: { status: string; retainerPaid: boolean }
 export function legacyCustomerStatus(status: string): "Confirmed" | "Completed" | "Cancelled" {
   return status === "Cancelled" ? "Cancelled" : status === "Completed" ? "Completed" : "Confirmed";
 }
+
+// How the balance will be collected. Recorded only; nothing charges or
+// sends a reminder yet.
+export const BALANCE_PREFERENCES = ["Manual", "Auto-charge", "Reminder link"] as const;
+export type BalancePreference = (typeof BALANCE_PREFERENCES)[number];

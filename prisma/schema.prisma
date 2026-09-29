@@ -11,27 +11,42 @@ datasource db {
 // Event Group), but Item is scoped to it from day one so multi-tenancy is
 // a query filter later, not a migration.
 model Account {
-  id                    String   @id @default(cuid())
-  name                  String
-  email                 String   @unique
-  createdAt             DateTime @default(now()) @map("created_at")
+  id                       String   @id @default(cuid())
+  name                     String
+  email                    String   @unique
+  createdAt                DateTime @default(now()) @map("created_at")
   // Rush orders. A booking whose event starts less than this many hours
   // from now is flagged rush when it is made or rescheduled. The contact
   // number is what the storefront shows a customer booking inside that
   // window; null until a real one is set in Settings.
-  minBookingNoticeHours Int      @default(72) @map("min_booking_notice_hours")
-  rushContactPhone      String?  @map("rush_contact_phone")
+  minBookingNoticeHours    Int      @default(72) @map("min_booking_notice_hours")
+  rushContactPhone         String?  @map("rush_contact_phone")
+  // Review routing. A booking whose total is over fullReviewThreshold, or
+  // whose occasion is in reviewOccasions (a group like Wedding, or a single
+  // sub-occasion), does not become a Held booking: it becomes a
+  // DesignRequest for staff to look at first.
+  fullReviewThreshold      Decimal  @default(15000) @map("full_review_threshold") @db.Decimal(10, 2)
+  reviewOccasions          String[] @default(["Wedding", "Corporate"]) @map("review_occasions")
+  // Share of the total taken as the deposit. One global value for now.
+  depositPercentage        Decimal  @default(20) @map("deposit_percentage") @db.Decimal(5, 2)
+  // Off until the storefront sends the agreement checkbox. While off, a
+  // storefront booking that arrives without it is still recorded, with the
+  // checkbox marked unchecked; on, it is refused.
+  requireAgreementCheckbox Boolean  @default(false) @map("require_agreement_checkbox")
 
-  items        Item[]
-  leads        Lead[]
-  leadStatuses LeadStatus[]
-  bookings     Booking[]
-  customers    Customer[]
-  packages     Package[]
-  crewMembers  CrewMember[]
-  gigs         Gig[]
-  sessions     Session[]
-  skills       Skill[]
+  items          Item[]
+  leads          Lead[]
+  leadStatuses   LeadStatus[]
+  bookings       Booking[]
+  customers      Customer[]
+  packages       Package[]
+  crewMembers    CrewMember[]
+  gigs           Gig[]
+  sessions       Session[]
+  skills         Skill[]
+  policyVersions PolicyVersion[]
+  agreements     Agreement[]
+  designRequests DesignRequest[]
 
   @@map("accounts")
 }
@@ -218,46 +233,55 @@ model Unit {
 // contact value, which the migration sorted into whichever field it
 // matched and left the other empty rather than guessing.
 model Booking {
-  id           String   @id @default(cuid())
-  accountId    String   @map("account_id")
-  leadId       String?  @map("lead_id")
-  eventDate    DateTime @map("event_date") @db.Date
+  id                       String   @id @default(cuid())
+  accountId                String   @map("account_id")
+  leadId                   String?  @map("lead_id")
+  eventDate                DateTime @map("event_date") @db.Date
   // Free text like "2 PM" or "noon to 4"; not parsed, the calendar pass
   // decides what to do with it.
-  eventTime    String?  @map("event_time")
-  address      String?
-  customerName String   @map("customer_name")
-  phone        String?
-  email        String?
-  status       String   @default("Held")
+  eventTime                String?  @map("event_time")
+  address                  String?
+  customerName             String   @map("customer_name")
+  phone                    String?
+  email                    String?
+  status                   String   @default("Held")
   // The retainer has been paid. Replaces the old deposit_paid flag, since dropped. Nothing
   // sets it automatically yet; the admin ticks it by hand.
-  retainerPaid Boolean  @default(false) @map("retainer_paid")
+  retainerPaid             Boolean  @default(false) @map("retainer_paid")
   // Set when the booking was made, or moved, inside the account's minimum
   // notice window. Visibility only: it never blocks or changes a booking.
-  rush         Boolean  @default(false)
+  rush                     Boolean  @default(false)
+  // The occasion it was booked for (a group like Wedding or a sub-occasion),
+  // when the customer or staff said. Null for older bookings.
+  occasion                 String?
+  // How the balance will be collected. Recorded only: nothing charges or
+  // sends anything yet. Manual, Auto-charge or Reminder link, validated at
+  // the API.
+  balancePaymentPreference String   @default("Manual") @map("balance_payment_preference")
   // Set when the booking was made from a logged-in customer account; null
   // for admin-entered and anonymous storefront bookings. Deleting the
   // account keeps the booking.
-  customerId   String?  @map("customer_id")
+  customerId               String?  @map("customer_id")
   // Set when the booking came from a published package. The package's
   // bundle price is then the total, and its item quantities decide how
   // many units are held. Deleting the package keeps the booking.
-  packageId    String?  @map("package_id")
+  packageId                String?  @map("package_id")
   // What the customer was quoted, as a number of dollars: the package's
   // bundle price, or the item prices times quantity for a direct booking.
   // Null for admin-entered bookings, which carry no price yet.
-  total        Decimal? @db.Decimal(10, 2)
-  createdAt    DateTime @default(now()) @map("created_at")
-  updatedAt    DateTime @default(now()) @updatedAt @map("updated_at")
+  total                    Decimal? @db.Decimal(10, 2)
+  createdAt                DateTime @default(now()) @map("created_at")
+  updatedAt                DateTime @default(now()) @updatedAt @map("updated_at")
 
-  account  Account        @relation(fields: [accountId], references: [id])
-  lead     Lead?          @relation(fields: [leadId], references: [id], onDelete: SetNull)
-  customer Customer?      @relation(fields: [customerId], references: [id], onDelete: SetNull)
-  package  Package?       @relation(fields: [packageId], references: [id], onDelete: SetNull)
-  units    BookingUnit[]
-  addons   BookingAddon[]
-  gigs     Gig[]
+  account       Account        @relation(fields: [accountId], references: [id])
+  lead          Lead?          @relation(fields: [leadId], references: [id], onDelete: SetNull)
+  customer      Customer?      @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  package       Package?       @relation(fields: [packageId], references: [id], onDelete: SetNull)
+  units         BookingUnit[]
+  addons        BookingAddon[]
+  gigs          Gig[]
+  agreement     Agreement?
+  designRequest DesignRequest?
 
   @@index([accountId, eventDate])
   @@index([leadId])
@@ -283,9 +307,10 @@ model Customer {
   createdAt       DateTime  @default(now()) @map("created_at")
   updatedAt       DateTime  @default(now()) @updatedAt @map("updated_at")
 
-  account  Account   @relation(fields: [accountId], references: [id])
-  bookings Booking[]
-  sessions Session[]
+  account    Account     @relation(fields: [accountId], references: [id])
+  bookings   Booking[]
+  sessions   Session[]
+  agreements Agreement[]
 
   @@unique([accountId, phone])
   @@unique([accountId, email])
@@ -500,4 +525,90 @@ model Lead {
   @@index([accountId])
   @@index([accountId, status])
   @@map("leads")
+}
+
+// The cancellation and deposit policy text customers agree to. Saving a
+// change never edits a row: it adds the next version, so an Agreement can
+// always point at the exact text that was on screen when it was made.
+model PolicyVersion {
+  id        String   @id @default(cuid())
+  accountId String   @map("account_id")
+  version   Int
+  text      String
+  createdAt DateTime @default(now()) @map("created_at")
+
+  account    Account     @relation(fields: [accountId], references: [id])
+  agreements Agreement[]
+
+  @@unique([accountId, version])
+  @@map("policy_versions")
+}
+
+// What a customer agreed to, and when. Belongs to exactly one booking or
+// exactly one design request (a database check says so), and every new
+// booking must have one by the time its transaction commits (a deferred
+// constraint trigger says so). policyVersionId is the text they saw.
+// checkboxChecked is what the customer actually did. The contract fields
+// are reserved for the signed-contract integration and stay empty until it
+// exists: provider, that provider's document id, its status, and a link.
+model Agreement {
+  id                 String   @id @default(cuid())
+  accountId          String   @map("account_id")
+  customerId         String?  @map("customer_id")
+  bookingId          String?  @unique @map("booking_id")
+  designRequestId    String?  @unique @map("design_request_id")
+  policyVersionId    String   @map("policy_version_id")
+  checkboxChecked    Boolean  @map("checkbox_checked")
+  agreedAt           DateTime @default(now()) @map("agreed_at")
+  contractProvider   String?  @map("contract_provider")
+  contractExternalId String?  @map("contract_external_id")
+  contractStatus     String?  @map("contract_status")
+  contractUrl        String?  @map("contract_url")
+  createdAt          DateTime @default(now()) @map("created_at")
+
+  account       Account        @relation(fields: [accountId], references: [id])
+  customer      Customer?      @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  booking       Booking?       @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  designRequest DesignRequest? @relation(fields: [designRequestId], references: [id], onDelete: Cascade)
+  policyVersion PolicyVersion  @relation(fields: [policyVersionId], references: [id])
+
+  @@index([policyVersionId])
+  @@map("agreements")
+}
+
+// A submission that needs staff to look at it before anything is held:
+// a cart over the review threshold, or one for an occasion on the review
+// list. No unit or crew is locked. cart is a snapshot of what was asked
+// for (items, quantities, chosen options, package), so it reads the same
+// later. status: Open, Converted (a real booking was made from it, see
+// bookingId) or Dismissed.
+model DesignRequest {
+  id                       String   @id @default(cuid())
+  accountId                String   @map("account_id")
+  status                   String   @default("Open")
+  // Why it was routed here: threshold, occasion, or both.
+  reasons                  String[] @default([])
+  occasion                 String?
+  eventDate                DateTime @map("event_date") @db.Date
+  eventTime                String?  @map("event_time")
+  address                  String?
+  customerName             String   @map("customer_name")
+  phone                    String?
+  email                    String?
+  customerId               String?  @map("customer_id")
+  packageId                String?  @map("package_id")
+  cart                     Json
+  total                    Decimal? @db.Decimal(10, 2)
+  balancePaymentPreference String   @default("Manual") @map("balance_payment_preference")
+  notes                    String?
+  bookingId                String?  @unique @map("booking_id")
+  createdAt                DateTime @default(now()) @map("created_at")
+  updatedAt                DateTime @default(now()) @updatedAt @map("updated_at")
+
+  account   Account    @relation(fields: [accountId], references: [id])
+  booking   Booking?   @relation(fields: [bookingId], references: [id], onDelete: SetNull)
+  agreement Agreement?
+
+  @@index([accountId, status])
+  @@map("design_requests")
 }

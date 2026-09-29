@@ -23,10 +23,11 @@ import type {
   LeadStatusRow,
   AvailableItem,
   CustomerMatch,
-  NewBooking,
   StaffBookingRequest,
   StaffBookingResult,
-  RushSettings,
+  AccountSettings,
+  DesignRequest,
+  PolicyVersionInfo,
   NewItem,
   NewLead,
   NewUnit,
@@ -259,9 +260,6 @@ export function getBookings(): Promise<Booking[]> {
   return fetch("/api/bookings").then(asJson<Booking[]>);
 }
 
-export function createBooking(booking: NewBooking): Promise<Booking> {
-  return fetch("/api/bookings", jsonRequest("POST", booking)).then(asJson<Booking>);
-}
 
 // unitIds, when present, replaces the booking's whole unit set.
 export function updateBooking(id: string, patch: BookingPatch): Promise<Booking> {
@@ -338,12 +336,32 @@ export function recommend(messages: AskGoMessage[], subOcc: string | null = null
   return fetch("/api/recommend", jsonRequest("POST", { subOcc, messages })).then(asJson<RecommendResponse>);
 }
 
-export function getSettings(): Promise<RushSettings> {
-  return fetch("/api/settings").then(asJson<RushSettings>);
+export function getSettings(): Promise<AccountSettings> {
+  return fetch("/api/settings").then(asJson<AccountSettings>);
 }
 
-export function updateSettings(patch: Partial<RushSettings>): Promise<RushSettings> {
-  return fetch("/api/settings", jsonRequest("PATCH", patch)).then(asJson<RushSettings>);
+export function updateSettings(patch: Partial<AccountSettings>): Promise<AccountSettings> {
+  return fetch("/api/settings", jsonRequest("PATCH", patch)).then(asJson<AccountSettings>);
+}
+
+// The policy text and every version of it, newest first. Saving adds a
+// version; the old ones stay.
+export function getPolicy(): Promise<{ current: PolicyVersionInfo; versions: PolicyVersionInfo[] }> {
+  return fetch("/api/settings/policy").then(asJson<{ current: PolicyVersionInfo; versions: PolicyVersionInfo[] }>);
+}
+
+export function savePolicy(text: string): Promise<{ created: boolean; version: { id: string; version: number; text: string; createdAt: string } }> {
+  return fetch("/api/settings/policy", jsonRequest("POST", { text })).then(
+    asJson<{ created: boolean; version: { id: string; version: number; text: string; createdAt: string } }>,
+  );
+}
+
+export function getDesignRequests(status?: "Open" | "Converted" | "Dismissed"): Promise<DesignRequest[]> {
+  return fetch(`/api/design-requests${status ? `?status=${status}` : ""}`).then(asJson<DesignRequest[]>);
+}
+
+export function updateDesignRequest(id: string, patch: { status?: "Open" | "Dismissed"; notes?: string | null }): Promise<DesignRequest> {
+  return fetch(`/api/design-requests/${id}`, jsonRequest("PATCH", patch)).then(asJson<DesignRequest>);
 }
 
 // The same catalog the storefront browses for a date: only what can

@@ -6,6 +6,7 @@ import { relativeTime } from "../lib/time";
 import { SOURCE_LABEL, leadTitle } from "../lib/leads";
 import { deltaLabel } from "../lib/addons";
 import { EditableCell } from "./EditableCell";
+import { AgreementChip, BalanceLabel } from "./AgreementChip";
 import { BookingStatusTag } from "./BookingStatusTag";
 import { RushTag } from "./RushTag";
 
@@ -239,7 +240,7 @@ function LeadDetailBody({
                   })}
                   {booking.eventTime ? `, ${booking.eventTime}` : ""}
                   {" "}
-                  <BookingStatusTag booking={booking} />
+                  <BookingStatusTag booking={booking} /> <AgreementChip agreement={booking.agreement} /> <BalanceLabel preference={booking.balancePaymentPreference} />
                   <RushTag rush={booking.rush} cancelled={booking.status === "Cancelled"} />
                 </span>
                 {booking.total !== null && <span className="item-price">{usd(Number(booking.total))}</span>}

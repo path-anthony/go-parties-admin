@@ -4,6 +4,8 @@ import { parseAddonSelections } from "../addons.js";
 import { currentCustomer } from "../customerAuth.js";
 import { createDirectBooking, MAX_UNITS_PER_BOOKING } from "../directBooking.js";
 import { prisma } from "../db.js";
+import { BALANCE_PREFERENCES } from "../../src/lib/bookingStatus.js";
+import { canonicalOccasion } from "../../src/lib/occasions.js";
 import { INVALID, normalizeDate, normalizeText, splitContact, todayEastern } from "../validate.js";
 
 const MAX_ADDRESS_LENGTH = 300;
@@ -40,6 +42,20 @@ function optionalText(value: unknown, max: number): string | null | typeof INVAL
   const text = value.trim();
   if (text === "") return null;
   return text.length <= max ? text : INVALID;
+}
+
+// Optional. A group (Wedding) or sub-occasion, in the known spelling.
+function resolveOccasion(body: Record<string, unknown>): string | null | typeof INVALID {
+  const { occasion } = body;
+  if (occasion === undefined || occasion === null || occasion === "") return null;
+  if (typeof occasion !== "string") return INVALID;
+  return canonicalOccasion(occasion) ?? INVALID;
+}
+
+function resolveBalancePreference(body: Record<string, unknown>): string | typeof INVALID {
+  const { balancePaymentPreference: pref } = body;
+  if (pref === undefined || pref === null || pref === "") return "Manual";
+  return typeof pref === "string" && (BALANCE_PREFERENCES as readonly string[]).includes(pref) ? pref : INVALID;
 }
 
 // itemId (one item) is the original contract and keeps working as is.
@@ -130,8 +146,23 @@ router.post("/", async (req, res) => {
     return res.status(400).json({ error: "packageId must be a package id" });
   }
 
+  const occasion = resolveOccasion(body);
+  if (occasion === INVALID) {
+    return res.status(400).json({ error: "occasion must be a known occasion, like Wedding or Sweet 16" });
+  }
+  const balancePaymentPreference = resolveBalancePreference(body);
+  if (balancePaymentPreference === INVALID) {
+    return res.status(400).json({ error: `balancePaymentPreference must be one of ${BALANCE_PREFERENCES.join(", ")}` });
+  }
+  if (body.agreedToPolicy !== undefined && typeof body.agreedToPolicy !== "boolean") {
+    return res.status(400).json({ error: "agreedToPolicy must be true or false" });
+  }
+
   const result = await createDirectBooking({
     staff: false,
+    occasion,
+    balancePaymentPreference,
+    agreed: body.agreedToPolicy === true,
     name,
     contact,
     customer: customer ? { id: customer.id, name: customer.name } : null,
@@ -201,6 +232,22 @@ staffBookingRouter.post("/", async (req, res) => {
   const packageId = resolvePackageId(body);
   if (packageId === INVALID) return res.status(400).json({ error: "packageId must be a package id" });
 
+  const occasion = resolveOccasion(body);
+  if (occasion === INVALID) return res.status(400).json({ error: "occasion must be a known occasion, like Wedding or Sweet 16" });
+  const balancePaymentPreference = resolveBalancePreference(body);
+  if (balancePaymentPreference === INVALID) return res.status(400).json({ error: `balancePaymentPreference must be one of ${BALANCE_PREFERENCES.join(", ")}` });
+  if (body.agreed !== true) {
+    return res.status(400).json({ error: "Confirm that the customer agreed to the cancellation and deposit policy.", reason: "agreement-required" });
+  }
+  let designRequestId: string | null = null;
+  if (body.designRequestId !== undefined && body.designRequestId !== null && body.designRequestId !== "") {
+    if (typeof body.designRequestId !== "string") return res.status(400).json({ error: "designRequestId must be a design request id" });
+    const request = await prisma.designRequest.findFirst({ where: { id: body.designRequestId, accountId: account.id }, select: { status: true } });
+    if (!request) return res.status(404).json({ error: "design request not found" });
+    if (request.status !== "Open") return res.status(409).json({ error: "That design request was already turned into a booking or dismissed.", reason: "request-unavailable" });
+    designRequestId = body.designRequestId;
+  }
+
   let totalOverride: number | null | undefined;
   if (body.total !== undefined) {
     if (body.total === null) totalOverride = null;
@@ -210,6 +257,10 @@ staffBookingRouter.post("/", async (req, res) => {
 
   const result = await createDirectBooking({
     staff: true,
+    occasion,
+    balancePaymentPreference,
+    agreed: true,
+    designRequestId,
     name,
     contact,
     customer: customer ? { id: customer.id, name: customer.name } : null,

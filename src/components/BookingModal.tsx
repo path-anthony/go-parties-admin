@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { X } from "lucide-react";
-import { addBookingUnit, removeBookingGig, removeBookingUnit, setBookingAddons, updateBooking } from "../lib/api";
+import { addBookingUnit, getPolicy, removeBookingGig, removeBookingUnit, setBookingAddons, updateBooking } from "../lib/api";
+import { BALANCE_PREFERENCES, type BalancePreference } from "../lib/bookingStatus";
 import { deltaLabel, describeAddon } from "../lib/addons";
 import { leadTitle } from "../lib/leads";
 import {
@@ -16,6 +17,7 @@ import {
   type Unit,
 } from "../lib/types";
 import { EditableCell } from "./EditableCell";
+import { AgreementChip } from "./AgreementChip";
 import { BookingStatusTag } from "./BookingStatusTag";
 import { RushTag } from "./RushTag";
 
@@ -221,6 +223,29 @@ export function BookingModal({
             <span className="muted field-help">
               Confirmed is worked out, not set: a booking is Confirmed when its stage is Signed and the retainer is paid.
             </span>
+          </div>
+          <div className="status-control" role="group" aria-label={`Agreement and balance for ${who}`}>
+            <span className="status-now">
+              <span className="detail-field-label">Agreement</span>
+              <AgreementChip agreement={booking.agreement} />
+            </span>
+            <label>
+              <span className="detail-field-label">Balance payment</span>
+              <select
+                value={booking.balancePaymentPreference}
+                disabled={busy}
+                aria-label={`Balance payment preference for ${who}`}
+                onChange={(e) => run(() => updateBooking(booking.id, { balancePaymentPreference: e.target.value as BalancePreference }))}
+              >
+                {BALANCE_PREFERENCES.map((b) => (
+                  <option key={b} value={b}>
+                    {b}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <span className="muted field-help">Balance payment is recorded only. Nothing is charged or sent yet.</span>
+            <AgreementDetail booking={booking} />
           </div>
           <label className="detail-field">
             <span className="detail-field-label">Lead</span>
@@ -467,6 +492,51 @@ function BookingItemCard({
           ))}
         </ul>
       )}
+    </div>
+  );
+}
+
+// The details behind the chip: when, which version, whether the box was
+// ticked, and the exact text of that version on request. The contract
+// fields stay empty until the signed-contract integration exists.
+function AgreementDetail({ booking }: { booking: Booking }) {
+  const agreement = booking.agreement;
+  const [text, setText] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  if (!agreement) {
+    return <span className="muted field-help">This booking was made before agreements were recorded.</span>;
+  }
+  const versionId = agreement.policyVersion.id;
+  async function show() {
+    setError(null);
+    try {
+      const policy = await getPolicy();
+      setText(policy.versions.find((v) => v.id === versionId)?.text ?? "(not found)");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Couldn't load the policy");
+    }
+  }
+  return (
+    <div className="agreement-detail">
+      <span className="muted">
+        {agreement.checkboxChecked ? "Box ticked" : "Box not ticked"} ·{" "}
+        {new Date(agreement.agreedAt).toLocaleString("en-US", { dateStyle: "medium", timeStyle: "short", timeZone: "America/New_York" })}{" "}
+        Eastern · policy version {agreement.policyVersion.version}
+        {agreement.contractStatus ? ` · contract ${agreement.contractStatus}` : ""}
+      </span>{" "}
+      {text === null ? (
+        <button type="button" className="btn-secondary" onClick={show}>
+          Show the text they saw
+        </button>
+      ) : (
+        <>
+          <button type="button" className="btn-secondary" onClick={() => setText(null)}>
+            Hide
+          </button>
+          <pre className="policy-text-shown">{text === "" ? "(that version had no text)" : text}</pre>
+        </>
+      )}
+      {error && <span className="form-error">{error}</span>}
     </div>
   );
 }

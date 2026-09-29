@@ -19,6 +19,7 @@ import {
   type UnitStatus,
 } from "../../lib/types";
 import { BookingModal } from "../BookingModal";
+import { AgreementChip, BalanceLabel } from "../AgreementChip";
 import { BookingStatusTag } from "../BookingStatusTag";
 import { NewBookingModal } from "../NewBookingModal";
 import { EditableCell } from "../EditableCell";
@@ -230,6 +231,7 @@ export function SchedulingScreen() {
                           <th>Time</th>
                           <th>Customer</th>
                           <th>Status</th>
+                          <th>Agreement</th>
                           <th>Items</th>
                           <th aria-label="Open" />
                         </tr>
@@ -354,6 +356,12 @@ function BookingSummaryRow({
       </td>
       <td>
         <BookingStatusTag booking={booking} />
+      </td>
+      <td>
+        <AgreementChip agreement={booking.agreement} />
+        <div>
+          <BalanceLabel preference={booking.balancePaymentPreference} />
+        </div>
       </td>
       <td className={count === 0 ? "muted" : ""}>
         {count === 0 ? "None" : `${count} ${count === 1 ? "item" : "items"}`}

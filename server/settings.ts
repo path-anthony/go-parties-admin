@@ -11,9 +11,23 @@ export const MAX_PHONE_LENGTH = 40;
 export async function getSettings(accountId: string) {
   const account = await prisma.account.findUniqueOrThrow({
     where: { id: accountId },
-    select: { minBookingNoticeHours: true, rushContactPhone: true },
+    select: {
+      minBookingNoticeHours: true,
+      rushContactPhone: true,
+      fullReviewThreshold: true,
+      reviewOccasions: true,
+      depositPercentage: true,
+      requireAgreementCheckbox: true,
+    },
   });
-  return { minBookingNoticeHours: account.minBookingNoticeHours, rushContactPhone: account.rushContactPhone };
+  return {
+    minBookingNoticeHours: account.minBookingNoticeHours,
+    rushContactPhone: account.rushContactPhone,
+    fullReviewThreshold: Number(account.fullReviewThreshold),
+    reviewOccasions: account.reviewOccasions,
+    depositPercentage: Number(account.depositPercentage),
+    requireAgreementCheckbox: account.requireAgreementCheckbox,
+  };
 }
 
 // Whole hours from now until the event day starts, both read on the

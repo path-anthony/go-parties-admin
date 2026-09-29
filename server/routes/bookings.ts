@@ -13,7 +13,8 @@ import {
 } from "../bookingOps.js";
 import { BOOKING_GIGS_SELECT, NoCrewFree } from "../gigs.js";
 import { prisma } from "../db.js";
-import { BOOKING_STAGES, displayStatus } from "../../src/lib/bookingStatus.js";
+import { BALANCE_PREFERENCES, BOOKING_STAGES, displayStatus } from "../../src/lib/bookingStatus.js";
+import { AGREEMENT_SELECT } from "../agreements.js";
 import { rushFor } from "../settings.js";
 import { INVALID, normalizeDate, normalizeText } from "../validate.js";
 
@@ -29,6 +30,7 @@ const WITH_UNITS = {
     orderBy: { createdAt: "asc" as const },
   },
   gigs: BOOKING_GIGS_SELECT,
+  agreement: AGREEMENT_SELECT,
 };
 const ORDER = [{ eventDate: "asc" as const }, { createdAt: "asc" as const }];
 
@@ -113,78 +115,10 @@ router.get("/", async (_req, res) => {
   res.json(bookings.map(serialize));
 });
 
-router.post("/", async (req, res) => {
-  const { leadId, eventDate, eventTime, address, customerName, phone, email, status, unitIds } = req.body ?? {};
-
-  const name = normalizeText(customerName);
-  if (!name) {
-    return res.status(400).json({ error: "customerName is required" });
-  }
-  const phoneText = normalizeText(phone);
-  const emailText = normalizeText(email);
-  if (!phoneText || !emailText) {
-    return res.status(400).json({ error: "phone and email are both required" });
-  }
-  const date = normalizeDate(eventDate);
-  if (date === null || date === INVALID) {
-    return res.status(400).json({ error: "eventDate is required and must be a valid YYYY-MM-DD date" });
-  }
-  const timeText = optionalText(eventTime, MAX_TIME_LENGTH);
-  if (timeText === INVALID) {
-    return res.status(400).json({ error: `eventTime must be text up to ${MAX_TIME_LENGTH} characters` });
-  }
-  const addressText = optionalText(address, MAX_ADDRESS_LENGTH);
-  if (addressText === INVALID) {
-    return res.status(400).json({ error: `address must be text up to ${MAX_ADDRESS_LENGTH} characters` });
-  }
-  const stageProblem = status === undefined ? null : badStage(status);
-  if (stageProblem) {
-    return res.status(400).json({ error: stageProblem });
-  }
-
-  const account = await getDefaultAccount();
-  const resolvedLead = await resolveLeadId(account.id, leadId);
-  if (resolvedLead === INVALID) {
-    return res.status(400).json({ error: "leadId must be a lead on this account" });
-  }
-  const resolvedUnits = await resolveUnitIds(account.id, unitIds ?? []);
-  if (resolvedUnits === INVALID) {
-    return res.status(400).json({ error: "unitIds must be units on this account" });
-  }
-  if (status === "Cancelled" && resolvedUnits.length > 0) {
-    return res.status(400).json({ error: "A cancelled booking can't hold units" });
-  }
-
-  const conflict = await describeConflicts(resolvedUnits, date);
-  if (conflict) {
-    return res.status(409).json({ error: conflict, reason: "unit-conflict" });
-  }
-
-  try {
-    const booking = await prisma.booking.create({
-      data: {
-        accountId: account.id,
-        leadId: resolvedLead,
-        eventDate: date,
-        eventTime: timeText,
-        address: addressText,
-        customerName: name,
-        phone: phoneText,
-        email: emailText,
-        status: status ?? "Held",
-        rush: await rushFor(account.id, date),
-        units: { create: resolvedUnits.map((unitId) => ({ unitId, eventDate: date })) },
-      },
-      include: WITH_UNITS,
-    });
-    res.status(201).json(serialize(booking));
-  } catch (err) {
-    if (isUniqueViolation(err)) {
-      return res.status(409).json({ error: RACE_CONFLICT, reason: "unit-conflict" });
-    }
-    throw err;
-  }
-});
+// There is no plain "create a booking" here any more. Every booking is made
+// through POST /api/bookings/staff (New booking) or the storefront's direct
+// booking, both of which take the same unit and crew locks, apply the
+// review rule and write the agreement the database requires.
 
 router.patch("/:id", async (req, res) => {
   const { id } = req.params;
@@ -207,6 +141,7 @@ router.patch("/:id", async (req, res) => {
     status?: string;
     retainerPaid?: boolean;
     rush?: boolean;
+    balancePaymentPreference?: string;
   } = {};
 
   if ("retainerPaid" in body) {
@@ -214,6 +149,12 @@ router.patch("/:id", async (req, res) => {
       return res.status(400).json({ error: "retainerPaid must be true or false" });
     }
     data.retainerPaid = body.retainerPaid;
+  }
+  if ("balancePaymentPreference" in body) {
+    if (typeof body.balancePaymentPreference !== "string" || !(BALANCE_PREFERENCES as readonly string[]).includes(body.balancePaymentPreference)) {
+      return res.status(400).json({ error: `balancePaymentPreference must be one of ${BALANCE_PREFERENCES.join(", ")}` });
+    }
+    data.balancePaymentPreference = body.balancePaymentPreference;
   }
   if ("customerName" in body) {
     const name = normalizeText(body.customerName);

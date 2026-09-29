@@ -4,7 +4,9 @@ import { NoFreeUnits } from "./bookingOps.js";
 import { prisma } from "./db.js";
 import { NoCrewFree, createGigs, needsCrew } from "./gigs.js";
 import { displayStatus, legacyCustomerStatus } from "../src/lib/bookingStatus.js";
-import { rushFor } from "./settings.js";
+import { currentPolicy } from "./policy.js";
+import { reviewReasons } from "./review.js";
+import { getSettings, rushFor } from "./settings.js";
 import { getDefaultAccount } from "./account.js";
 
 export const MAX_UNITS_PER_BOOKING = 50;
@@ -44,7 +46,23 @@ export type DirectBookingInput = {
   packageId: string | null;
   // Set only by staff: replaces the computed total (null clears it).
   totalOverride?: number | null;
+  // What the booking is for: a group (Wedding) or a sub-occasion. Null when
+  // nobody said; a package's own occasions are then used for the review rule.
+  occasion?: string | null;
+  // Manual, Auto-charge or Reminder link. Recorded only.
+  balancePaymentPreference?: string;
+  // Whether the customer ticked the agreement box. Staff must confirm it;
+  // a storefront booking without it is recorded as unchecked unless the
+  // account requires it.
+  agreed?: boolean;
+  // Set when staff are turning a design request into this booking. That
+  // skips the review routing (it has been reviewed), and the request is
+  // marked Converted in the same transaction that makes the booking.
+  designRequestId?: string | null;
 };
+
+// The design request was already converted, dismissed, or never existed.
+class DesignRequestUnavailable extends Error {}
 
 // The one place a booking is made on a customer's behalf or their own:
 // one free unit per item wanted is picked and locked (SKIP LOCKED) in the
@@ -55,13 +73,16 @@ export type DirectBookingInput = {
 // call this.
 export async function createDirectBooking(input: DirectBookingInput): Promise<{ status: number; body: unknown }> {
   const { staff, name, contact, customer, itemIds, quantities = {}, date, dateText, eventTime, address, selections, packageId, totalOverride } = input;
+  const occasion = input.occasion ?? null;
+  const balancePaymentPreference = input.balancePaymentPreference ?? "Manual";
+  const designRequestId = input.designRequestId ?? null;
   const account = await getDefaultAccount();
   // Read-only lookups that don't depend on each other run together. None of
   // them takes a lock or feeds the transaction below, so this changes how
   // long the request waits, not what it guarantees. The rush flag and the
   // lead column are worked out here too rather than inside the transaction,
   // so row locks aren't held while they are read.
-  const [pkg, found, leadStatus, rush] = await Promise.all([
+  const [pkg, found, leadStatus, rush, settings, policy] = await Promise.all([
     packageId
       ? prisma.package.findFirst({
           where: { id: packageId, accountId: account.id, status: "Published" },
@@ -74,6 +95,8 @@ export async function createDirectBooking(input: DirectBookingInput): Promise<{ 
     }),
     leadStatusForStorefrontBooking(account.id),
     rushFor(account.id, date),
+    getSettings(account.id),
+    currentPolicy(account.id),
   ]);
   if (packageId && !pkg) {
     return out(404, { error: "package not found or not published" });
@@ -89,19 +112,6 @@ export async function createDirectBooking(input: DirectBookingInput): Promise<{ 
   const items = itemIds.map((id) => found.find((item) => item.id === id)).filter((item) => item !== undefined);
   if (items.length !== itemIds.length) {
     return out(404, { error: itemIds.length === 1 ? "item not found" : "One or more items were not found" });
-  }
-  // An item is promisable through its units, through the crew for its
-  // skills, or both. One with neither can't be promised at all.
-  const untracked = items.filter((item) => item._count.units === 0 && !needsCrew(item));
-  if (untracked.length > 0) {
-    return out(409, {
-      error:
-        untracked.length === 1
-          ? "This item isn't available for direct booking yet."
-          : `${untracked.map((item) => item.name).join(", ")} aren't available for direct booking yet.`,
-      reason: "not-tracked",
-      itemIds: untracked.map((item) => item.id),
-    });
   }
   // How many units of each item to hold: the package's quantities, or one.
   const wanted = items.map((item) => ({
@@ -128,6 +138,90 @@ export async function createDirectBooking(input: DirectBookingInput): Promise<{ 
   const computedTotal = baseTotal === null ? null : Math.round((baseTotal + addonsTotal) * 100) / 100;
   // Staff can confirm a different price on the phone; nobody else can.
   const total = totalOverride === undefined ? computedTotal : totalOverride;
+
+  // Review routing. A cart over the threshold, or one for an occasion on
+  // the review list, is not held: it becomes a design request for staff, and
+  // nothing is locked. A request being converted by staff has already been
+  // reviewed, so it skips this.
+  if (!designRequestId) {
+    const reasons = reviewReasons({
+      total,
+      occasions: occasion ? [occasion] : (pkg?.occasions ?? []),
+      fullReviewThreshold: settings.fullReviewThreshold,
+      reviewOccasions: settings.reviewOccasions,
+    });
+    if (reasons.length > 0) {
+      const request = await prisma.designRequest.create({
+        data: {
+          accountId: account.id,
+          reasons,
+          occasion,
+          eventDate: date,
+          eventTime,
+          address,
+          customerName: name,
+          phone: contact.phone,
+          email: contact.email,
+          customerId: customer?.id ?? null,
+          packageId: pkg?.id ?? null,
+          total,
+          balancePaymentPreference,
+          cart: {
+            items: wanted.map(({ item, quantity }) => ({
+              itemId: item.id,
+              name: item.name,
+              quantity,
+              price: item.price === null ? null : Number(item.price),
+            })),
+            addons: addonRows.map((a) => ({
+              itemId: a.itemId,
+              addonId: a.addonId,
+              itemName: a.itemName,
+              groupName: a.groupName,
+              addonName: a.addonName,
+              priceDelta: a.priceDelta,
+              quantity: a.quantity,
+            })),
+            package: pkg ? { id: pkg.id, name: pkg.name, price: Number(pkg.price) } : null,
+            computedTotal,
+          },
+        },
+      });
+      return out(202, {
+        reviewRequired: true,
+        designRequestId: request.id,
+        status: "Open",
+        reasons,
+        occasion,
+        eventDate: dateText,
+        total,
+        message: "This one goes to our team first. Nothing is held yet; we'll be in touch to put it together with you.",
+      });
+    }
+  }
+
+  // Agreement. Staff confirm it on the customer's behalf. A storefront
+  // booking should carry the ticked box; until the storefront sends it, it
+  // is recorded as unchecked, which is what happened, unless the account
+  // has switched the requirement on.
+  const checkboxChecked = input.agreed === true;
+  if (!staff && !checkboxChecked && settings.requireAgreementCheckbox) {
+    return out(400, { error: "Please agree to the cancellation and deposit policy to continue.", reason: "agreement-required" });
+  }
+
+  // An item is promisable through its units, through the crew for its
+  // skills, or both. One with neither can't be promised at all.
+  const untracked = items.filter((item) => item._count.units === 0 && !needsCrew(item));
+  if (untracked.length > 0) {
+    return out(409, {
+      error:
+        untracked.length === 1
+          ? "This item isn't available for direct booking yet."
+          : `${untracked.map((item) => item.name).join(", ")} aren't available for direct booking yet.`,
+      reason: "not-tracked",
+      itemIds: untracked.map((item) => item.id),
+    });
+  }
   // "Snow Cone Station, Flavor: Peach (+$10); Size: Large (+$50)"
   const addonNote = items
     .map((item) => {
@@ -202,6 +296,8 @@ export async function createDirectBooking(input: DirectBookingInput): Promise<{ 
           email: contact.email,
           status: "Held",
           rush,
+          occasion,
+          balancePaymentPreference,
           packageId: pkg?.id ?? null,
           total,
           // eventDate is copied onto each join row for the (unitId, eventDate)
@@ -233,7 +329,26 @@ export async function createDirectBooking(input: DirectBookingInput): Promise<{ 
       if (customer && !customer.name) {
         await tx.customer.update({ where: { id: customer.id }, data: { name } });
       }
-      return { booking, lead, claimed, gigs };
+      // The agreement is written in the same transaction as the booking;
+      // the database refuses to commit a booking without one.
+      const agreement = await tx.agreement.create({
+        data: {
+          accountId: account.id,
+          customerId: customer?.id ?? null,
+          bookingId: booking.id,
+          policyVersionId: policy.id,
+          checkboxChecked,
+        },
+      });
+      // Converting a design request: claim it under a row lock so two
+      // people can't both turn it into a booking, then link the two.
+      if (designRequestId) {
+        const locked = await tx.$queryRaw<{ status: string }[]>`
+          SELECT status FROM design_requests WHERE id = ${designRequestId} AND account_id = ${account.id} FOR UPDATE`;
+        if (locked.length === 0 || locked[0].status !== "Open") throw new DesignRequestUnavailable();
+        await tx.designRequest.update({ where: { id: designRequestId }, data: { status: "Converted", bookingId: booking.id } });
+      }
+      return { booking, lead, claimed, gigs, agreement };
     });
 
     // One entry per unit held and one per gig, so an item wanted twice
@@ -271,6 +386,15 @@ export async function createDirectBooking(input: DirectBookingInput): Promise<{ 
       // booking is complete either way, this is so the storefront can say
       // it is pending confirmation.
       rush: result.booking.rush,
+      occasion: result.booking.occasion,
+      balancePaymentPreference: result.booking.balancePaymentPreference,
+      agreement: {
+        id: result.agreement.id,
+        policyVersion: policy.version,
+        policyVersionId: policy.id,
+        checkboxChecked: result.agreement.checkboxChecked,
+        agreedAt: result.agreement.agreedAt.toISOString(),
+      },
       depositPaid: result.booking.retainerPaid,
       total,
       addonsTotal,
@@ -285,6 +409,9 @@ export async function createDirectBooking(input: DirectBookingInput): Promise<{ 
       gigs: result.gigs,
     });
   } catch (err) {
+    if (err instanceof DesignRequestUnavailable) {
+      return out(409, { error: "That design request was already turned into a booking or dismissed.", reason: "request-unavailable" });
+    }
     // NoFreeUnits is the normal loser path. P2002 is the (unitId, eventDate)
     // unique constraint firing anyway, which the lock should make
     // impossible here; it's handled the same way rather than as a 500.

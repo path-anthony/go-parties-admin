@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
-import { getBookings, getGigs, getLeadStatuses, getLeads } from "../../lib/api";
+import { getBookings, getDesignRequests, getGigs, getLeadStatuses, getLeads } from "../../lib/api";
 import { formatEventDay } from "../../lib/gigs";
 import { FOLLOW_UP_DAYS, PROPOSAL_FOLLOW_UP_DAYS, daysSinceUpdate, findStage, needsFollowUp, useNavigate } from "../../lib/navigation";
-import type { Booking, Gig, Lead } from "../../lib/types";
+import type { Booking, DesignRequest, Gig, Lead } from "../../lib/types";
 import { displayStatus } from "../../lib/bookingStatus";
+import { AgreementChip, BalanceLabel } from "../AgreementChip";
 import { BookingStatusTag } from "../BookingStatusTag";
 import { RushTag } from "../RushTag";
 import { StatCard, StatGrid } from "../StatCard";
@@ -31,11 +32,13 @@ export function OverviewScreen() {
   const [statuses, setStatuses] = useState<string[] | null>(null);
   const [needsCrew, setNeedsCrew] = useState<Gig[] | null>(null);
   const [bookings, setBookings] = useState<Booking[] | null>(null);
+  const [requests, setRequests] = useState<DesignRequest[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    Promise.all([getLeads(), getLeadStatuses(), getGigs("Needs Crew"), getBookings()])
-      .then(([leadList, rows, gigs, bookingList]) => {
+    Promise.all([getLeads(), getLeadStatuses(), getGigs("Needs Crew"), getBookings(), getDesignRequests("Open")])
+      .then(([leadList, rows, gigs, bookingList, requestList]) => {
+        setRequests(requestList);
         setLeads(leadList);
         setStatuses(rows.map((row) => row.name));
         setNeedsCrew(gigs);
@@ -44,7 +47,7 @@ export function OverviewScreen() {
       .catch((err) => setError(err instanceof Error ? err.message : "Failed to load"));
   }, []);
 
-  const ready = leads !== null && statuses !== null && needsCrew !== null && bookings !== null;
+  const ready = leads !== null && statuses !== null && needsCrew !== null && bookings !== null && requests !== null;
 
   // The well-known stages, found by name in the configurable columns.
   const stageNew = statuses ? findStage(statuses, "New") : undefined;
@@ -157,6 +160,36 @@ export function OverviewScreen() {
           </section>
 
           <section className="kpi-section">
+            <span className="kpi-section-label">Design requests</span>
+            <div className="crew-card">
+              <div className="crew-card-head">
+                <div>
+                  <span className="kpi-label">Waiting for review</span>
+                  <span className="kpi-value">{requests.length}</span>
+                </div>
+                <button type="button" className="btn-secondary" onClick={() => navigate("requests")}>
+                  Open Design requests
+                </button>
+              </div>
+              {requests.length === 0 ? (
+                <p className="muted">Nothing is waiting. Weddings, corporate events and big carts show up here.</p>
+              ) : (
+                <ul className="crew-card-list" aria-label="Design requests waiting">
+                  {requests.slice(0, NEAREST_GIGS).map((r) => (
+                    <li key={r.id}>
+                      <button type="button" className="crew-card-row" onClick={() => navigate("requests")}>
+                        <span className="kpi-list-when">{formatEventDay(r.eventDate)}</span>
+                        <span className="crew-card-customer">{r.customerName}</span>
+                        <span className="muted">{r.total === null ? "no price" : r.total.toLocaleString("en-US", { style: "currency", currency: "USD" })}</span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </section>
+
+          <section className="kpi-section">
             <span className="kpi-section-label">Rush</span>
             <div className="crew-card">
               <div className="crew-card-head">
@@ -177,8 +210,8 @@ export function OverviewScreen() {
                       <button type="button" className="crew-card-row" onClick={() => navigate("scheduling")}>
                         <span className="kpi-list-when">{formatEventDay(b.eventDate)}</span>
                         <span className="crew-card-customer">
-                          {b.customerName} <BookingStatusTag booking={b} />
-                          <RushTag rush={b.rush} />
+                          {b.customerName} <BookingStatusTag booking={b} /> <AgreementChip agreement={b.agreement} />
+                          <RushTag rush={b.rush} /> <BalanceLabel preference={b.balancePaymentPreference} />
                         </span>
                         <span className="muted">{b.eventTime ?? "no time set"}</span>
                       </button>
@@ -210,7 +243,7 @@ export function OverviewScreen() {
                       <button type="button" className="crew-card-row" onClick={() => navigate("crew", { gigStatus: "Needs Crew", gigId: g.id })}>
                         <span className="kpi-list-when">{formatEventDay(g.eventDate)}</span>
                         <span className="crew-card-customer">
-                          {g.booking.customerName} <BookingStatusTag booking={g.booking} />
+                          {g.booking.customerName} <BookingStatusTag booking={g.booking} /> <AgreementChip agreement={g.booking.agreement} />
                           <RushTag rush={g.booking.rush} cancelled={g.booking.status === "Cancelled"} />
                         </span>
                         <span className="muted">needs a {g.skill}</span>

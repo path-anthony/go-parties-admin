@@ -2570,3 +2570,28 @@ button.kpi-card:focus-visible {
   align-items: center;
   gap: 8px;
 }
+
+/* Agreement chips, balance label, review settings, design requests */
+.achip {
+  display: inline-block;
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+  vertical-align: middle;
+  border: 1px solid transparent;
+}
+.achip-yes { background: #e7f6ee; color: #067647; border-color: #a6dfc2; }
+.achip-unchecked { background: #fff4e5; color: #b54708; border-color: #f4c78a; }
+.achip-none { background: transparent; color: #667085; border-color: #d0d5dd; font-weight: 500; }
+.balance-label { font-size: 12px; white-space: nowrap; }
+.policy-textarea { width: 100%; min-height: 200px; font: inherit; }
+.policy-version { border-top: 1px solid var(--line); padding: 8px 0; }
+.policy-version pre { white-space: pre-wrap; font: inherit; margin: 6px 0 0; }
+.occasion-review-grid { display: grid; gap: 8px; }
+.reason-pill { display: inline-block; margin-right: 6px; padding: 1px 8px; border-radius: 4px; background: #eef2ff; color: #3538cd; font-size: 11px; font-weight: 700; }
+.request-cart { margin: 4px 0 0; padding-left: 18px; }
+.scheduling-actions { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
+.agreement-detail { flex-basis: 100%; }
+.policy-text-shown { white-space: pre-wrap; font: inherit; margin: 6px 0 0; padding: 8px; background: var(--bg-muted, #f4f2ed); border-radius: 4px; }

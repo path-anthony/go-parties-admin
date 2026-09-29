@@ -1,4 +1,4 @@
-import type { BookingStage, DisplayStatus } from "./bookingStatus";
+import type { BalancePreference, BookingStage, DisplayStatus } from "./bookingStatus";
 import type { ItemSource } from "./itemFields";
 import type { GigStatus, OfferStatus, Skill } from "./skills";
 
@@ -131,7 +131,7 @@ export type Gig = {
   filledById: string | null;
   createdAt: string;
   updatedAt: string;
-  booking: { id: string; customerName: string; eventDate: string; eventTime: string | null; status: BookingStatus; leadId: string | null; rush: boolean; retainerPaid: boolean };
+  booking: { id: string; customerName: string; eventDate: string; eventTime: string | null; status: BookingStatus; leadId: string | null; rush: boolean; retainerPaid: boolean; balancePaymentPreference: BalancePreference; agreement: AgreementInfo | null };
   filledBy: { id: string; name: string } | null;
   offers: GigOffer[];
 };
@@ -282,6 +282,8 @@ export type LeadBooking = {
   status: BookingStatus;
   rush: boolean;
   retainerPaid: boolean;
+  balancePaymentPreference: BalancePreference;
+  agreement: AgreementInfo | null;
   total: string | null;
   addons: BookingAddon[];
 };
@@ -367,6 +369,19 @@ export type PackageInput = {
 export { BOOKING_STAGES } from "./bookingStatus";
 export type BookingStatus = BookingStage;
 
+// What a customer agreed to on a booking, slim. The contract fields are
+// reserved for the signed-contract integration and are null until then.
+export type AgreementInfo = {
+  id: string;
+  checkboxChecked: boolean;
+  agreedAt: string;
+  contractProvider: string | null;
+  contractExternalId: string | null;
+  contractStatus: string | null;
+  contractUrl: string | null;
+  policyVersion: { id: string; version: number };
+};
+
 export type Booking = {
   id: string;
   accountId: string;
@@ -386,6 +401,10 @@ export type Booking = {
   // Booked or moved inside the minimum notice window. Visibility only.
   rush: boolean;
   retainerPaid: boolean;
+  occasion: string | null;
+  balancePaymentPreference: BalancePreference;
+  // Null on bookings made before agreements existed.
+  agreement: AgreementInfo | null;
   customerId: string | null; // set when booked from a customer account
   total: string | null; // what the customer was quoted, add-ons included
   addons: BookingAddon[];
@@ -395,30 +414,32 @@ export type Booking = {
   updatedAt: string;
 };
 
-export type NewBooking = {
-  leadId: string | null;
-  eventDate: string; // "YYYY-MM-DD"
-  eventTime: string;
-  address: string;
-  customerName: string;
-  phone: string;
-  email: string;
-  status: BookingStatus;
-  unitIds: string[];
-};
-
-export type BookingPatch = Partial<Omit<NewBooking, "eventTime" | "address">> & {
+export type BookingPatch = {
+  leadId?: string | null;
+  eventDate?: string;
+  customerName?: string;
+  phone?: string;
+  email?: string;
+  status?: BookingStatus;
+  unitIds?: string[];
   eventTime?: string | null;
   address?: string | null;
   retainerPaid?: boolean;
+  balancePaymentPreference?: BalancePreference;
 };
 
-// Account-wide rush order settings.
-export type RushSettings = {
+// Account-wide settings: rush notice, review routing, deposit.
+export type AccountSettings = {
   minBookingNoticeHours: number;
   // Null until a real number is set.
   rushContactPhone: string | null;
+  fullReviewThreshold: number;
+  reviewOccasions: string[];
+  depositPercentage: number;
+  requireAgreementCheckbox: boolean;
 };
+
+export type PolicyVersionInfo = { id: string; version: number; text: string; createdAt: string; agreements: number };
 
 // An item as the public catalog returns it for one date: only items with a
 // free unit or a free person that day, with how many.
@@ -427,7 +448,9 @@ export type AvailableItem = RecommendItem & { freeUnits: number };
 export type CustomerMatch = { id: string; name: string | null; phone: string; email: string };
 
 // What the admin's New booking sends. It is the storefront's direct
-// booking plus a quantity per item and an optional price.
+// booking plus a quantity per item, an optional price, and the staff-only
+// fields: that the customer agreed, and which design request this turns
+// into a booking.
 export type StaffBookingRequest = {
   customerId?: string;
   customerName: string;
@@ -440,12 +463,38 @@ export type StaffBookingRequest = {
   eventTime?: string;
   address?: string;
   total?: number | null;
+  occasion?: string;
+  balancePaymentPreference: BalancePreference;
+  agreed: boolean;
+  designRequestId?: string;
 };
 
-export type StaffBookingResult = {
-  bookingId: string;
-  leadId: string;
-  stage: DisplayStatus;
-  rush: boolean;
+export type StaffBookingResult =
+  | { reviewRequired?: false; bookingId: string; leadId: string; stage: DisplayStatus; rush: boolean; total: number | null }
+  | { reviewRequired: true; designRequestId: string; reasons: ("threshold" | "occasion")[]; total: number | null; message: string };
+
+export type DesignRequest = {
+  id: string;
+  status: "Open" | "Converted" | "Dismissed";
+  reasons: ("threshold" | "occasion")[];
+  occasion: string | null;
+  eventDate: string;
+  eventTime: string | null;
+  address: string | null;
+  customerName: string;
+  phone: string | null;
+  email: string | null;
+  customerId: string | null;
+  packageId: string | null;
   total: number | null;
+  balancePaymentPreference: BalancePreference;
+  notes: string | null;
+  bookingId: string | null;
+  createdAt: string;
+  cart: {
+    items: { itemId: string; name: string; quantity: number; price: number | null }[];
+    addons: { itemId: string; addonId: string | null; itemName: string; groupName: string; addonName: string; priceDelta: number; quantity: number }[];
+    package: { id: string; name: string; price: number } | null;
+    computedTotal: number | null;
+  };
 };

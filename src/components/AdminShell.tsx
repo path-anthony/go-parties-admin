@@ -6,19 +6,21 @@ import { AskGoPanel } from "./AskGoPanel";
 import { NavRail } from "./NavRail";
 import { LeadsScreen } from "./screens/LeadsScreen";
 import { CrewGigsScreen } from "./screens/CrewGigsScreen";
+import { DesignRequestsScreen } from "./screens/DesignRequestsScreen";
 import { InventoryScreen } from "./screens/InventoryScreen";
 import { OverviewScreen } from "./screens/OverviewScreen";
 import { PackagesScreen } from "./screens/PackagesScreen";
 import { SchedulingScreen } from "./screens/SchedulingScreen";
 import { SettingsScreen } from "./screens/SettingsScreen";
 
-export type ScreenKey = "overview" | "inventory" | "packages" | "leads" | "scheduling" | "crew" | "settings";
+export type ScreenKey = "overview" | "inventory" | "packages" | "leads" | "requests" | "scheduling" | "crew" | "settings";
 
 const SCREEN_TITLES: Record<ScreenKey, string> = {
   overview: "Overview",
   inventory: "Inventory",
   packages: "Packages & Themes",
   leads: "Leads",
+  requests: "Design requests",
   scheduling: "Scheduling",
   crew: "Crew & Gigs",
   settings: "Settings",
@@ -32,6 +34,8 @@ function ScreenBody({ screen, params }: { screen: ScreenKey; params: ScreenParam
       return <InventoryScreen />;
     case "leads":
       return <LeadsScreen initialStatus={params.leadStatus} initialFollowUp={params.leadFollowUp} initialStaleDays={params.leadStaleDays} />;
+    case "requests":
+      return <DesignRequestsScreen />;
     case "scheduling":
       return <SchedulingScreen />;
     case "settings":

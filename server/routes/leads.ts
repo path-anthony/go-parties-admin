@@ -1,3 +1,4 @@
+import { AGREEMENT_SELECT } from "../agreements.js";
 import { Router } from "express";
 import { getDefaultAccount } from "../account.js";
 import { prisma } from "../db.js";
@@ -23,6 +24,8 @@ const LEAD_BOOKINGS = {
       status: true,
       rush: true,
       retainerPaid: true,
+      balancePaymentPreference: true,
+      agreement: AGREEMENT_SELECT,
       total: true,
       addons: {
         select: { id: true, itemName: true, groupName: true, addonName: true, priceDelta: true, quantity: true },

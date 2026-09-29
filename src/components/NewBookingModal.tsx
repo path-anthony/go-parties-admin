@@ -2,7 +2,10 @@ import { type FormEvent, useEffect, useMemo, useState } from "react";
 import { X } from "lucide-react";
 import { createStaffBooking, getAvailableItems, searchCustomers } from "../lib/api";
 import { deltaLabel } from "../lib/addons";
-import type { AvailableItem, CustomerMatch } from "../lib/types";
+import { BALANCE_PREFERENCES, type BalancePreference } from "../lib/bookingStatus";
+import { useNavigate } from "../lib/navigation";
+import { OCCASION_GROUPS } from "../lib/occasions";
+import type { AvailableItem, CustomerMatch, DesignRequest } from "../lib/types";
 
 const usd = (n: number) => n.toLocaleString("en-US", { style: "currency", currency: "USD" });
 const todayEastern = () => new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York" }).format(new Date());
@@ -14,31 +17,59 @@ const MAX_LIST = 30;
 // storefront's own list for that date, and the server takes the same unit
 // and crew locks when it is created. New bookings start Held, and RUSH is
 // worked out by the same rule as any other.
-export function NewBookingModal({ onClose, onCreated }: { onClose: () => void; onCreated: (bookingId: string) => void | Promise<void> }) {
-  const [date, setDate] = useState("");
-  const [time, setTime] = useState("");
-  const [address, setAddress] = useState("");
+//
+// Given a design request it opens pre-filled from it (date, cart, options,
+// contact, occasion, price) for staff to adjust, and creating the booking
+// marks the request Converted in the same transaction. Nothing about the
+// availability check or the agreement changes: the request held nothing.
+export function NewBookingModal({
+  onClose,
+  onCreated,
+  onReview,
+  request,
+}: {
+  onClose: () => void;
+  onCreated: (bookingId: string) => void | Promise<void>;
+  // Called when the booking turned out to need review and became a design
+  // request instead.
+  onReview?: () => void;
+  request?: DesignRequest;
+}) {
+  const navigate = useNavigate();
+  const [date, setDate] = useState(request ? request.eventDate.slice(0, 10) : "");
+  const [time, setTime] = useState(request?.eventTime ?? "");
+  const [address, setAddress] = useState(request?.address ?? "");
+  const [occasion, setOccasion] = useState(request?.occasion ?? "");
+  const [balance, setBalance] = useState<BalancePreference>(request?.balancePaymentPreference ?? "Manual");
+  const [agreed, setAgreed] = useState(false);
+  const [reviewMessage, setReviewMessage] = useState<string | null>(null);
+  // Options chosen on the request, matched to their groups once the day's
+  // catalog has loaded; anything the user changes overrides them.
+  const requestAddonIds = useMemo(() => new Set((request?.cart.addons ?? []).flatMap((a) => (a.addonId ? [a.addonId] : []))), [request]);
 
   const [available, setAvailable] = useState<AvailableItem[] | null>(null);
   // The date the list on screen was loaded for; loading is when it differs.
   const [loadedFor, setLoadedFor] = useState("");
   const [search, setSearch] = useState("");
   // itemId -> quantity, in the order added.
-  const [cart, setCart] = useState<Record<string, number>>({});
-  // itemId -> groupId -> addonId
+  const [cart, setCart] = useState<Record<string, number>>(() =>
+    Object.fromEntries((request?.cart.items ?? []).map((i) => [i.itemId, i.quantity])),
+  );
+  // itemId -> groupId -> addonId ("" means cleared)
   const [picks, setPicks] = useState<Record<string, Record<string, string>>>({});
   const [dropped, setDropped] = useState<string | null>(null);
 
   const [customerQuery, setCustomerQuery] = useState("");
   const [matches, setMatches] = useState<CustomerMatch[]>([]);
-  const [customerId, setCustomerId] = useState<string | null>(null);
+  const [customerId, setCustomerId] = useState<string | null>(request?.customerId ?? null);
   // The account's own name, for the line saying which account is in use.
-  const [accountName, setAccountName] = useState("");
-  const [name, setName] = useState("");
-  const [phone, setPhone] = useState("");
-  const [email, setEmail] = useState("");
+  const [accountName, setAccountName] = useState(request?.customerId ? request.customerName : "");
+  const [name, setName] = useState(request?.customerName ?? "");
+  const [phone, setPhone] = useState(request?.phone ?? "");
+  const [email, setEmail] = useState(request?.email ?? "");
 
-  const [priceText, setPriceText] = useState<string | null>(null);
+  // On a converted request the price starts at what the request carried.
+  const [priceText, setPriceText] = useState<string | null>(request && request.total !== null ? String(request.total) : null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -97,6 +128,12 @@ export function NewBookingModal({ onClose, onCreated }: { onClose: () => void; o
   const loadingItems = date !== "" && loadedFor !== date;
   const shownMatches = customerQuery.trim().length < 2 ? [] : matches;
   const byId = useMemo(() => new Map((available ?? []).map((i) => [i.id, i])), [available]);
+  const pickOf = (item: AvailableItem, groupId: string): string => {
+    const override = picks[item.id]?.[groupId];
+    if (override !== undefined) return override;
+    const group = item.addonGroups.find((g) => g.id === groupId);
+    return group?.addons.find((a) => requestAddonIds.has(a.id))?.id ?? "";
+  };
   const cartItems = Object.keys(cart)
     .map((id) => byId.get(id))
     .filter((i): i is AvailableItem => !!i);
@@ -124,8 +161,8 @@ export function NewBookingModal({ onClose, onCreated }: { onClose: () => void; o
   // chosen option's change times the quantity.
   const lines = cartItems.map((item) => {
     const qty = cart[item.id];
-    const chosen = Object.entries(picks[item.id] ?? {}).flatMap(([groupId, addonId]) => {
-      const addon = item.addonGroups.find((g) => g.id === groupId)?.addons.find((a) => a.id === addonId);
+    const chosen = item.addonGroups.flatMap((group) => {
+      const addon = group.addons.find((a) => a.id === pickOf(item, group.id));
       return addon ? [addon] : [];
     });
     const delta = chosen.reduce((sum, a) => sum + a.priceDelta, 0);
@@ -155,8 +192,9 @@ export function NewBookingModal({ onClose, onCreated }: { onClose: () => void; o
     e.preventDefault();
     setError(null);
     if (cartItems.length === 0) return setError("Add at least one item.");
+    if (!agreed) return setError("Confirm that the customer agreed to the cancellation and deposit policy.");
     const missing = cartItems.flatMap((item) =>
-      item.addonGroups.filter((g) => g.required && g.addons.length > 0 && !picks[item.id]?.[g.id]).map((g) => `${item.name}: ${g.name}`),
+      item.addonGroups.filter((g) => g.required && g.addons.length > 0 && !pickOf(item, g.id)).map((g) => `${item.name}: ${g.name}`),
     );
     if (missing.length > 0) return setError(`Answer the required options first: ${missing.join(", ")}.`);
     const priceNumber = shownPrice.trim() === "" ? null : Number(shownPrice);
@@ -171,12 +209,28 @@ export function NewBookingModal({ onClose, onCreated }: { onClose: () => void; o
         email,
         itemIds: cartItems.map((i) => i.id),
         quantities: Object.fromEntries(cartItems.map((i) => [i.id, cart[i.id]])),
-        addons: Object.fromEntries(cartItems.map((i) => [i.id, Object.values(picks[i.id] ?? {})]).filter(([, v]) => (v as string[]).length > 0)),
+        addons: Object.fromEntries(
+          cartItems
+            .map((i) => [i.id, i.addonGroups.map((g) => pickOf(i, g.id)).filter((id) => id !== "")] as const)
+            .filter(([, ids]) => ids.length > 0),
+        ),
         eventDate: date,
         ...(time.trim() ? { eventTime: time.trim() } : {}),
         ...(address.trim() ? { address: address.trim() } : {}),
         ...(priceNumber !== computed ? { total: priceNumber } : {}),
+        ...(occasion ? { occasion } : {}),
+        balancePaymentPreference: balance,
+        agreed: true,
+        ...(request ? { designRequestId: request.id } : {}),
       });
+      if (result.reviewRequired) {
+        // Over the threshold or an occasion that needs review: it became a
+        // design request, and nothing was held.
+        setReviewMessage("This one needs review, so it was sent to Design requests instead of being held. Nothing is locked yet.");
+        setBusy(false);
+        onReview?.();
+        return;
+      }
       await onCreated(result.bookingId);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Couldn't create the booking");
@@ -188,7 +242,7 @@ export function NewBookingModal({ onClose, onCreated }: { onClose: () => void; o
     <div className="modal-backdrop" onClick={onClose}>
       <div className="modal" role="dialog" aria-modal="true" aria-label="New booking" onClick={(e) => e.stopPropagation()}>
         <div className="modal-head">
-          <h2>New booking</h2>
+          <h2>{request ? "Convert design request" : "New booking"}</h2>
           <button type="button" className="icon-btn" onClick={onClose} aria-label="Close">
             <X size={16} />
           </button>
@@ -215,6 +269,36 @@ export function NewBookingModal({ onClose, onCreated }: { onClose: () => void; o
               Address
               <input value={address} onChange={(e) => setAddress(e.target.value)} placeholder="Where the party is" maxLength={300} />
             </label>
+            <div className="field-row">
+              <label>
+                Occasion
+                <select value={occasion} onChange={(e) => setOccasion(e.target.value)} aria-label="Occasion">
+                  <option value="">Not said</option>
+                  {OCCASION_GROUPS.map((group) => (
+                    <optgroup key={group.label} label={group.label}>
+                      <option value={group.label}>{group.label} (general)</option>
+                      {group.occasions.map((o) => (
+                        <option key={`${group.label}-${o}`} value={o}>
+                          {o}
+                        </option>
+                      ))}
+                    </optgroup>
+                  ))}
+                </select>
+                <span className="muted field-help">Wedding and Corporate, and anything over the threshold, are sent to Design requests.</span>
+              </label>
+              <label>
+                Balance payment
+                <select value={balance} onChange={(e) => setBalance(e.target.value as BalancePreference)} aria-label="Balance payment preference">
+                  {BALANCE_PREFERENCES.map((b) => (
+                    <option key={b} value={b}>
+                      {b}
+                    </option>
+                  ))}
+                </select>
+                <span className="muted field-help">How the balance will be collected. Recorded only for now.</span>
+              </label>
+            </div>
           </div>
 
           <div className="modal-section">
@@ -276,14 +360,11 @@ export function NewBookingModal({ onClose, onCreated }: { onClose: () => void; o
                           {group.name}
                           {group.required ? "*" : ""}
                           <select
-                            value={picks[item.id]?.[group.id] ?? ""}
+                            value={pickOf(item, group.id)}
                             aria-label={`${group.name} for ${item.name}`}
                             onChange={(e) =>
                               setPicks((prev) => {
-                                const forItem = { ...(prev[item.id] ?? {}) };
-                                if (e.target.value === "") delete forItem[group.id];
-                                else forItem[group.id] = e.target.value;
-                                return { ...prev, [item.id]: forItem };
+                                return { ...prev, [item.id]: { ...(prev[item.id] ?? {}), [group.id]: e.target.value } };
                               })
                             }
                           >
@@ -392,14 +473,40 @@ export function NewBookingModal({ onClose, onCreated }: { onClose: () => void; o
             )}
           </div>
 
+          <div className="modal-section">
+            <span className="detail-field-label">5. Agreement</span>
+            <label className="checkbox-label">
+              <input type="checkbox" checked={agreed} onChange={(e) => setAgreed(e.target.checked)} aria-label="Customer agreed to the policy" />
+              The customer has agreed to the cancellation and deposit policy.
+            </label>
+            <span className="muted field-help">
+              Read it to them, or send it, before ticking. The agreement is recorded against the policy version that is current now.
+            </span>
+          </div>
+
+          {reviewMessage && (
+            <p className="bulk-result" role="status">
+              {reviewMessage}{" "}
+              <button
+                type="button"
+                className="btn-secondary"
+                onClick={() => {
+                  onClose();
+                  navigate("requests");
+                }}
+              >
+                Open Design requests
+              </button>
+            </p>
+          )}
           {error && (
             <p className="form-error" role="alert">
               {error}
             </p>
           )}
           <div className="form-actions">
-            <button type="submit" className="btn-primary" disabled={busy}>
-              {busy ? "Creating…" : "Create booking"}
+            <button type="submit" className="btn-primary" disabled={busy || reviewMessage !== null}>
+              {busy ? "Creating…" : request ? "Create booking from this request" : "Create booking"}
             </button>
             <button type="button" className="btn-secondary" onClick={onClose} disabled={busy}>
               Cancel
