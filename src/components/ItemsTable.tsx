@@ -125,7 +125,10 @@ function ItemRow({
         </td>
         <td className="catalog-name">{item.name}</td>
         <td className="muted">{item.category}</td>
-        <td>{priceLabel(item)}</td>
+        <td>
+          {priceLabel(item)}
+          {item.needsPriceReview && <span className="review-flag" title="Needs price review. Admin only.">Review</span>}
+        </td>
         <td className={unitCount === 0 ? "muted" : ""}>{unitCount === 0 ? "None" : unitCount}</td>
         <td className={item.skills.length === 0 ? "muted" : ""}>{item.skills.length === 0 ? "None" : item.skills.join(", ")}</td>
       <td className={item.addonGroups.length === 0 ? "muted" : ""}>{addonsLabel(item)}</td>

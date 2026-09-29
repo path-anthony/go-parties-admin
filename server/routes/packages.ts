@@ -2,6 +2,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { Router } from "express";
 import { getDefaultAccount } from "../account.js";
 import { prisma } from "../db.js";
+import { ALL_OCCASIONS } from "../../src/lib/occasions.js";
 import { INVALID, isOneOf, normalizeText } from "../validate.js";
 
 const PACKAGE_STATUSES = ["Draft", "Published"] as const;
@@ -32,6 +33,21 @@ function stringList(value: unknown, what: string, maxItems: number, maxLength: n
   }
   if (out.length > maxItems) return `${what} can hold at most ${maxItems} entries`;
   return out;
+}
+
+// Occasions are the storefront's sub-occasion strings, chosen from the
+// checkbox list in the package builder. A value that isn't on that list
+// would save fine and then never be found by the storefront, so the API
+// holds the same line as the screen. Case is normalised to the list's.
+function occasionList(value: unknown): string[] | string {
+  const list = stringList(value, "occasions", MAX_OCCASIONS, MAX_OCCASION_LENGTH);
+  if (typeof list === "string") return list;
+  const byKey = new Map(ALL_OCCASIONS.map((occasion) => [occasion.toLowerCase(), occasion]));
+  const unknown = list.filter((occasion) => !byKey.has(occasion.toLowerCase()));
+  if (unknown.length > 0) {
+    return `unknown occasion${unknown.length === 1 ? "" : "s"}: ${unknown.join(", ")}. Pick from the list in the package builder.`;
+  }
+  return list.map((occasion) => byKey.get(occasion.toLowerCase()) as string);
 }
 
 const router = Router();
@@ -100,7 +116,7 @@ router.post("/", async (req, res) => {
   const account = await getDefaultAccount();
   const items = await resolveItems(account.id, body.items ?? []);
   if (typeof items === "string") return res.status(400).json({ error: items });
-  const occasions = stringList(body.occasions ?? [], "occasions", MAX_OCCASIONS, MAX_OCCASION_LENGTH);
+  const occasions = occasionList(body.occasions ?? []);
   if (typeof occasions === "string") return res.status(400).json({ error: occasions });
   const keywords = stringList(body.keywords ?? [], "keywords", MAX_KEYWORDS, MAX_KEYWORD_LENGTH);
   if (typeof keywords === "string") return res.status(400).json({ error: keywords });
@@ -157,7 +173,7 @@ router.patch("/:id", async (req, res) => {
     data.keywords = keywords;
   }
   if ("occasions" in body) {
-    const occasions = stringList(body.occasions, "occasions", MAX_OCCASIONS, MAX_OCCASION_LENGTH);
+    const occasions = occasionList(body.occasions);
     if (typeof occasions === "string") return res.status(400).json({ error: occasions });
     data.occasions = occasions;
   }

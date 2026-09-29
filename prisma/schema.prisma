@@ -343,23 +343,32 @@ model BookingUnit {
 }
 
 model Item {
-  id        String   @id @default(cuid())
-  accountId String   @map("account_id")
-  name      String
-  category  String
-  price     Decimal? @db.Decimal(10, 2)
-  priceUnit String?  @map("price_unit")
-  notes     String?
-  photoUrl  String?  @map("photo_url")
+  id               String   @id @default(cuid())
+  accountId        String   @map("account_id")
+  name             String
+  category         String
+  price            Decimal? @db.Decimal(10, 2)
+  // How the price reads to a customer. One of the fixed choices in
+  // src/lib/itemFields.ts, or a short "Other" text (30 characters at most),
+  // validated at the API. It is customer-facing, so nothing internal goes
+  // here; that is what source and needsPriceReview are for.
+  priceUnit        String?  @map("price_unit")
+  // Where the item comes from: Owned or Partner-sourced. Admin only.
+  source           String   @default("Owned")
+  // Internal flag: the price came from a supplier and still needs a human
+  // look. Admin only, never in a public response.
+  needsPriceReview Boolean  @default(false) @map("needs_price_review")
+  notes            String?
+  photoUrl         String?  @map("photo_url")
   // The crew skills this item needs to run, from the fixed list in
   // server/skills.ts (plain strings, like CrewMember.skills). Empty for
   // most physical items. Independent of units: an item can be a physical
   // piece with units, a service with skills, or both (a cigar bar that is
   // a real setup and needs waitstaff and a bartender). Booking it creates
   // one Gig per skill per unit wanted, on top of any unit it holds.
-  skills    String[] @default([])
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
+  skills           String[] @default([])
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
 
   account       Account        @relation(fields: [accountId], references: [id])
   units         Unit[]

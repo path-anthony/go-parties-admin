@@ -21,7 +21,7 @@ import {
 import { prisma } from "../db.js";
 import { BOOKING_GIGS_SELECT, NoCrewFree } from "../gigs.js";
 import { customerActionLimiter, customerLoginLimiter, customerSignupLimiter } from "../rateLimit.js";
-import { INVALID, normalizeDate, normalizeText } from "../validate.js";
+import { INVALID, normalizeDate, normalizeText, todayEastern } from "../validate.js";
 
 const BCRYPT_ROUNDS = 12;
 const MAX_TIME_LENGTH = 60;
@@ -170,7 +170,7 @@ router.post("/bookings/:id/reschedule", requireCustomer, customerActionLimiter, 
     if (date === null || date === INVALID) {
       return res.status(400).json({ error: "eventDate must be a valid YYYY-MM-DD date" });
     }
-    if (date.toISOString().slice(0, 10) < new Date().toISOString().slice(0, 10)) {
+    if (date.toISOString().slice(0, 10) < todayEastern()) {
       return res.status(400).json({ error: "eventDate can't be in the past" });
     }
     change.date = date;

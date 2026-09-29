@@ -18,7 +18,9 @@ const NOT_TRACKED = [
 const NEAREST_GIGS = 3;
 
 // The day as a plain YYYY-MM-DD, for comparing event dates to today.
-const today = () => new Date().toISOString().slice(0, 10);
+// Eastern time, the business's day: the UTC day rolls over at 8pm Eastern
+// and would drop tonight's gigs from "upcoming" a few hours early.
+const today = () => new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
 
 export function OverviewScreen() {
   const navigate = useNavigate();

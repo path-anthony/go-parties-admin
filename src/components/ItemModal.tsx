@@ -12,12 +12,16 @@ import {
   updateAddon,
   updateAddonGroup,
   updateItem,
+  updateUnit,
   type ItemPatch,
 } from "../lib/api";
 import { deltaLabel } from "../lib/addons";
 import { isUploadedPhoto } from "../lib/photo";
 import { UNIT_STATUSES, type AddonGroup, type Item, type ItemDeleteResult, type ItemUsage, type Unit, type UnitStatus } from "../lib/types";
+import { ITEM_SOURCES, type ItemSource } from "../lib/itemFields";
 import { AddItemForm } from "./AddItemForm";
+import { BilledPerPicker } from "./BilledPerPicker";
+import { CategoryPicker } from "./CategoryPicker";
 import { EditableCell } from "./EditableCell";
 import { PhotoDropZone } from "./PhotoDropZone";
 
@@ -37,6 +41,7 @@ export function ItemModal({
   onItemUpdated,
   onUnitsAdded,
   onUnitRemoved,
+  onUnitUpdated,
   onDeleted,
 }: {
   item: Item | null;
@@ -51,6 +56,7 @@ export function ItemModal({
   onItemUpdated: (item: Item) => void;
   onUnitsAdded: () => Promise<void>;
   onUnitRemoved: (unitId: string) => void;
+  onUnitUpdated: (unit: Unit) => void;
   onDeleted: (item: Item, result: ItemDeleteResult) => void;
 }) {
   useEffect(() => {
@@ -87,8 +93,8 @@ export function ItemModal({
 
         {item ? (
           <>
-            <ItemDetail item={item} skillNames={skills} onItemUpdated={onItemUpdated} />
-            <UnitsSection item={item} units={units} onUnitsAdded={onUnitsAdded} onUnitRemoved={onUnitRemoved} />
+            <ItemDetail item={item} categories={categories} skillNames={skills} onItemUpdated={onItemUpdated} />
+            <UnitsSection item={item} units={units} onUnitsAdded={onUnitsAdded} onUnitRemoved={onUnitRemoved} onUnitUpdated={onUnitUpdated} />
             <AddonsSection item={item} onItemUpdated={onItemUpdated} />
             <div className="modal-foot">
               <div className="form-actions">
@@ -114,7 +120,17 @@ export function ItemModal({
   );
 }
 
-function ItemDetail({ item, skillNames, onItemUpdated }: { item: Item; skillNames: string[]; onItemUpdated: (item: Item) => void }) {
+function ItemDetail({
+  item,
+  categories,
+  skillNames,
+  onItemUpdated,
+}: {
+  item: Item;
+  categories: string[];
+  skillNames: string[];
+  onItemUpdated: (item: Item) => void;
+}) {
   async function save(patch: ItemPatch) {
     onItemUpdated(await updateItem(item.id, patch));
   }
@@ -127,11 +143,7 @@ function ItemDetail({ item, skillNames, onItemUpdated }: { item: Item; skillName
       </div>
       <div className="detail-field">
         <span className="detail-field-label">Category</span>
-        <EditableCell
-          value={item.category}
-          ariaLabel={`Category for ${item.name}`}
-          onSave={(category) => save({ category })}
-        />
+        <CategoryField item={item} categories={categories} onSave={save} />
       </div>
       <div className="detail-field">
         <span className="detail-field-label">Price</span>
@@ -144,14 +156,35 @@ function ItemDetail({ item, skillNames, onItemUpdated }: { item: Item; skillName
         />
       </div>
       <div className="detail-field">
-        <span className="detail-field-label">Billed per</span>
-        <EditableCell
-          value={item.priceUnit ?? ""}
-          placeholder="e.g. day, event, hour"
-          ariaLabel={`Billed per, for ${item.name}`}
-          onSave={(priceUnit) => save({ priceUnit })}
-        />
-        <span className="muted field-help">How the price reads to a customer ("per day"). Not the number of units, which is below.</span>
+        <BilledPerField item={item} onSave={save} />
+      </div>
+      <div className="detail-field">
+        <span className="detail-field-label">Source</span>
+        <select
+          value={item.source}
+          aria-label={`Source for ${item.name}`}
+          onChange={(e) => save({ source: e.target.value as ItemSource })}
+        >
+          {ITEM_SOURCES.map((source) => (
+            <option key={source} value={source}>
+              {source}
+            </option>
+          ))}
+        </select>
+        <span className="muted field-help">Where the item comes from. Admin only, customers never see it.</span>
+      </div>
+      <div className="detail-field">
+        <span className="detail-field-label">Price review</span>
+        <label className="checkbox-label">
+          <input
+            type="checkbox"
+            checked={item.needsPriceReview}
+            aria-label={`Needs price review, for ${item.name}`}
+            onChange={(e) => save({ needsPriceReview: e.target.checked })}
+          />
+          Needs price review
+        </label>
+        <span className="muted field-help">Flags a price that still needs a look. Admin only, never shown on the storefront.</span>
       </div>
       <div className="detail-field detail-field-span">
         <span className="detail-field-label">Crew skills needed</span>
@@ -193,6 +226,97 @@ function ItemDetail({ item, skillNames, onItemUpdated }: { item: Item; skillName
         <PhotoField item={item} onSave={save} />
       </div>
     </div>
+  );
+}
+
+// Billed per, as a dropdown with a short Other. A pick saves at once;
+// typing in Other saves when the box is left. The server has the final
+// say on the list and the length, and its message is shown as is.
+function BilledPerField({ item, onSave }: { item: Item; onSave: (patch: ItemPatch) => Promise<void> }) {
+  const stored = item.priceUnit ?? "";
+  const [draft, setDraft] = useState(stored);
+  const [syncedTo, setSyncedTo] = useState(stored);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  // After a save the server's spelling wins (it fixes the case of a
+  // listed choice).
+  if (stored !== syncedTo) {
+    setSyncedTo(stored);
+    setDraft(stored);
+  }
+
+  async function commit(next: string) {
+    if (next === stored) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await onSave({ priceUnit: next === "" ? null : next });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Couldn't save");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <>
+      <BilledPerPicker
+        value={draft}
+        onSelect={(value) => {
+          setDraft(value);
+          void commit(value);
+        }}
+        onText={setDraft}
+        onTextCommit={(value) => void commit(value)}
+        disabled={busy}
+        ariaLabel={`Billed per, for ${item.name}`}
+      />
+      {error && <p className="form-error">{error}</p>}
+    </>
+  );
+}
+
+// Category is chosen from the ones in use, or created on purpose with the
+// + row; free text on its own never becomes a category. Same picker as
+// the new-item form.
+function CategoryField({
+  item,
+  categories,
+  onSave,
+}: {
+  item: Item;
+  categories: string[];
+  onSave: (patch: ItemPatch) => Promise<void>;
+}) {
+  const [error, setError] = useState<string | null>(null);
+  const [added, setAdded] = useState<string[]>([]);
+
+  async function choose(category: string) {
+    if (category === item.category) return;
+    setError(null);
+    try {
+      await onSave({ category });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Couldn't save");
+    }
+  }
+
+  const options = [...new Set([...categories, ...added, item.category])].sort((a, b) => a.localeCompare(b));
+  return (
+    <>
+      <CategoryPicker
+        label={null}
+        options={options}
+        value={item.category}
+        onChange={(category) => void choose(category)}
+        onAddNew={(category) => {
+          setAdded((prev) => (prev.includes(category) ? prev : [...prev, category]));
+          void choose(category);
+        }}
+      />
+      {error && <p className="form-error">{error}</p>}
+    </>
   );
 }
 
@@ -252,11 +376,13 @@ function UnitsSection({
   units,
   onUnitsAdded,
   onUnitRemoved,
+  onUnitUpdated,
 }: {
   item: Item;
   units: Unit[];
   onUnitsAdded: () => Promise<void>;
   onUnitRemoved: (unitId: string) => void;
+  onUnitUpdated: (unit: Unit) => void;
 }) {
   const [quantity, setQuantity] = useState(1);
   // Default the pattern to the item's own naming ("Bar #1" when its units
@@ -286,7 +412,8 @@ function UnitsSection({
       <span className="detail-field-label">Units</span>
       <p className="muted addon-help">
         How many of this item can be out on one date. Each unit is one real piece. An item with no units and no crew skills
-        can't be booked from the storefront.
+        can't be booked from the storefront. Set a unit to Booked or Maintenance to take it out of availability on every
+        date; set it back to Available to return it.
       </p>
       {units.length === 0 ? (
         <p className="muted">No units. {item.skills.length > 0 ? "It's covered by crew alone." : "Add at least one so it can be booked."}</p>
@@ -295,8 +422,25 @@ function UnitsSection({
           {units.map((unit) => (
             <li key={unit.id} className="unit-row">
               <span>
-                <strong>{unit.label}</strong> <span className="muted">· {unit.status}</span>
+                <strong>{unit.label}</strong>
               </span>
+              <select
+                className="unit-status-select"
+                value={unit.status}
+                disabled={busy}
+                aria-label={`Status for ${unit.label} of ${item.name}`}
+                onChange={(e) =>
+                  run(async () => {
+                    onUnitUpdated(await updateUnit(unit.id, { status: e.target.value as UnitStatus }));
+                  }, "Couldn't change the status")
+                }
+              >
+                {UNIT_STATUSES.map((status) => (
+                  <option key={status} value={status}>
+                    {status}
+                  </option>
+                ))}
+              </select>
               <button
                 type="button"
                 className="icon-btn"

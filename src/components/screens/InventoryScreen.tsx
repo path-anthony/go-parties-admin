@@ -1,16 +1,26 @@
 import { type FormEvent, useEffect, useState } from "react";
 import { Plus, Upload } from "lucide-react";
-import { createUnitsBulk, getItems, getSkills, getUnits } from "../../lib/api";
-import { UNIT_STATUSES, type Item, type ItemDeleteResult, type Unit, type UnitStatus } from "../../lib/types";
+import { createUnitsBulk, getBulkItemUsage, getItems, getSkills, getUnits } from "../../lib/api";
+import {
+  UNIT_STATUSES,
+  type BulkItemDeleteResult,
+  type BulkItemUsage,
+  type Item,
+  type ItemDeleteResult,
+  type Unit,
+  type UnitStatus,
+} from "../../lib/types";
 import { BulkAddModal } from "../BulkAddModal";
+import { BulkDeleteItems } from "../BulkDeleteItems";
 import { ItemModal } from "../ItemModal";
 import { ItemsTable } from "../ItemsTable";
 import { StatCard, StatGrid } from "../StatCard";
 
 const ALL_CATEGORIES = "";
 
-function matches(item: Item, query: string, category: string): boolean {
+function matches(item: Item, query: string, category: string, reviewOnly: boolean): boolean {
   if (category !== ALL_CATEGORIES && item.category !== category) return false;
+  if (reviewOnly && !item.needsPriceReview) return false;
   if (query === "") return true;
   return item.name.toLowerCase().includes(query) || (item.notes ?? "").toLowerCase().includes(query);
 }
@@ -46,8 +56,14 @@ export function InventoryScreen() {
   const [bulkAddOpen, setBulkAddOpen] = useState(false);
   const [search, setSearch] = useState("");
   const [category, setCategory] = useState(ALL_CATEGORIES);
+  const [reviewOnly, setReviewOnly] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [bulkOpen, setBulkOpen] = useState(false);
+  // The usage report for a pending bulk delete, fetched when the button is
+  // pressed; the confirmation shows only once it has arrived.
+  const [deleteUsage, setDeleteUsage] = useState<BulkItemUsage | null>(null);
+  const [checkingDelete, setCheckingDelete] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
   // One line about the last bulk add or delete, shown above the list.
   const [notice, setNotice] = useState<string | null>(null);
 
@@ -114,6 +130,40 @@ export function InventoryScreen() {
     getUnits().then(setUnits).catch(() => undefined);
   }
 
+  async function openBulkDelete() {
+    setCheckingDelete(true);
+    setDeleteError(null);
+    setNotice(null);
+    setBulkOpen(false);
+    try {
+      setDeleteUsage(await getBulkItemUsage([...selected]));
+    } catch (err) {
+      setDeleteError(err instanceof Error ? err.message : "Couldn't check where these items are used");
+    } finally {
+      setCheckingDelete(false);
+    }
+  }
+
+  function handleBulkDeleted(result: BulkItemDeleteResult) {
+    const gone = new Set(deleteUsage?.items.map((item) => item.id));
+    setItems((prev) => (prev ?? []).filter((item) => !gone.has(item.id)));
+    setUnits((prev) => prev.filter((unit) => !gone.has(unit.itemId)));
+    setSelected(new Set());
+    setDeleteUsage(null);
+    setModal(null);
+    const parts = [`Deleted ${result.deleted} ${result.deleted === 1 ? "item" : "items"}.`];
+    if (result.removedFrom.length > 0) {
+      parts.push(`Removed them from ${result.removedFrom.length === 1 ? "the package" : "packages"} ${names(result.removedFrom)}.`);
+    }
+    if (result.unpublished.length > 0) {
+      parts.push(
+        `${names(result.unpublished)} ${result.unpublished.length === 1 ? "was" : "were"} left with no items and ` +
+          `${result.unpublished.length === 1 ? "is" : "are"} now unpublished, kept as a draft.`,
+      );
+    }
+    setNotice(parts.join(" "));
+  }
+
   async function handleBulkCreated(created: number, itemCount: number) {
     setUnits(await getUnits());
     setNotice(`Created ${created} ${created === 1 ? "unit" : "units"} across ${itemCount} ${itemCount === 1 ? "item" : "items"}.`);
@@ -122,9 +172,9 @@ export function InventoryScreen() {
   }
 
   const query = search.trim().toLowerCase();
-  const filtering = query !== "" || category !== ALL_CATEGORIES;
+  const filtering = query !== "" || category !== ALL_CATEGORIES || reviewOnly;
   const categories = items ? [...new Set(items.map((item) => item.category))].sort((a, b) => a.localeCompare(b)) : [];
-  const visible = items ? items.filter((item) => matches(item, query, category)) : [];
+  const visible = items ? items.filter((item) => matches(item, query, category, reviewOnly)) : [];
   const modalItem = modal?.mode === "edit" ? items?.find((item) => item.id === modal.id) : undefined;
   const unitCounts = new Map<string, number>();
   for (const unit of units) unitCounts.set(unit.itemId, (unitCounts.get(unit.itemId) ?? 0) + 1);
@@ -154,6 +204,7 @@ export function InventoryScreen() {
             <StatCard label="Total items" value={items.length} />
             <StatCard label="Priced" value={items.filter((item) => item.price !== null).length} />
             <StatCard label="TBD / no price" value={items.filter((item) => item.price === null).length} />
+            <StatCard label="Needs price review" value={items.filter((item) => item.needsPriceReview).length} />
             <StatCard label="Categories" value={categories.length} />
           </StatGrid>
         )}
@@ -175,6 +226,10 @@ export function InventoryScreen() {
                 </option>
               ))}
             </select>
+            <label className="checkbox-label filter-check">
+              <input type="checkbox" checked={reviewOnly} onChange={(e) => setReviewOnly(e.target.checked)} />
+              Needs price review only
+            </label>
             {filtering && (
               <>
                 <span className="filter-count">
@@ -186,6 +241,7 @@ export function InventoryScreen() {
                   onClick={() => {
                     setSearch("");
                     setCategory(ALL_CATEGORIES);
+                    setReviewOnly(false);
                   }}
                 >
                   Clear
@@ -197,6 +253,9 @@ export function InventoryScreen() {
                 <span className="filter-count">{selected.size} selected</span>
                 <button type="button" className="btn-primary" onClick={() => setBulkOpen(true)} disabled={bulkOpen}>
                   Add units
+                </button>
+                <button type="button" className="btn-secondary btn-danger" onClick={openBulkDelete} disabled={checkingDelete}>
+                  {checkingDelete ? "Checking…" : "Delete selected"}
                 </button>
                 <button type="button" className="btn-secondary" onClick={() => setSelected(new Set())}>
                   Clear selection
@@ -213,6 +272,20 @@ export function InventoryScreen() {
             onCancel={() => setBulkOpen(false)}
           />
         )}
+        {deleteUsage && (
+          <BulkDeleteItems
+            usage={deleteUsage}
+            onDeleted={handleBulkDeleted}
+            onDropBlocked={(ids) => {
+              const drop = new Set(ids);
+              setSelected((prev) => new Set([...prev].filter((id) => !drop.has(id))));
+              setDeleteUsage(null);
+              setNotice(`Left ${ids.length} blocked ${ids.length === 1 ? "item" : "items"} out of the selection. Delete selected again to continue.`);
+            }}
+            onCancel={() => setDeleteUsage(null)}
+          />
+        )}
+        {deleteError && <p className="form-error">{deleteError}</p>}
         {notice && (
           <p className="bulk-result" role="status">
             {notice}
@@ -259,6 +332,7 @@ export function InventoryScreen() {
           onItemUpdated={handleItemUpdated}
           onUnitsAdded={async () => setUnits(await getUnits())}
           onUnitRemoved={(unitId) => setUnits((prev) => prev.filter((unit) => unit.id !== unitId))}
+          onUnitUpdated={(updated) => setUnits((prev) => prev.map((unit) => (unit.id === updated.id ? updated : unit)))}
           onDeleted={handleItemDeleted}
         />
       )}

@@ -2480,3 +2480,33 @@ button.kpi-card:focus-visible {
   align-items: center;
   gap: 5px;
 }
+
+/* Billed per dropdown, source and review controls, bulk delete */
+.billed-per-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.review-check {
+  align-self: end;
+  flex-wrap: wrap;
+}
+.filter-check {
+  white-space: nowrap;
+}
+.review-flag {
+  margin-left: 8px;
+  padding: 1px 6px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  font-size: 11px;
+  color: var(--muted);
+}
+.unit-status-select {
+  margin: 0 8px 0 auto;
+}
+.bulk-delete {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}

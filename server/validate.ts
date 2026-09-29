@@ -31,3 +31,14 @@ export function looksLikeEmail(value: string): boolean {
 export function splitContact(contact: string): { phone: string | null; email: string | null } {
   return looksLikeEmail(contact) ? { phone: null, email: contact } : { phone: contact, email: null };
 }
+
+// The business runs on Eastern time (Farmington, CT). "Today" for the
+// is-this-date-in-the-past check is the Eastern calendar day, as
+// YYYY-MM-DD. Using the UTC day instead refuses a same-day booking made
+// after 8pm Eastern (7pm in winter), when UTC has already rolled over.
+export const BUSINESS_TIME_ZONE = "America/New_York";
+
+export function todayEastern(now: Date = new Date()): string {
+  // en-CA formats a date as YYYY-MM-DD.
+  return new Intl.DateTimeFormat("en-CA", { timeZone: BUSINESS_TIME_ZONE, year: "numeric", month: "2-digit", day: "2-digit" }).format(now);
+}

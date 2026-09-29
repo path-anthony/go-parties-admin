@@ -1,3 +1,4 @@
+import type { ItemSource } from "./itemFields";
 import type { GigStatus, OfferStatus, Skill } from "./skills";
 
 // One option inside a group. priceDelta is a serialized Decimal and can be
@@ -44,6 +45,10 @@ export type Item = {
   category: string;
   price: string | null; // serialized Decimal
   priceUnit: string | null;
+  // Admin only. Where the item comes from, and whether its price still
+  // needs a human look. Neither reaches the storefront.
+  source: ItemSource;
+  needsPriceReview: boolean;
   notes: string | null;
   photoUrl: string | null;
   // The crew skills the item needs to run, any number, independent of
@@ -59,6 +64,8 @@ export type NewItem = {
   category: string;
   price: string;
   priceUnit: string;
+  source: ItemSource;
+  needsPriceReview: boolean;
   notes: string;
   photoUrl: string;
   skills: Skill[];
@@ -187,6 +194,23 @@ export type ItemUsage = {
 
 export type ItemDeleteResult = {
   ok: true;
+  removedFrom: { id: string; name: string }[];
+  unpublished: { id: string; name: string }[];
+};
+
+// What deleting a whole selection would touch. blocked lists the items a
+// live booking holds (the delete refuses while it is not empty); each
+// package says how many of its items are selected and whether that is all
+// of them, which is what unpublishes a Published one.
+export type BulkItemUsage = {
+  items: { id: string; name: string }[];
+  blocked: { id: string; name: string; heldByBookings: number }[];
+  packages: { id: string; name: string; status: PackageStatus; itemCount: number; selectedCount: number; emptied: boolean }[];
+};
+
+export type BulkItemDeleteResult = {
+  ok: true;
+  deleted: number;
   removedFrom: { id: string; name: string }[];
   unpublished: { id: string; name: string }[];
 };

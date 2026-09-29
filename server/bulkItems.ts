@@ -1,4 +1,5 @@
 import { prisma } from "./db.js";
+import { normalizeBilledPer } from "./itemFields.js";
 import { listSkillNames } from "./skills.js";
 
 // The bulk importer behind Inventory's "Bulk add items" and behind
@@ -107,7 +108,7 @@ export async function previewCsv(text: string, accountId: string): Promise<Previ
     const name = get(idx.name);
     const categoryText = get(idx.category);
     const priceText = get(idx.price);
-    const billedPer = get(idx.billed_per) || null;
+    const billedPerText = get(idx.billed_per);
     const skillsText = get(idx.skills);
     const unitsText = get(idx.starting_units);
     const notes = get(idx.notes) || null;
@@ -122,7 +123,13 @@ export async function previewCsv(text: string, accountId: string): Promise<Previ
       if (!Number.isFinite(num) || num < 0) problems.push(`price "${priceText}" is not a number`);
       else price = Math.round(num * 100) / 100;
     }
-    if (billedPer && billedPer.length > MAX_TEXT) problems.push(`billed_per is over ${MAX_TEXT} characters`);
+    // Same rule as the item form: a listed choice (any case) or a short label.
+    let billedPer: string | null = null;
+    if (billedPerText) {
+      const normalized = normalizeBilledPer(billedPerText);
+      if ("error" in normalized) problems.push(normalized.error.replace(/^priceUnit/, "billed_per"));
+      else billedPer = normalized.value;
+    }
     if (notes && notes.length > MAX_NOTES) problems.push(`notes are over ${MAX_NOTES} characters`);
 
     const skills = skillsText

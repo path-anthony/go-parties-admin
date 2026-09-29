@@ -6,7 +6,7 @@ import { NoFreeUnits } from "../bookingOps.js";
 import { currentCustomer } from "../customerAuth.js";
 import { prisma } from "../db.js";
 import { NoCrewFree, createGigs, needsCrew } from "../gigs.js";
-import { INVALID, normalizeDate, normalizeText, splitContact } from "../validate.js";
+import { INVALID, normalizeDate, normalizeText, splitContact, todayEastern } from "../validate.js";
 
 const MAX_ADDRESS_LENGTH = 300;
 const MAX_TIME_LENGTH = 60;
@@ -125,7 +125,7 @@ router.post("/", async (req, res) => {
     return res.status(400).json({ error: "eventDate is required and must be a valid YYYY-MM-DD date" });
   }
   const dateText = date.toISOString().slice(0, 10);
-  if (dateText < new Date().toISOString().slice(0, 10)) {
+  if (dateText < todayEastern()) {
     return res.status(400).json({ error: "eventDate can't be in the past" });
   }
   const address = optionalText(body.address, MAX_ADDRESS_LENGTH);

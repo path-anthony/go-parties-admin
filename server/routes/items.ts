@@ -5,13 +5,15 @@ import { TEMPLATE_HEADERS, importCsv, previewCsv } from "../bulkItems.js";
 import { toCsv } from "../csv.js";
 import { prisma } from "../db.js";
 import { validateSkills } from "../skills.js";
+import { ITEM_SOURCES } from "../../src/lib/itemFields.js";
+import { normalizeBilledPer } from "../itemFields.js";
+import { isOneOf } from "../validate.js";
 
-const CSV_HEADERS = ["name", "category", "price", "price_unit", "notes", "photo_url"];
+const CSV_HEADERS = ["name", "category", "price", "price_unit", "notes", "photo_url", "source", "needs_price_review"];
 
 const router = Router();
 
-const EDITABLE_FIELDS = ["name", "category", "price", "priceUnit", "notes", "photoUrl", "skills"] as const;
-type EditableField = (typeof EDITABLE_FIELDS)[number];
+const EDITABLE_FIELDS = ["name", "category", "price", "priceUnit", "notes", "photoUrl", "skills", "source", "needsPriceReview"] as const;
 
 function normalizeText(value: unknown): string | null {
   return typeof value === "string" && value.trim() !== "" ? value.trim() : null;
@@ -89,6 +91,8 @@ router.get("/export.csv", async (_req, res) => {
     item.priceUnit ?? "",
     item.notes ?? "",
     item.photoUrl?.startsWith("data:") ? "(uploaded photo)" : (item.photoUrl ?? ""),
+    item.source,
+    item.needsPriceReview ? "yes" : "",
   ]);
 
   res.setHeader("Content-Type", "text/csv; charset=utf-8");
@@ -138,7 +142,7 @@ router.post("/bulk", async (req, res) => {
 });
 
 router.post("/", async (req, res) => {
-  const { name, category, price, priceUnit, notes, photoUrl, skills, startingUnits } = req.body ?? {};
+  const { name, category, price, priceUnit, notes, photoUrl, skills, startingUnits, source, needsPriceReview } = req.body ?? {};
 
   if (typeof name !== "string" || name.trim() === "") {
     return res.status(400).json({ error: "name is required" });
@@ -152,6 +156,16 @@ router.post("/", async (req, res) => {
   }
   if (photoUrlTooLong(photoUrl)) {
     return res.status(400).json({ error: "photoUrl is too large" });
+  }
+  const billedPer = normalizeBilledPer(priceUnit);
+  if ("error" in billedPer) {
+    return res.status(400).json({ error: billedPer.error });
+  }
+  if (source !== undefined && !isOneOf(ITEM_SOURCES, source)) {
+    return res.status(400).json({ error: `source must be one of ${ITEM_SOURCES.join(", ")}` });
+  }
+  if (needsPriceReview !== undefined && typeof needsPriceReview !== "boolean") {
+    return res.status(400).json({ error: "needsPriceReview must be true or false" });
   }
   const account = await getDefaultAccount();
   const skillList = skills === undefined ? [] : await validateSkills(account.id, skills);
@@ -174,7 +188,9 @@ router.post("/", async (req, res) => {
         name: name.trim(),
         category: category.trim(),
         price: normalizedPrice,
-        priceUnit: normalizeText(priceUnit),
+        priceUnit: billedPer.value,
+        ...(source !== undefined ? { source } : {}),
+        ...(needsPriceReview !== undefined ? { needsPriceReview } : {}),
         notes: normalizeText(notes),
         photoUrl: normalizeText(photoUrl),
         skills: skillList,
@@ -206,7 +222,7 @@ router.patch("/:id", async (req, res) => {
     return res.status(400).json({ error: "photoUrl is too large" });
   }
 
-  const data: Record<string, string | number | string[] | null> = {};
+  const data: Record<string, string | number | boolean | string[] | null> = {};
 
   for (const field of EDITABLE_FIELDS) {
     if (!(field in body)) continue;
@@ -240,7 +256,32 @@ router.patch("/:id", async (req, res) => {
       continue;
     }
 
-    data[field as Exclude<EditableField, "price" | "name" | "category">] = normalizeText(body[field]);
+    if (field === "priceUnit") {
+      const billedPer = normalizeBilledPer(body.priceUnit);
+      if ("error" in billedPer) {
+        return res.status(400).json({ error: billedPer.error });
+      }
+      data.priceUnit = billedPer.value;
+      continue;
+    }
+
+    if (field === "source") {
+      if (!isOneOf(ITEM_SOURCES, body.source)) {
+        return res.status(400).json({ error: `source must be one of ${ITEM_SOURCES.join(", ")}` });
+      }
+      data.source = body.source;
+      continue;
+    }
+
+    if (field === "needsPriceReview") {
+      if (typeof body.needsPriceReview !== "boolean") {
+        return res.status(400).json({ error: "needsPriceReview must be true or false" });
+      }
+      data.needsPriceReview = body.needsPriceReview;
+      continue;
+    }
+
+    data[field as "notes" | "photoUrl"] = normalizeText(body[field]);
   }
 
   const item = await prisma.item.update({ where: { id }, data, include: ADDON_GROUPS_INCLUDE });
@@ -318,6 +359,162 @@ router.delete("/:id", async (req, res) => {
     removedFrom: usage.packages.map((pkg) => ({ id: pkg.id, name: pkg.name })),
     unpublished: result.unpublished,
   });
+});
+
+// ---------------------------------------------------------------------
+// Delete several items at once. The same rules as the single delete,
+// applied to the whole selection:
+//
+// - One usage report for everything selected: every package (Draft or
+//   Published) that lists any of them, how many of its items are in the
+//   selection, and which Published packages would be left with nothing
+//   and so be taken off the storefront.
+// - Any selected item held by a Confirmed or Completed booking (or a live
+//   gig on one) blocks the whole delete. It is refused by name, never
+//   skipped: nothing is deleted until the selection is clean, so the
+//   admin decides what to do about the blocked ones.
+// - The check runs again inside the delete's transaction, after the
+//   units are locked, so a booking that lands between the confirmation
+//   and the click can't be stripped of what it holds.
+
+const MAX_BULK_DELETE = 500;
+
+function readItemIds(body: unknown): string[] | string {
+  const ids = (body as { itemIds?: unknown } | null)?.itemIds;
+  if (!Array.isArray(ids) || ids.length === 0 || !ids.every((id): id is string => typeof id === "string")) {
+    return "itemIds must be a non-empty list of item ids";
+  }
+  const unique = [...new Set(ids)];
+  if (unique.length > MAX_BULK_DELETE) return `itemIds can hold at most ${MAX_BULK_DELETE} items`;
+  return unique;
+}
+
+type Db = Pick<typeof prisma, "item" | "booking" | "package">;
+
+// Per selected item, how many bookings that aren't cancelled hold it (a
+// unit of it, or a live gig for it).
+async function heldCounts(db: Db, itemIds: string[]): Promise<Map<string, number>> {
+  const bookings = await db.booking.findMany({
+    where: {
+      status: { not: "Cancelled" },
+      OR: [{ units: { some: { unit: { itemId: { in: itemIds } } } } }, { gigs: { some: { itemId: { in: itemIds }, status: { not: "Cancelled" } } } }],
+    },
+    select: {
+      id: true,
+      units: { where: { unit: { itemId: { in: itemIds } } }, select: { unit: { select: { itemId: true } } } },
+      gigs: { where: { itemId: { in: itemIds }, status: { not: "Cancelled" } }, select: { itemId: true } },
+    },
+  });
+  const counts = new Map<string, number>();
+  for (const booking of bookings) {
+    const held = new Set<string>();
+    for (const row of booking.units) held.add(row.unit.itemId);
+    for (const gig of booking.gigs) if (gig.itemId) held.add(gig.itemId);
+    for (const itemId of held) counts.set(itemId, (counts.get(itemId) ?? 0) + 1);
+  }
+  return counts;
+}
+
+async function describeBulkUsage(db: Db, accountId: string, itemIds: string[]) {
+  const [items, packages, held] = await Promise.all([
+    db.item.findMany({ where: { id: { in: itemIds }, accountId }, select: { id: true, name: true }, orderBy: { name: "asc" } }),
+    db.package.findMany({
+      where: { accountId, items: { some: { itemId: { in: itemIds } } } },
+      select: { id: true, name: true, status: true, items: { select: { itemId: true } } },
+      orderBy: { name: "asc" },
+    }),
+    heldCounts(db, itemIds),
+  ]);
+  const selected = new Set(itemIds);
+  return {
+    items,
+    blocked: items.filter((item) => (held.get(item.id) ?? 0) > 0).map((item) => ({ id: item.id, name: item.name, heldByBookings: held.get(item.id) ?? 0 })),
+    packages: packages.map((pkg) => {
+      const itemCount = pkg.items.length;
+      const selectedCount = pkg.items.filter((row) => selected.has(row.itemId)).length;
+      return {
+        id: pkg.id,
+        name: pkg.name,
+        status: pkg.status,
+        itemCount,
+        selectedCount,
+        // Everything in it is going: a Published one comes off the storefront.
+        emptied: selectedCount === itemCount,
+      };
+    }),
+  };
+}
+
+function blockedMessage(blocked: { name: string; heldByBookings: number }[]): string {
+  const list = blocked.map((b) => `${b.name} (${b.heldByBookings} ${b.heldByBookings === 1 ? "booking" : "bookings"})`).join(", ");
+  return (
+    `${blocked.length} of the selected ${blocked.length === 1 ? "item is" : "items are"} on bookings that aren't cancelled: ${list}. ` +
+    "Remove them from those bookings, or cancel the bookings, or leave them out of the selection. Nothing was deleted."
+  );
+}
+
+router.post("/bulk-delete/usage", async (req, res) => {
+  const itemIds = readItemIds(req.body);
+  if (typeof itemIds === "string") return res.status(400).json({ error: itemIds });
+  const account = await getDefaultAccount();
+  const usage = await describeBulkUsage(prisma, account.id, itemIds);
+  if (usage.items.length !== itemIds.length) {
+    return res.status(400).json({ error: "itemIds must all be items on this account" });
+  }
+  res.json(usage);
+});
+
+router.post("/bulk-delete", async (req, res) => {
+  const itemIds = readItemIds(req.body);
+  if (typeof itemIds === "string") return res.status(400).json({ error: itemIds });
+  const account = await getDefaultAccount();
+
+  class Blocked extends Error {
+    readonly blocked: { id: string; name: string; heldByBookings: number }[];
+    constructor(blocked: { id: string; name: string; heldByBookings: number }[]) {
+      super("blocked");
+      this.blocked = blocked;
+    }
+  }
+
+  try {
+    const result = await prisma.$transaction(
+      async (tx) => {
+        // Lock the selection's units first. A booking takes units with
+        // FOR UPDATE SKIP LOCKED, so it passes over these instead of
+        // slipping in between the check below and the delete.
+        await tx.$queryRaw`SELECT id FROM units WHERE item_id = ANY(${itemIds}::text[]) ORDER BY id FOR UPDATE`;
+        const usage = await describeBulkUsage(tx, account.id, itemIds);
+        if (usage.items.length !== itemIds.length) throw new Error("itemIds must all be items on this account");
+        if (usage.blocked.length > 0) throw new Blocked(usage.blocked);
+
+        await tx.item.deleteMany({ where: { id: { in: itemIds }, accountId: account.id } });
+
+        // The cascade removed the selection's package rows. A Published
+        // package left with nothing comes off the storefront as a Draft.
+        const unpublished: { id: string; name: string }[] = [];
+        for (const pkg of usage.packages) {
+          if (pkg.status !== "Published") continue;
+          const remaining = await tx.packageItem.count({ where: { packageId: pkg.id } });
+          if (remaining === 0) {
+            await tx.package.update({ where: { id: pkg.id }, data: { status: "Draft" } });
+            unpublished.push({ id: pkg.id, name: pkg.name });
+          }
+        }
+        return { deleted: usage.items.length, removedFrom: usage.packages.map((pkg) => ({ id: pkg.id, name: pkg.name })), unpublished };
+      },
+      { timeout: 60_000, maxWait: 10_000 },
+    );
+    res.json({ ok: true, ...result });
+  } catch (err) {
+    if (err instanceof Blocked) {
+      return res.status(409).json({ error: blockedMessage(err.blocked), reason: "in-use", blocked: err.blocked });
+    }
+    if (err instanceof Error && err.message === "itemIds must all be items on this account") {
+      return res.status(400).json({ error: err.message });
+    }
+    throw err;
+  }
 });
 
 export default router;

@@ -12,6 +12,8 @@ import type {
   Gig,
   GigDetail,
   Item,
+  BulkItemDeleteResult,
+  BulkItemUsage,
   ItemDeleteResult,
   ItemUsage,
   Lead,
@@ -84,7 +86,7 @@ export function createItem(item: NewItem): Promise<Item & { unitCount: number }>
   return fetch("/api/items", jsonRequest("POST", item)).then(asJson<Item & { unitCount: number }>);
 }
 
-export type ItemPatch = Partial<Pick<Item, "name" | "category" | "priceUnit" | "notes" | "photoUrl" | "skills">> & {
+export type ItemPatch = Partial<Pick<Item, "name" | "category" | "priceUnit" | "notes" | "photoUrl" | "skills" | "source" | "needsPriceReview">> & {
   price?: string | number | null;
 };
 
@@ -112,6 +114,17 @@ export function getItemUsage(id: string): Promise<ItemUsage> {
 // package left empty is set back to Draft; the result says which.
 export function deleteItem(id: string): Promise<ItemDeleteResult> {
   return fetch(`/api/items/${id}`, jsonRequest("DELETE")).then(asJson<ItemDeleteResult>);
+}
+
+// The whole selection at once. usage is read only. The delete refuses
+// (409, with the blocked items named) while any selected item is held by a
+// live booking, and deletes nothing in that case.
+export function getBulkItemUsage(itemIds: string[]): Promise<BulkItemUsage> {
+  return fetch("/api/items/bulk-delete/usage", jsonRequest("POST", { itemIds })).then(asJson<BulkItemUsage>);
+}
+
+export function deleteItemsBulk(itemIds: string[]): Promise<BulkItemDeleteResult> {
+  return fetch("/api/items/bulk-delete", jsonRequest("POST", { itemIds })).then(asJson<BulkItemDeleteResult>);
 }
 
 export function createAddonGroup(input: { itemId: string; name: string; required: boolean }): Promise<AddonGroup> {
