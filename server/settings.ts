@@ -17,6 +17,7 @@ export async function getSettings(accountId: string) {
       fullReviewThreshold: true,
       reviewOccasions: true,
       depositPercentage: true,
+      cancellationWindowDays: true,
       requireAgreementCheckbox: true,
     },
   });
@@ -26,6 +27,7 @@ export async function getSettings(accountId: string) {
     fullReviewThreshold: Number(account.fullReviewThreshold),
     reviewOccasions: account.reviewOccasions,
     depositPercentage: Number(account.depositPercentage),
+    cancellationWindowDays: account.cancellationWindowDays,
     requireAgreementCheckbox: account.requireAgreementCheckbox,
   };
 }

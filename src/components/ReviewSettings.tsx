@@ -10,13 +10,14 @@ export function ReviewSettings() {
   const [threshold, setThreshold] = useState("");
   const [occasions, setOccasions] = useState<string[]>([]);
   const [deposit, setDeposit] = useState("");
+  const [cancelDays, setCancelDays] = useState("");
   const [requireBox, setRequireBox] = useState(false);
   const [saved, setSaved] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const snapshot = (t: string, o: string[], d: string, r: boolean) => JSON.stringify([t, [...o].sort(), d, r]);
+  const snapshot = (t: string, o: string[], d: string, r: boolean, c: string) => JSON.stringify([t, [...o].sort(), d, r, c]);
 
   useEffect(() => {
     getSettings()
@@ -24,8 +25,9 @@ export function ReviewSettings() {
         setThreshold(String(s.fullReviewThreshold));
         setOccasions(s.reviewOccasions);
         setDeposit(String(s.depositPercentage));
+        setCancelDays(String(s.cancellationWindowDays));
         setRequireBox(s.requireAgreementCheckbox);
-        setSaved(snapshot(String(s.fullReviewThreshold), s.reviewOccasions, String(s.depositPercentage), s.requireAgreementCheckbox));
+        setSaved(snapshot(String(s.fullReviewThreshold), s.reviewOccasions, String(s.depositPercentage), s.requireAgreementCheckbox, String(s.cancellationWindowDays)));
       })
       .catch((err) => setError(err instanceof Error ? err.message : "Couldn't load the settings"));
   }, []);
@@ -44,13 +46,15 @@ export function ReviewSettings() {
         fullReviewThreshold: Number(threshold),
         reviewOccasions: occasions,
         depositPercentage: Number(deposit),
+        cancellationWindowDays: Number(cancelDays),
         requireAgreementCheckbox: requireBox,
       });
       setThreshold(String(s.fullReviewThreshold));
       setOccasions(s.reviewOccasions);
       setDeposit(String(s.depositPercentage));
+      setCancelDays(String(s.cancellationWindowDays));
       setRequireBox(s.requireAgreementCheckbox);
-      setSaved(snapshot(String(s.fullReviewThreshold), s.reviewOccasions, String(s.depositPercentage), s.requireAgreementCheckbox));
+      setSaved(snapshot(String(s.fullReviewThreshold), s.reviewOccasions, String(s.depositPercentage), s.requireAgreementCheckbox, String(s.cancellationWindowDays)));
       setMessage("Saved.");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Couldn't save");
@@ -60,7 +64,7 @@ export function ReviewSettings() {
   }
 
   const ready = saved !== null;
-  const dirty = ready && saved !== snapshot(threshold, occasions, deposit, requireBox);
+  const dirty = ready && saved !== snapshot(threshold, occasions, deposit, requireBox, cancelDays);
 
   return (
     <form onSubmit={handleSave} className="add-item-form">
@@ -74,6 +78,14 @@ export function ReviewSettings() {
           Deposit percentage (%)
           <input type="number" min={0} max={100} step="0.01" value={deposit} onChange={(e) => setDeposit(e.target.value)} disabled={!ready || busy} required />
           <span className="muted field-help">One value for every booking for now. Recorded only; nothing is charged yet.</span>
+        </label>
+      </div>
+
+      <div className="field-row">
+        <label>
+          Cancellation window (days)
+          <input type="number" min={0} max={365} step={1} value={cancelDays} onChange={(e) => setCancelDays(e.target.value)} disabled={!ready || busy} required />
+          <span className="muted field-help">Days before the event after which a cancellation is no longer free. A whole number. Recorded for the storefront to show; nothing enforces it yet.</span>
         </label>
       </div>
 

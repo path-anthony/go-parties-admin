@@ -29,6 +29,9 @@ model Account {
   reviewOccasions          String[] @default(["Wedding", "Corporate"]) @map("review_occasions")
   // Share of the total taken as the deposit. One global value for now.
   depositPercentage        Decimal  @default(20) @map("deposit_percentage") @db.Decimal(5, 2)
+  // Days before the event after which a cancellation is no longer free. One
+  // global value for now; recorded only, nothing enforces it yet.
+  cancellationWindowDays   Int      @default(5) @map("cancellation_window_days")
   // Off until the storefront sends the agreement checkbox. While off, a
   // storefront booking that arrives without it is still recorded, with the
   // checkbox marked unchecked; on, it is refused.

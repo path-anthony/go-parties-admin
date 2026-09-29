@@ -436,6 +436,7 @@ export type AccountSettings = {
   fullReviewThreshold: number;
   reviewOccasions: string[];
   depositPercentage: number;
+  cancellationWindowDays: number;
   requireAgreementCheckbox: boolean;
 };
 

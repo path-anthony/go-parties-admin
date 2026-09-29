@@ -8,6 +8,7 @@ import { canonicalOccasion } from "../../src/lib/occasions.js";
 import { normalizeText } from "../validate.js";
 
 const MAX_THRESHOLD = 10_000_000;
+const MAX_CANCELLATION_DAYS = 365;
 
 // Public, no session: the storefront reads the booking rules from here.
 // Mounted on /api/settings ahead of the gated router and defining only
@@ -24,6 +25,7 @@ publicSettingsRouter.get("/public", availabilityLimiter, async (_req, res) => {
     fullReviewThreshold: settings.fullReviewThreshold,
     reviewOccasions: settings.reviewOccasions,
     depositPercentage: settings.depositPercentage,
+    cancellationWindowDays: settings.cancellationWindowDays,
     policy: publicPolicy(policy),
   });
 });
@@ -43,6 +45,7 @@ router.patch("/", async (req, res) => {
     fullReviewThreshold?: number;
     reviewOccasions?: string[];
     depositPercentage?: number;
+    cancellationWindowDays?: number;
     requireAgreementCheckbox?: boolean;
   } = {};
 
@@ -85,6 +88,13 @@ router.patch("/", async (req, res) => {
       return res.status(400).json({ error: "depositPercentage must be a number from 0 to 100" });
     }
     data.depositPercentage = Math.round(pct * 100) / 100;
+  }
+  if ("cancellationWindowDays" in body) {
+    const days = body.cancellationWindowDays;
+    if (typeof days !== "number" || !Number.isInteger(days) || days < 0 || days > MAX_CANCELLATION_DAYS) {
+      return res.status(400).json({ error: `cancellationWindowDays must be a whole number of days from 0 to ${MAX_CANCELLATION_DAYS}` });
+    }
+    data.cancellationWindowDays = days;
   }
   if ("requireAgreementCheckbox" in body) {
     if (typeof body.requireAgreementCheckbox !== "boolean") {
