@@ -1,4 +1,5 @@
 import { LeadColumnsEditor } from "../LeadColumnsEditor";
+import { GoSignerSettings } from "../GoSignerSettings";
 import { NotificationSettings } from "../NotificationSettings";
 import { PolicyEditor } from "../PolicyEditor";
 import { ReviewSettings } from "../ReviewSettings";
@@ -48,6 +49,14 @@ export function SettingsScreen() {
           webhook; the Messages screen shows what actually went.
         </p>
         <NotificationSettings />
+      </section>
+
+      <section className="panel">
+        <h2>Contract signature for GO</h2>
+        <p className="muted settings-help">
+          Who signs contracts on GO's behalf. Applied automatically, as a second signature block, when a customer signs.
+        </p>
+        <GoSignerSettings />
       </section>
 
       <section className="panel">

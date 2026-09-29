@@ -50,6 +50,8 @@ router.patch("/", async (req, res) => {
     staffNotifyPhone?: string | null;
     staffNotifyEmail?: string | null;
     balanceReminderWindowDays?: number;
+    authorizedSignerName?: string | null;
+    authorizedSignerTitle?: string | null;
   } = {};
 
   if ("minBookingNoticeHours" in body) {
@@ -107,6 +109,15 @@ router.patch("/", async (req, res) => {
       }
       if (field === "staffNotifyEmail" && v !== null && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(v)) {
         return res.status(400).json({ error: "staffNotifyEmail must be an email address" });
+      }
+      data[field] = v;
+    }
+  }
+  for (const field of ["authorizedSignerName", "authorizedSignerTitle"] as const) {
+    if (field in body) {
+      const v = body[field] === null ? null : typeof body[field] === "string" ? normalizeText(body[field]) : undefined;
+      if (v === undefined || (v !== null && v.length > 120)) {
+        return res.status(400).json({ error: `${field} must be text up to 120 characters, or blank` });
       }
       data[field] = v;
     }

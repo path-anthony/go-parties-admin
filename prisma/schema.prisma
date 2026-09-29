@@ -39,6 +39,11 @@ model Account {
   // The balance reminder check looks at events starting within this many
   // days. POST /api/automations/check-reminders may override it per call.
   balanceReminderWindowDays Int      @default(7) @map("balance_reminder_window_days")
+  // GO's side of a signed contract: who signs for the company. When both are
+  // set, the signed PDF carries a second signature block for them; when
+  // either is empty, no block is drawn.
+  authorizedSignerName      String?  @map("authorized_signer_name")
+  authorizedSignerTitle     String?  @map("authorized_signer_title")
   // Off until the storefront sends the agreement checkbox. While off, a
   // storefront booking that arrives without it is still recorded, with the
   // checkbox marked unchecked; on, it is refused.

@@ -19,6 +19,10 @@ export function DesignRequestsScreen() {
   const navigate = useNavigate();
   const [status, setStatus] = useState<(typeof STATUSES)[number]>("Open");
   const [requests, setRequests] = useState<DesignRequest[] | null>(null);
+  // Which tab the list on screen was loaded for. The screen is loading
+  // whenever that differs from the tab selected, so clicking the tab that
+  // is already selected changes nothing (no reset, no hang).
+  const [loadedStatus, setLoadedStatus] = useState<(typeof STATUSES)[number] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [converting, setConverting] = useState<DesignRequest | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -27,7 +31,11 @@ export function DesignRequestsScreen() {
   useEffect(() => {
     let live = true;
     getDesignRequests(status)
-      .then((rows) => live && setRequests(rows))
+      .then((rows) => {
+        if (!live) return;
+        setRequests(rows);
+        setLoadedStatus(status);
+      })
       .catch((err) => live && setError(err instanceof Error ? err.message : "Couldn't load the requests"));
     return () => {
       live = false;
@@ -51,7 +59,7 @@ export function DesignRequestsScreen() {
     }
   }
 
-  const loading = requests === null;
+  const loading = loadedStatus !== status;
 
   return (
     <div className="screen screen-wide">
@@ -72,10 +80,7 @@ export function DesignRequestsScreen() {
               role="tab"
               aria-selected={status === s}
               className={status === s ? "btn-primary" : "btn-secondary"}
-              onClick={() => {
-                setRequests(null);
-                setStatus(s);
-              }}
+              onClick={() => setStatus(s)}
             >
               {s}
             </button>
@@ -88,8 +93,8 @@ export function DesignRequestsScreen() {
         )}
         {error && <p className="form-error">{error}</p>}
         {loading && !error && <p className="muted">Loading…</p>}
-        {requests && requests.length === 0 && <p className="muted">No {status.toLowerCase()} requests.</p>}
-        {requests?.map((r) => (
+        {!loading && requests && requests.length === 0 && <p className="muted">No {status.toLowerCase()} requests.</p>}
+        {!loading && requests?.map((r) => (
           <div key={r.id} className="policy-version" aria-label={`Design request from ${r.customerName}`}>
             <div>
               <strong>{r.customerName}</strong> · {formatEventDay(r.eventDate)}

@@ -444,6 +444,8 @@ export type AccountSettings = {
   staffNotifyPhone: string | null;
   staffNotifyEmail: string | null;
   balanceReminderWindowDays: number;
+  authorizedSignerName: string | null;
+  authorizedSignerTitle: string | null;
 };
 
 export type PolicyVersionInfo = { id: string; version: number; text: string; createdAt: string; agreements: number };

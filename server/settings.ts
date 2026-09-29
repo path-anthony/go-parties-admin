@@ -22,6 +22,8 @@ export async function getSettings(accountId: string) {
       staffNotifyPhone: true,
       staffNotifyEmail: true,
       balanceReminderWindowDays: true,
+      authorizedSignerName: true,
+      authorizedSignerTitle: true,
     },
   });
   return {
@@ -35,6 +37,8 @@ export async function getSettings(accountId: string) {
     staffNotifyPhone: account.staffNotifyPhone,
     staffNotifyEmail: account.staffNotifyEmail,
     balanceReminderWindowDays: account.balanceReminderWindowDays,
+    authorizedSignerName: account.authorizedSignerName,
+    authorizedSignerTitle: account.authorizedSignerTitle,
   };
 }
 

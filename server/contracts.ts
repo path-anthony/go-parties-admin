@@ -217,7 +217,7 @@ export async function buildContractContent(agreementId: string): Promise<Contrac
     },
     {
       heading: "Cancellation and deposit policy",
-      body: `Cancellation window: ${values.cancellation_window_days} days before the event.\n\n${mergeFields(policy.text, values)}`,
+      body: mergeFields(policy.text, values),
     },
   ];
   const text = ["Event Services Agreement", ...sections.map((s) => `${s.heading}\n${s.body}`)].join("\n\n");
@@ -297,7 +297,18 @@ const easternStamp = (d: Date) => d.toLocaleString("en-US", { dateStyle: "long",
 // on the signature line and an audit footer (signed electronically, when,
 // and from which IP). Without one it is the unsigned copy staff can
 // preview.
-export async function buildContractPdf(content: ContractContent, signature?: ContractSignature): Promise<Uint8Array> {
+export type GoSigner = { name: string; title: string };
+
+// GO's authorized representative, from Settings. Both parts are needed:
+// with either empty there is no GO signer and no block is drawn.
+export async function loadGoSigner(accountId: string): Promise<GoSigner | null> {
+  const a = await prisma.account.findUnique({ where: { id: accountId }, select: { authorizedSignerName: true, authorizedSignerTitle: true } });
+  const name = a?.authorizedSignerName?.trim();
+  const title = a?.authorizedSignerTitle?.trim();
+  return name && title ? { name, title } : null;
+}
+
+export async function buildContractPdf(content: ContractContent, signature?: ContractSignature, goSigner?: GoSigner | null): Promise<Uint8Array> {
   const pdf = await PDFDocument.create();
   pdf.setTitle(`Event Services Agreement, ${content.customerName}`);
   pdf.setAuthor("The GO Event Group");
@@ -347,11 +358,25 @@ export async function buildContractPdf(content: ContractContent, signature?: Con
     y -= 14;
     write(`${signature.name}, ${content.customerName === signature.name ? "Customer" : `for ${content.customerName}`}`, regular, 9.5, 14);
     y -= 8;
+    if (goSigner) {
+      // GO's side, applied automatically once the customer has signed.
+      ensure(110);
+      y -= 10;
+      write("GO's authorized representative", bold, 12, 20);
+      page.drawText(pdfSafe(goSigner.name), { x: M, y: y - 18, size: 20, font: script, color: rgb(0.05, 0.1, 0.4) });
+      y -= 30;
+      page.drawLine({ start: { x: M, y }, end: { x: M + 300, y }, thickness: 0.8, color: ink });
+      y -= 14;
+      write(`${goSigner.name}, ${goSigner.title}, The GO Event Group`, regular, 9.5, 14);
+      write(`Date: ${signature.signedAt.toLocaleDateString("en-US", { dateStyle: "long", timeZone: "America/New_York" })}`, regular, 9.5, 14);
+      y -= 8;
+    }
     ensure(90);
     const audit = [
       `Signed electronically on ${easternStamp(signature.signedAt)} Eastern (${signature.signedAt.toISOString()} UTC)`,
       `from IP address ${signature.ip ?? "unknown"}.`,
       "The signer consented to sign this document electronically and agreed to its terms by typing their full name above.",
+      ...(goSigner ? ["GO's authorized signature was applied automatically from GO's settings when the customer signed."] : []),
       `Content fingerprint: ${content.contentHash}`,
     ].join(" ");
     const boxLines = wrap(audit, regular, 8.5, W - 2 * M - 16);
@@ -467,7 +492,8 @@ export async function signContract(signingToken: string, input: SignInput) {
     throw new ContractError(409, "contract-changed", "The contract changed since you opened it. Please read it again before signing.");
   }
   const signedAt = new Date();
-  const pdf = await buildContractPdf(content, { name: input.fullName, signedAt, ip: input.ip });
+  const goSigner = await loadGoSigner(agreement.accountId);
+  const pdf = await buildContractPdf(content, { name: input.fullName, signedAt, ip: input.ip }, goSigner);
   const downloadToken = token();
   const sha256 = createHash("sha256").update(pdf).digest("hex");
 
