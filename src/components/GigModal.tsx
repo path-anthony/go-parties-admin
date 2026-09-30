@@ -3,6 +3,7 @@ import { X } from "lucide-react";
 import { getGig, sendGigOffers, updateGigOffer } from "../lib/api";
 import { formatEventDay, gigPillClass } from "../lib/gigs";
 import type { Gig, GigDetail } from "../lib/types";
+import { RecordMessages } from "./RecordMessages";
 import { SendMessageControls } from "./SendMessageControls";
 import { AgreementChip } from "./AgreementChip";
 import { BookingStatusTag } from "./BookingStatusTag";
@@ -108,6 +109,8 @@ export function GigModal({ gig: summary, onClose, onChanged }: { gig: Gig; onClo
             <span className={g.filledBy ? "" : "muted"}>{g.filledBy?.name ?? "Nobody yet"}</span>
           </div>
         </div>
+
+        <RecordMessages gigId={g.id} />
 
         {error && (
           <p className="form-error booking-notice" role="alert">

@@ -64,6 +64,7 @@ model Account {
   designRequests    DesignRequest[]
   contractDocuments ContractDocument[]
   messageLogs       MessageLog[]
+  messageTemplates  MessageTemplate[]
 
   @@map("accounts")
 }
@@ -695,6 +696,16 @@ model MessageLog {
   designRequestId    String?   @map("design_request_id")
   crewMemberId       String?   @map("crew_member_id")
   gigId              String?   @map("gig_id")
+  // Which registry trigger this send belongs to (server/triggers.ts), and
+  // its journey (lead, client, crew). Null on rows from before the pipeline
+  // and on hand-typed messages, which are "manual_message".
+  triggerKey         String?   @map("trigger_key")
+  journey            String?
+  leadId             String?   @map("lead_id")
+  // One send per key. A key that already has a sent (or in-flight) row is
+  // never sent again; one that was skipped, blocked or deferred is retried
+  // by updating its own row.
+  idempotencyKey     String?   @unique @map("idempotency_key")
   confirmation       String?
   confirmationAt     DateTime? @map("confirmation_at")
   confirmationDetail String?   @map("confirmation_detail")
@@ -704,5 +715,27 @@ model MessageLog {
 
   @@index([accountId, createdAt])
   @@index([bookingId])
+  @@index([triggerKey])
   @@map("message_logs")
+}
+
+// A customized message. Rows exist only when the admin changed something:
+// edited wording (subject and body set) or switched a channel off
+// (enabled false with null wording, meaning "use the default wording").
+// No row means the registry default in server/triggers.ts and enabled.
+// Reset to default deletes the row.
+model MessageTemplate {
+  id         String   @id @default(cuid())
+  accountId  String   @map("account_id")
+  triggerKey String   @map("trigger_key")
+  channel    String
+  subject    String?
+  body       String?
+  enabled    Boolean  @default(true)
+  updatedAt  DateTime @default(now()) @updatedAt @map("updated_at")
+
+  account Account @relation(fields: [accountId], references: [id])
+
+  @@unique([accountId, triggerKey, channel])
+  @@map("message_templates")
 }

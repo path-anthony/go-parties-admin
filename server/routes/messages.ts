@@ -15,10 +15,13 @@ router.get("/", async (req, res) => {
   const status = typeof req.query.status === "string" && req.query.status !== "" ? req.query.status : undefined;
   const bookingId = typeof req.query.bookingId === "string" && req.query.bookingId !== "" ? req.query.bookingId : undefined;
   const crewMemberId = typeof req.query.crewMemberId === "string" && req.query.crewMemberId !== "" ? req.query.crewMemberId : undefined;
-  const limit = Math.min(Math.max(Number(req.query.limit) || 200, 1), 500);
+  const leadId = typeof req.query.leadId === "string" && req.query.leadId !== "" ? req.query.leadId : undefined;
+  const gigId = typeof req.query.gigId === "string" && req.query.gigId !== "" ? req.query.gigId : undefined;
+  const journey = req.query.journey === "lead" || req.query.journey === "client" || req.query.journey === "crew" ? req.query.journey : undefined;
+  const limit = Math.min(Math.max(Number(req.query.limit) || 200, 1), 200);
   const account = await getDefaultAccount();
   const rows = await prisma.messageLog.findMany({
-    where: { accountId: account.id, ...(bookingId ? { bookingId } : {}), ...(crewMemberId ? { crewMemberId } : {}), ...(channel ? { channel } : {}), ...(status ? { status: status.endsWith("*") ? { startsWith: status.slice(0, -1) } : status } : {}) },
+    where: { accountId: account.id, ...(bookingId ? { bookingId } : {}), ...(crewMemberId ? { crewMemberId } : {}), ...(leadId ? { leadId } : {}), ...(gigId ? { gigId } : {}), ...(journey ? { journey } : {}), ...(channel ? { channel } : {}), ...(status ? { status: status.endsWith("*") ? { startsWith: status.slice(0, -1) } : status } : {}) },
     orderBy: { createdAt: "desc" },
     take: limit,
   });
@@ -66,7 +69,7 @@ router.post("/send", async (req, res) => {
     if (kind === "contract-link") return res.status(400).json({ error: "Crew members don't have a contract to sign." });
     const crew = await prisma.crewMember.findFirst({ where: { id: t.crewMemberId, accountId: account.id }, select: { id: true, phone: true } });
     if (!crew) return res.status(404).json({ error: "crew member not found" });
-    const result = await sendSms({ to: crew.phone, body: text, purpose: "manual-message", link: { crewMemberId: crew.id } });
+    const result = await sendSms({ to: crew.phone, body: text, purpose: "manual-message", link: { crewMemberId: crew.id }, meta: { triggerKey: "manual_message", journey: "crew" } });
     return res.json(await prisma.messageLog.findUnique({ where: { id: result.logId } }));
   }
 
@@ -101,7 +104,7 @@ router.post("/send", async (req, res) => {
   const result =
     kind === "contract-link"
       ? await sendContractLinkSms(bookingId ? { bookingId } : { designRequestId: designRequestId as string }, "manual-contract-link")
-      : await sendSms({ to: phone, body: text, purpose: "manual-message", link: { bookingId, designRequestId } });
+      : await sendSms({ to: phone, body: text, purpose: "manual-message", link: { bookingId, designRequestId }, meta: { triggerKey: "manual_message", journey: t.leadId && !bookingId ? "lead" : "client", leadId: typeof t.leadId === "string" ? t.leadId : null } });
   if (!result) return res.status(500).json({ error: "The message could not be prepared." });
   res.json(await prisma.messageLog.findUnique({ where: { id: result.logId } }));
 });

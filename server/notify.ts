@@ -1,38 +1,16 @@
 import { getDefaultAccount } from "./account.js";
 import { ContractError, issueContract, type signContract } from "./contracts.js";
 import { prisma } from "./db.js";
-import { sendEmail, sendSms, type SendResult } from "./messaging.js";
-import { getSettings } from "./settings.js";
-import type { DisplayStatus } from "../src/lib/bookingStatus.js";
+import type { SendResult } from "./messaging.js";
+import { sendTemplatedMessage, type ChannelOutcome } from "./sendTemplated.js";
+import { displayStatus, type DisplayStatus } from "../src/lib/bookingStatus.js";
+import { todayEastern } from "./validate.js";
 
-// The automatic messages. Each one is best effort: it is attempted, logged
-// in message_logs, and if it can't go (no credentials, no phone number, no
-// policy text) the reason is logged and the flow that triggered it carries
-// on. Nothing here throws.
-
-const COMPANY = "GO! Event Group";
-
-const firstName = (full: string) => full.trim().split(/\s+/)[0] || "there";
-const shortDate = (d: Date) => d.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", timeZone: "UTC" });
-
-// What each stage change tells the customer. Short, plain, no exclamation
-// points. Held and Completed are not announced.
-export function stageText(status: DisplayStatus, ctx: { first: string; date: string; link?: string | null }): string | null {
-  switch (status) {
-    case "Contract Sent":
-      return `Hi ${ctx.first}, your ${COMPANY} contract for ${ctx.date} is ready to review and sign${ctx.link ? `: ${ctx.link}` : "."}`;
-    case "Signed":
-      return `Thanks ${ctx.first}, we have your signed contract for ${ctx.date}. The next step is the retainer payment to confirm your date.`;
-    case "Retainer Paid":
-      return `Hi ${ctx.first}, we received your retainer for ${ctx.date}. Thank you. Your date is confirmed once the contract is signed too.`;
-    case "Confirmed":
-      return `Hi ${ctx.first}, your ${COMPANY} booking for ${ctx.date} is confirmed. We're looking forward to your event.`;
-    case "Cancelled":
-      return `Hi ${ctx.first}, your ${COMPANY} booking for ${ctx.date} has been cancelled. If that doesn't look right, please call or text us.`;
-    default:
-      return null;
-  }
-}
+// The automatic messages, each now a trigger in server/triggers.ts sent
+// through sendTemplatedMessage. This file decides WHEN each one fires and
+// who it goes to; what it says lives in the registry and the admin's
+// templates. Each is best effort: it is attempted, logged, and never throws
+// into the flow that triggered it.
 
 async function guard<T>(what: string, fn: () => Promise<T>): Promise<T | null> {
   try {
@@ -43,47 +21,70 @@ async function guard<T>(what: string, fn: () => Promise<T>): Promise<T | null> {
   }
 }
 
-// Sends the customer their signing link by text. Used when a design
-// request becomes a booking, when the stage is set to Contract Sent, and
-// by the manual "Send contract link" button. If the link can't be made
-// (no policy text yet) the reason is logged as a skipped send.
+// The text outcome, in the shape callers of the old wrapper expected.
+function asSendResult(outcomes: ChannelOutcome[]): SendResult | null {
+  const sms = outcomes.find((o) => o.channel === "sms") ?? outcomes[0];
+  return sms ? { logId: sms.logId, status: sms.status, error: sms.error } : null;
+}
+
+// stage the customer would read -> the message that announces it
+const STAGE_TRIGGER: Partial<Record<DisplayStatus, string>> = {
+  Signed: "contract_signed_recorded",
+  "Retainer Paid": "retainer_paid",
+  Confirmed: "booking_confirmed",
+  Cancelled: "booking_cancelled",
+};
+
+// Sends the customer their signing link. Used when a design request becomes
+// a booking, when the stage is set to Contract Sent, and by the manual
+// "Send contract link" button. A hand-pressed send always goes (it gets its
+// own key); an automatic one goes once per booking. If the link can't be
+// made (no policy text yet) the reason is logged as a skipped send.
 export async function sendContractLinkSms(target: { bookingId?: string; designRequestId?: string }, purpose: string): Promise<SendResult | null> {
   return guard("contract link", async () => {
     const subject = target.bookingId
-      ? await prisma.booking.findUnique({ where: { id: target.bookingId }, select: { customerName: true, phone: true, eventDate: true } })
-      : await prisma.designRequest.findUnique({ where: { id: target.designRequestId as string }, select: { customerName: true, phone: true, eventDate: true } });
+      ? await prisma.booking.findUnique({ where: { id: target.bookingId }, select: { phone: true, email: true } })
+      : await prisma.designRequest.findUnique({ where: { id: target.designRequestId as string }, select: { phone: true, email: true } });
     if (!subject) return null;
-    const link = { bookingId: target.bookingId ?? null, designRequestId: target.designRequestId ?? null };
+    const recordId = target.bookingId ?? `req:${target.designRequestId}`;
+    const manual = purpose.startsWith("manual");
+    const unique = manual ? `:manual:${Date.now()}` : "";
+    const ctx = { bookingId: target.bookingId ?? null, designRequestId: target.designRequestId ?? null };
+    const recipient = { phone: subject.phone, email: subject.email };
     try {
       const issued = await issueContract(target);
       if (issued.signed) {
-        return sendSms({ to: subject.phone, body: `Hi ${firstName(subject.customerName)}, your ${COMPANY} contract for ${shortDate(subject.eventDate)} is already signed. Thank you.`, purpose, link });
+        return asSendResult(await sendTemplatedMessage("contract_signed", { ...ctx, extra: { contractPdfLink: issued.link } }, recipient, `contract_signed:${recordId}${unique || ":again"}`, { purpose }));
       }
-      const body = stageText("Contract Sent", { first: firstName(subject.customerName), date: shortDate(subject.eventDate), link: issued.link }) as string;
-      return sendSms({ to: subject.phone, body, purpose, link });
+      return asSendResult(await sendTemplatedMessage("contract_sent", { ...ctx, extra: { contractLink: issued.link } }, recipient, `contract_sent:${recordId}${unique}`, { purpose }));
     } catch (err) {
       if (err instanceof ContractError) {
         console.warn(`[notify] contract link not sent: ${err.message}`);
-        const { logId } = await sendSmsSkipped(subject.phone, purpose, `contract link not sent: ${err.message}`, link);
-        return { logId, status: "skipped-no-policy", error: err.message };
+        const account = await getDefaultAccount();
+        const row = await prisma.messageLog.create({
+          data: {
+            accountId: account.id,
+            channel: "sms",
+            purpose,
+            recipient: subject.phone ?? "(none)",
+            body: "(not composed)",
+            status: "skipped-no-policy",
+            error: `contract link not sent: ${err.message}`,
+            bookingId: ctx.bookingId,
+            designRequestId: ctx.designRequestId,
+            triggerKey: "contract_sent",
+            journey: "client",
+          },
+        });
+        return { logId: row.id, status: "skipped-no-policy", error: err.message };
       }
       throw err;
     }
   });
 }
 
-// A send that never started because something upstream wasn't ready. It
-// is still logged, so nobody assumes the customer was told.
-async function sendSmsSkipped(to: string | null, purpose: string, reason: string, link: { bookingId: string | null; designRequestId: string | null }) {
-  const account = await getDefaultAccount();
-  const row = await prisma.messageLog.create({
-    data: { accountId: account.id, channel: "sms", purpose, recipient: to ?? "(none)", body: "(not composed)", status: "skipped-no-policy", error: reason, bookingId: link.bookingId, designRequestId: link.designRequestId },
-  });
-  return { logId: row.id };
-}
-
-// Staff changed the stage (or ticked the retainer): tell the customer,
-// if the status they'd read actually changed to one worth announcing.
+// Staff changed the stage (or ticked the retainer): tell the customer, if
+// the status they'd read actually changed to one worth announcing.
 export async function notifyStageChange(bookingId: string, before: DisplayStatus, after: DisplayStatus): Promise<void> {
   if (before === after) return;
   await guard(`stage change to ${after}`, async () => {
@@ -91,65 +92,65 @@ export async function notifyStageChange(bookingId: string, before: DisplayStatus
       await sendContractLinkSms({ bookingId }, "stage-update");
       return;
     }
-    const b = await prisma.booking.findUnique({ where: { id: bookingId }, select: { customerName: true, phone: true, eventDate: true } });
+    const trigger = STAGE_TRIGGER[after];
+    if (!trigger) return;
+    const b = await prisma.booking.findUnique({ where: { id: bookingId }, select: { phone: true, email: true } });
     if (!b) return;
-    const body = stageText(after, { first: firstName(b.customerName), date: shortDate(b.eventDate) });
-    if (!body) return;
-    await sendSms({ to: b.phone, body, purpose: "stage-update", link: { bookingId } });
+    await sendTemplatedMessage(trigger, { bookingId }, { phone: b.phone, email: b.email }, `${trigger}:${bookingId}`, { purpose: "stage-update" });
   });
 }
 
-// The contract was signed: thank the customer (text and email with the
-// PDF link) and tell staff.
+// The contract was signed: thank the customer (text, and email if it is
+// switched on), tell staff, and if that made the booking Confirmed say so.
 export async function notifyContractSigned(agreement: { bookingId: string | null; designRequestId: string | null }, signed: Awaited<ReturnType<typeof signContract>>): Promise<void> {
   await guard("signed notifications", async () => {
     const account = await getDefaultAccount();
-    const settings = await prisma.account.findUniqueOrThrow({ where: { id: account.id }, select: { staffNotifyPhone: true, staffNotifyEmail: true } });
+    const staff = await prisma.account.findUniqueOrThrow({ where: { id: account.id }, select: { staffNotifyPhone: true, staffNotifyEmail: true } });
     const c = signed.content;
-    const link = { bookingId: agreement.bookingId, designRequestId: agreement.designRequestId };
-    const when = shortDate(new Date(`${c.eventDate}T00:00:00Z`));
-    const first = firstName(c.customerName);
+    const ctx = { bookingId: agreement.bookingId, designRequestId: agreement.designRequestId, extra: { contractPdfLink: signed.pdfUrl } };
+    const recordId = agreement.bookingId ?? `req:${agreement.designRequestId}`;
 
-    await sendSms({ to: c.customerPhone, body: `Thanks ${first}, your ${COMPANY} contract for ${when} is signed. Your copy: ${signed.pdfUrl}`, purpose: "signed-confirmation", link });
-    await sendEmail({
-      to: c.customerEmail,
-      subject: `Your signed ${COMPANY} contract`,
-      body: `Hi ${first},\n\nThanks for signing. Your signed contract for ${when} is at the link below. Keep it for your records.\n\n${signed.pdfUrl}\n\n${COMPANY}`,
-      purpose: "signed-contract-customer",
-      pdfUrl: signed.pdfUrl,
-      link,
+    await sendTemplatedMessage("contract_signed", ctx, { phone: c.customerPhone, email: c.customerEmail }, `contract_signed:${recordId}`, {
+      purpose: { sms: "signed-confirmation", email: "signed-contract-customer" },
+    });
+    await sendTemplatedMessage("staff_contract_signed", ctx, { phone: staff.staffNotifyPhone, email: staff.staffNotifyEmail }, `staff_contract_signed:${recordId}`, {
+      purpose: { sms: "signed-staff-notice", email: "signed-contract-staff" },
     });
 
-    const notice = `${c.customerName} signed the contract for ${when}. ${signed.pdfUrl}`;
-    await sendSms({ to: settings.staffNotifyPhone, body: `Signed: ${notice}`, purpose: "signed-staff-notice", link });
-    await sendEmail({
-      to: settings.staffNotifyEmail,
-      subject: `Contract signed: ${c.customerName}, ${when}`,
-      body: `${notice}\n\nSigned copy: ${signed.pdfUrl}`,
-      purpose: "signed-contract-staff",
-      pdfUrl: signed.pdfUrl,
-      link,
-    });
+    if (agreement.bookingId) {
+      const b = await prisma.booking.findUnique({ where: { id: agreement.bookingId }, select: { status: true, retainerPaid: true, phone: true, email: true } });
+      if (b && displayStatus(b) === "Confirmed") {
+        await sendTemplatedMessage("booking_confirmed", { bookingId: agreement.bookingId }, { phone: b.phone, email: b.email }, `booking_confirmed:${agreement.bookingId}`, { purpose: "stage-update" });
+      }
+    }
   });
 }
 
 // A gig offer goes out as a real text to the crew member.
-export async function sendGigOfferSms(input: { crew: { id: string; name: string; phone: string | null }; gig: { id: string; skill: string; itemName: string; eventDate: Date } }): Promise<SendResult | null> {
-  return guard("gig offer", async () => {
-    const body = `Hi ${firstName(input.crew.name)}, ${COMPANY} has a ${input.gig.skill} gig for ${input.gig.itemName} on ${shortDate(input.gig.eventDate)}. Can you take it? Please call or text us back to say yes or no.`;
-    return sendSms({ to: input.crew.phone, body, purpose: "gig-offer", link: { crewMemberId: input.crew.id, gigId: input.gig.id } });
-  });
+export async function sendGigOfferSms(input: {
+  crew: { id: string; name: string; phone: string | null; email?: string | null };
+  gig: { id: string; skill: string; itemName: string; eventDate: Date };
+}): Promise<SendResult | null> {
+  return guard("gig offer", async () =>
+    asSendResult(
+      await sendTemplatedMessage(
+        "gig_bid_invite",
+        { crewMemberId: input.crew.id, gigId: input.gig.id },
+        { phone: input.crew.phone, email: input.crew.email ?? null },
+        `gig_bid_invite:${input.gig.id}:${input.crew.id}`,
+        { purpose: "gig-offer" },
+      ),
+    ),
+  );
 }
 
-// Used by the reminder check.
+// Used by the reminder check. One per booking per Eastern day.
 export async function sendBalanceReminder(bookingId: string): Promise<SendResult | null> {
   return guard("balance reminder", async () => {
-    const b = await prisma.booking.findUnique({ where: { id: bookingId }, select: { customerName: true, phone: true, eventDate: true, total: true, accountId: true } });
+    const b = await prisma.booking.findUnique({ where: { id: bookingId }, select: { phone: true, email: true, total: true } });
     if (!b || b.total === null) return null;
-    const settings = await getSettings(b.accountId);
-    const balance = Math.round(Number(b.total) * (100 - settings.depositPercentage)) / 100;
-    const amount = balance.toLocaleString("en-US", { style: "currency", currency: "USD" });
-    const body = `Hi ${firstName(b.customerName)}, a reminder that the remaining balance of ${amount} for your ${COMPANY} event on ${shortDate(b.eventDate)} is coming due. Please call or text us to arrange payment.`;
-    return sendSms({ to: b.phone, body, purpose: "balance-reminder", link: { bookingId } });
+    return asSendResult(
+      await sendTemplatedMessage("balance_due_reminder", { bookingId }, { phone: b.phone, email: b.email }, `balance_due_reminder:${bookingId}:${todayEastern()}`, { purpose: "balance-reminder" }),
+    );
   });
 }

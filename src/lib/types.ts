@@ -513,6 +513,10 @@ export type DesignRequest = {
 // reported afterwards (delivered or failed), if it has.
 export type MessageLogRow = {
   id: string;
+  triggerKey: string | null;
+  idempotencyKey: string | null;
+  journey: "lead" | "client" | "crew" | null;
+  leadId: string | null;
   channel: "sms" | "email";
   direction: string;
   source: "admin" | "n8n";
@@ -541,3 +545,38 @@ export type MessageSummary = {
 };
 
 export type MessageTarget = { bookingId: string } | { designRequestId: string } | { leadId: string } | { crewMemberId: string };
+
+// Settings > Messages: one automated message, with its two channels.
+export type TemplateChannel = {
+  enabled: boolean;
+  customized: boolean;
+  subject: string;
+  body: string;
+  defaultSubject: string;
+  defaultBody: string;
+};
+
+export type MessageTrigger = {
+  key: string;
+  journey: "lead" | "client" | "crew";
+  sendClass: "transactional" | "reminder" | "nurture";
+  label: string;
+  when: string;
+  stopsWhen: string;
+  tokens: string[];
+  wired: boolean;
+  unwiredReason: string | null;
+  sms: TemplateChannel;
+  email: TemplateChannel;
+};
+
+export type TokenInfo = { key: string; label: string; example: string; unavailable?: string };
+
+export type TemplatePreview = {
+  subject: string | null;
+  body: string;
+  notAllowed: string[];
+  record: { kind: string; label: string } | null;
+  fromSample: string[];
+  sms: { characters: number; segments: number; encoding: "GSM-7" | "Unicode"; perSegment: number } | null;
+};

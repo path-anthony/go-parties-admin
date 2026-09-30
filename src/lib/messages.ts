@@ -14,6 +14,13 @@ export function describeSend(row: MessageLogRow): string {
       return "Not sent: Twilio settings are missing. It is in the log as skipped.";
     case "skipped-no-policy":
       return `Not sent: ${row.error ?? "the policy text is empty"}.`;
+    case "skipped_disabled":
+      return "Not sent: this message is switched off in Settings.";
+    case "blocked_missing_field":
+      return `Not sent: ${row.error ?? "a piece of information is missing"}.`;
+    case "deferred_quiet_hours":
+    case "deferred_sunday":
+      return `Held, not sent: ${row.error ?? "outside the sending hours"}`;
     case "skipped-no-webhook":
       return "Not sent: the email webhook isn't set up. It is in the log as skipped.";
     default:
@@ -21,3 +28,31 @@ export function describeSend(row: MessageLogRow): string {
   }
 }
 
+
+// Short label and colour class for a log status. Our own attempt statuses
+// (sent, failed, skipped-*) and the pipeline's (switched off, blocked,
+// held for quiet hours or a Sunday).
+export function statusLabel(status: string): string {
+  return (
+    {
+      sent: "Sent",
+      failed: "Failed",
+      queued: "In progress",
+      skipped_disabled: "Switched off",
+      blocked_missing_field: "Blocked: missing info",
+      deferred_quiet_hours: "Held: quiet hours",
+      deferred_sunday: "Held: Sunday",
+      "skipped-no-token": "Not sent: no Twilio token",
+      "skipped-not-configured": "Not sent: Twilio not set up",
+      "skipped-no-webhook": "Not sent: no email webhook",
+      "skipped-no-policy": "Not sent: no policy text",
+    } as Record<string, string>
+  )[status] ?? status;
+}
+
+export function statusClass(status: string): string {
+  if (status === "sent") return "msg-sent";
+  if (status === "failed") return "msg-failed";
+  if (status === "queued") return "msg-queued";
+  return "msg-skipped";
+}

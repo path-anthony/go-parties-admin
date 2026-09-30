@@ -28,6 +28,9 @@ import type {
   AccountSettings,
   MessageLogRow,
   MessageSummary,
+  MessageTrigger,
+  TemplatePreview,
+  TokenInfo,
   MessageTarget,
   DesignRequest,
   PolicyVersionInfo,
@@ -388,7 +391,7 @@ export function createStaffBooking(request: StaffBookingRequest): Promise<StaffB
 
 // The send log. Filters: channel, a status (end it with * for a prefix,
 // like skipped*), a booking or a crew member.
-export function getMessages(filter: { channel?: "sms" | "email"; status?: string; bookingId?: string; crewMemberId?: string; limit?: number } = {}): Promise<MessageLogRow[]> {
+export function getMessages(filter: { channel?: "sms" | "email"; status?: string; journey?: string; bookingId?: string; leadId?: string; gigId?: string; crewMemberId?: string; limit?: number } = {}): Promise<MessageLogRow[]> {
   const q = new URLSearchParams();
   for (const [k, v] of Object.entries(filter)) if (v !== undefined && v !== "") q.set(k, String(v));
   return fetch(`/api/messages?${q}`).then(asJson<MessageLogRow[]>);
@@ -407,4 +410,24 @@ export function sendMessage(target: MessageTarget, kind: "contract-link" | "cust
 
 export function issueContract(bookingId: string): Promise<{ agreementId: string; signingToken: string; link: string; signed: boolean }> {
   return fetch("/api/contract-admin/issue", jsonRequest("POST", { bookingId })).then(asJson<{ agreementId: string; signingToken: string; link: string; signed: boolean }>);
+}
+
+export function getMessageTemplates(): Promise<{ tokens: TokenInfo[]; triggers: MessageTrigger[] }> {
+  return fetch("/api/message-templates").then(asJson<{ tokens: TokenInfo[]; triggers: MessageTrigger[] }>);
+}
+
+export function saveMessageTemplate(key: string, channel: "sms" | "email", input: { subject?: string; body: string; enabled?: boolean }): Promise<{ ok: true }> {
+  return fetch(`/api/message-templates/${key}/${channel}`, jsonRequest("PUT", input)).then(asJson<{ ok: true }>);
+}
+
+export function setMessageEnabled(key: string, channel: "sms" | "email", enabled: boolean): Promise<{ ok: true; enabled: boolean }> {
+  return fetch(`/api/message-templates/${key}/${channel}`, jsonRequest("PATCH", { enabled })).then(asJson<{ ok: true; enabled: boolean }>);
+}
+
+export function resetMessageTemplate(key: string, channel: "sms" | "email"): Promise<{ ok: true; enabled: boolean; subject: string; body: string }> {
+  return fetch(`/api/message-templates/${key}/${channel}`, jsonRequest("DELETE")).then(asJson<{ ok: true; enabled: boolean; subject: string; body: string }>);
+}
+
+export function previewMessageTemplate(key: string, input: { channel: "sms" | "email"; subject?: string; body: string }): Promise<TemplatePreview> {
+  return fetch(`/api/message-templates/${key}/preview`, jsonRequest("POST", input)).then(asJson<TemplatePreview>);
 }

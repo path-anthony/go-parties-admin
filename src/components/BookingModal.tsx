@@ -17,6 +17,7 @@ import {
   type Unit,
 } from "../lib/types";
 import { EditableCell } from "./EditableCell";
+import { RecordMessages } from "./RecordMessages";
 import { SendMessageControls } from "./SendMessageControls";
 import { AgreementChip } from "./AgreementChip";
 import { BookingStatusTag } from "./BookingStatusTag";
@@ -280,6 +281,7 @@ export function BookingModal({
               logged under Messages.
             </span>
           </div>
+          <RecordMessages bookingId={booking.id} />
           <label className="detail-field">
             <span className="detail-field-label">Lead</span>
             <select

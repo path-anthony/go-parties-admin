@@ -19,6 +19,17 @@ export type MessageLink = {
 
 export type SendResult = { logId: string; status: string; error?: string };
 
+// Where a send belongs in the pipeline. logId: an existing log row to fill
+// in instead of writing a new one (the pipeline claims its idempotency key
+// with a row before it sends).
+export type SendMeta = {
+  triggerKey?: string | null;
+  journey?: string | null;
+  leadId?: string | null;
+  idempotencyKey?: string | null;
+  logId?: string | null;
+};
+
 const TWILIO_TIMEOUT_MS = 10_000;
 const WEBHOOK_TIMEOUT_MS = 10_000;
 
@@ -44,8 +55,17 @@ async function writeLog(data: {
   error?: string | null;
   providerRef?: string | null;
   link?: MessageLink;
+  meta?: SendMeta;
 }): Promise<string> {
   const account = await getDefaultAccount();
+  if (data.meta?.logId) {
+    // The pipeline already wrote this row; the send fills in the outcome.
+    const row = await prisma.messageLog.update({
+      where: { id: data.meta.logId },
+      data: { status: data.status, error: data.error ?? null, providerRef: data.providerRef ?? null, body: data.body, subject: data.subject ?? null, recipient: data.recipient },
+    });
+    return row.id;
+  }
   const row = await prisma.messageLog.create({
     data: {
       accountId: account.id,
@@ -61,6 +81,10 @@ async function writeLog(data: {
       designRequestId: data.link?.designRequestId ?? null,
       crewMemberId: data.link?.crewMemberId ?? null,
       gigId: data.link?.gigId ?? null,
+      triggerKey: data.meta?.triggerKey ?? null,
+      journey: data.meta?.journey ?? null,
+      leadId: data.meta?.leadId ?? null,
+      idempotencyKey: data.meta?.idempotencyKey ?? null,
     },
   });
   return row.id;
@@ -76,15 +100,15 @@ async function safeLog(...args: Parameters<typeof writeLog>): Promise<string> {
   }
 }
 
-export async function sendSms(input: { to: string | null | undefined; body: string; purpose: string; link?: MessageLink }): Promise<SendResult> {
-  const { body, purpose, link } = input;
+export async function sendSms(input: { to: string | null | undefined; body: string; purpose: string; link?: MessageLink; meta?: SendMeta }): Promise<SendResult> {
+  const { body, purpose, link, meta } = input;
   const raw = input.to?.trim() || "";
   const to = toE164(input.to);
 
   if (!to) {
     const error = raw === "" ? "no phone number on file" : `"${raw}" is not a phone number that can be texted`;
     console.warn(`[sms] not sent (${purpose}): ${error}`);
-    return { logId: await safeLog({ channel: "sms", purpose, recipient: raw || "(none)", body, status: "failed", error, link }), status: "failed", error };
+    return { logId: await safeLog({ channel: "sms", purpose, recipient: raw || "(none)", body, status: "failed", error, link, meta }), status: "failed", error };
   }
 
   const sid = process.env.TWILIO_ACCOUNT_SID;
@@ -95,7 +119,7 @@ export async function sendSms(input: { to: string | null | undefined; body: stri
     const status = !token ? "skipped-no-token" : "skipped-not-configured";
     const error = `${missing} not set, so nothing was sent`;
     console.warn(`[sms] SKIPPED (${purpose}) to ${to}: ${error}. Would have sent: ${body}`);
-    return { logId: await safeLog({ channel: "sms", purpose, recipient: to, body, status, error, link }), status, error };
+    return { logId: await safeLog({ channel: "sms", purpose, recipient: to, body, status, error, link, meta }), status, error };
   }
 
   try {
@@ -112,13 +136,13 @@ export async function sendSms(input: { to: string | null | undefined; body: stri
     if (!res.ok) {
       const error = `Twilio ${res.status}${json.code ? ` (${json.code})` : ""}: ${json.message ?? "request failed"}`;
       console.error(`[sms] FAILED (${purpose}) to ${to}: ${error}`);
-      return { logId: await safeLog({ channel: "sms", purpose, recipient: to, body, status: "failed", error, link }), status: "failed", error };
+      return { logId: await safeLog({ channel: "sms", purpose, recipient: to, body, status: "failed", error, link, meta }), status: "failed", error };
     }
-    return { logId: await safeLog({ channel: "sms", purpose, recipient: to, body, status: "sent", providerRef: json.sid ?? null, link }), status: "sent" };
+    return { logId: await safeLog({ channel: "sms", purpose, recipient: to, body, status: "sent", providerRef: json.sid ?? null, link, meta }), status: "sent" };
   } catch (err) {
     const error = err instanceof Error ? err.message : "request failed";
     console.error(`[sms] FAILED (${purpose}) to ${to}: ${error}`);
-    return { logId: await safeLog({ channel: "sms", purpose, recipient: to, body, status: "failed", error, link }), status: "failed", error };
+    return { logId: await safeLog({ channel: "sms", purpose, recipient: to, body, status: "failed", error, link, meta }), status: "failed", error };
   }
 }
 
@@ -133,24 +157,25 @@ export async function sendEmail(input: {
   purpose: string;
   pdfUrl?: string | null;
   link?: MessageLink;
+  meta?: SendMeta;
 }): Promise<SendResult> {
-  const { subject, body, purpose, link } = input;
+  const { subject, body, purpose, link, meta } = input;
   const to = input.to?.trim() ?? "";
   if (!to || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(to)) {
     const error = to === "" ? "no email address on file" : `"${to}" is not an email address`;
     console.warn(`[email] not sent (${purpose}): ${error}`);
-    return { logId: await safeLog({ channel: "email", purpose, recipient: to || "(none)", subject, body, status: "failed", error, link }), status: "failed", error };
+    return { logId: await safeLog({ channel: "email", purpose, recipient: to || "(none)", subject, body, status: "failed", error, link, meta }), status: "failed", error };
   }
 
   const url = process.env.EMAIL_WEBHOOK_URL;
   if (!url) {
     const error = "EMAIL_WEBHOOK_URL is not set, so nothing was sent";
     console.warn(`[email] SKIPPED (${purpose}) to ${to}: ${error}. Subject: ${subject}`);
-    return { logId: await safeLog({ channel: "email", purpose, recipient: to, subject, body, status: "skipped-no-webhook", error, link }), status: "skipped-no-webhook", error };
+    return { logId: await safeLog({ channel: "email", purpose, recipient: to, subject, body, status: "skipped-no-webhook", error, link, meta }), status: "skipped-no-webhook", error };
   }
 
   // The row exists before the POST so n8n can report against its id.
-  const logId = await safeLog({ channel: "email", purpose, recipient: to, subject, body, status: "queued", link });
+  const logId = await safeLog({ channel: "email", purpose, recipient: to, subject, body, status: "queued", link, meta });
   try {
     const headers: Record<string, string> = { "Content-Type": "application/json" };
     if (process.env.N8N_WEBHOOK_SECRET) headers[WEBHOOK_SECRET_HEADER] = process.env.N8N_WEBHOOK_SECRET;

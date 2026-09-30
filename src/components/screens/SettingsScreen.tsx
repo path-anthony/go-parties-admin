@@ -1,3 +1,6 @@
+import { useState } from "react";
+import { MessageLogPanel } from "../MessageLogPanel";
+import { MessageTemplatesPanel } from "../MessageTemplatesPanel";
 import { LeadColumnsEditor } from "../LeadColumnsEditor";
 import { GoSignerSettings } from "../GoSignerSettings";
 import { NotificationSettings } from "../NotificationSettings";
@@ -6,12 +9,9 @@ import { ReviewSettings } from "../ReviewSettings";
 import { RushSettings } from "../RushSettings";
 import { SkillsEditor } from "../SkillsEditor";
 
-export function SettingsScreen() {
+function GeneralSettings() {
   return (
-    <div className="screen">
-      <div className="screen-head">
-        <h2>Settings</h2>
-      </div>
+    <>
 
       <section className="panel">
         <h2>Rush orders</h2>
@@ -77,6 +77,47 @@ export function SettingsScreen() {
         </p>
         <SkillsEditor />
       </section>
+    </>
+  );
+}
+
+type Tab = "general" | "messages" | "log";
+
+export function SettingsScreen() {
+  const [tab, setTab] = useState<Tab>("general");
+  return (
+    <div className="screen">
+      <div className="screen-head">
+        <h2>Settings</h2>
+      </div>
+      <div className="tab-row tab-row-spaced" role="tablist">
+        {(
+          [
+            ["general", "General"],
+            ["messages", "Messages"],
+            ["log", "Message log"],
+          ] as const
+        ).map(([key, label]) => (
+          <button key={key} type="button" role="tab" aria-selected={tab === key} className={tab === key ? "btn-primary" : "btn-secondary"} onClick={() => setTab(key)}>
+            {label}
+          </button>
+        ))}
+      </div>
+      {tab === "general" && <GeneralSettings />}
+      {tab === "messages" && (
+        <section className="panel">
+          <h2>Messages</h2>
+          <MessageTemplatesPanel />
+        </section>
+      )}
+      {tab === "log" && (
+        <section className="panel">
+          <h2>Message log</h2>
+          <p className="muted settings-help">The last 200 texts and emails, newest first. Click one to read it and see any error.</p>
+          <MessageLogPanel />
+        </section>
+      )}
     </div>
   );
 }
+

@@ -4,6 +4,9 @@ import { getDefaultAccount } from "./account.js";
 import { prisma } from "./db.js";
 import { currentPolicy } from "./policy.js";
 import { getSettings } from "./settings.js";
+import { mergeFields } from "./tokens.js";
+
+export { mergeFields };
 
 // The self-hosted contract. One contract per Agreement: the customer is
 // sent an unguessable signing link, reads the merged text, types their
@@ -39,19 +42,6 @@ export const MERGE_FIELDS = [
 ] as const;
 
 const usd = (n: number) => n.toLocaleString("en-US", { style: "currency", currency: "USD" });
-
-// {{customer_name}} style fields are replaced with the booking's real
-// values. camelCase spellings work too ({{depositPercentage}} is
-// {{deposit_percentage}}), since the policy text is written by people and
-// the storefront uses that style. A field that isn't one of MERGE_FIELDS
-// is left as typed, so a typo shows in the contract instead of silently
-// vanishing.
-export function mergeFields(text: string, values: Record<string, string>): string {
-  return text.replace(/\{\{\s*([A-Za-z_]+)\s*\}\}/g, (whole, raw: string) => {
-    const key = raw.replace(/([A-Z])/g, "_$1").toLowerCase();
-    return key in values ? values[key] : whole;
-  });
-}
 
 function longDate(dateText: string): string {
   return new Date(`${dateText}T00:00:00Z`).toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric", timeZone: "UTC" });

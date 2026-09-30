@@ -19,6 +19,7 @@ import automationsRouter from "./routes/automations.js";
 import { adminContractsRouter, publicContractsRouter } from "./routes/contracts.js";
 import customersRouter from "./routes/customers.js";
 import messagesRouter from "./routes/messages.js";
+import messageTemplatesRouter from "./routes/messageTemplates.js";
 import n8nWebhooksRouter from "./routes/n8nWebhooks.js";
 import designRequestsRouter from "./routes/designRequests.js";
 import directBookingsRouter, { staffBookingRouter } from "./routes/directBookings.js";
@@ -130,6 +131,7 @@ app.use("/api/customers", requireAuth, customersRouter);
 // secret like the lead webhook.
 app.use("/api/contracts", publicContractsRouter);
 app.use("/api/contract-admin", requireAuth, adminContractsRouter);
+app.use("/api/message-templates", requireAuth, messageTemplatesRouter);
 app.use("/api/messages", requireAuth, messagesRouter);
 app.use("/api/automations", externalLeadLimiter, requireWebhookSecret, automationsRouter);
 app.use("/api/webhooks/n8n", externalLeadLimiter, requireWebhookSecret, n8nWebhooksRouter);

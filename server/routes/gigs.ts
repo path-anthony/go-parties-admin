@@ -77,7 +77,7 @@ router.post("/:id/offers", async (req, res) => {
   const unique = [...new Set(ids)];
   const eligible = await prisma.crewMember.findMany({
     where: { id: { in: unique }, accountId: gig.accountId, active: true, skills: { has: gig.skill } },
-    select: { id: true, name: true, phone: true },
+    select: { id: true, name: true, phone: true, email: true },
   });
   if (eligible.length !== unique.length) {
     return res.status(400).json({ error: `Every person offered this gig has to be active and have the ${gig.skill} skill.` });

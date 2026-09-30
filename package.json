@@ -15,7 +15,8 @@
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
     "db:seed": "prisma db seed",
-    "import:inventory": "tsx scripts/import-inventory.ts"
+    "import:inventory": "tsx scripts/import-inventory.ts",
+    "test": "tsx --test server/tests/*.test.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.124.0",
