@@ -16,7 +16,7 @@
     "db:migrate": "prisma migrate dev",
     "db:seed": "prisma db seed",
     "import:inventory": "tsx scripts/import-inventory.ts",
-    "test": "tsx --test server/tests/*.test.ts"
+    "test": "tsx --test server/tests/*.test.ts && tsx --tsconfig tsconfig.app.json --test src/*.test.tsx"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.124.0",
@@ -36,6 +36,7 @@
     "pg": "^8.23.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
+    "react-router-dom": "^7.18.4",
     "xlsx": "^0.18.5"
   },
   "devDependencies": {

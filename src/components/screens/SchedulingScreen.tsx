@@ -55,7 +55,10 @@ function sortBookings(bookings: Booking[]): Booking[] {
   );
 }
 
-export function SchedulingScreen() {
+// One screen, two pages under Scheduling in the sidebar: Bookings and
+// Inventory status. They share their data, so both routes render this with
+// a view; there are no in-page tabs.
+export function SchedulingScreen({ view = "bookings" }: { view?: "bookings" | "units" } = {}) {
   const [items, setItems] = useState<Item[] | null>(null);
   const [units, setUnits] = useState<Unit[] | null>(null);
   const [bookings, setBookings] = useState<Booking[] | null>(null);
@@ -64,9 +67,9 @@ export function SchedulingScreen() {
   // The booking popup, by id: looked up in bookings on each render so a
   // save inside the popup shows in it and in the row behind it.
   const [openId, setOpenId] = useState<string | null>(null);
-  // Bookings are the daily view and open first; the units live behind
-  // their own tab, searchable, since there are hundreds of them.
-  const [tab, setTab] = useState<"bookings" | "units">("bookings");
+  // Bookings are the daily view; the units have their own page,
+  // searchable, since there are hundreds of them.
+  const tab = view;
   const [unitSearch, setUnitSearch] = useState("");
   const [newOpen, setNewOpen] = useState(false);
 
@@ -110,10 +113,12 @@ export function SchedulingScreen() {
   return (
     <div className="screen screen-wide">
       <div className="screen-head">
-        <h2>Scheduling</h2>
+        <h2>{view === "units" ? "Inventory status" : "Bookings"}</h2>
         <p className="muted">
-          Bookings by date, with their status, and behind them the physical units each
-          item has. No calendar yet.
+          {view === "units"
+            ? "Every physical unit and its manual status."
+            : "Bookings by date, with their status, and behind them the physical units each item has. No calendar yet."}
+          {ready && ` ${view === "units" ? `${units.length} units.` : `${bookings.length} bookings.`}`}
         </p>
       </div>
 
@@ -123,27 +128,6 @@ export function SchedulingScreen() {
       {ready && (
         <>
           <section className="panel">
-            <div className="filter-row tab-row" role="tablist">
-              <button
-                type="button"
-                role="tab"
-                aria-selected={tab === "bookings"}
-                className={tab === "bookings" ? "btn-primary" : "btn-secondary"}
-                onClick={() => setTab("bookings")}
-              >
-                Bookings ({bookings.length})
-              </button>
-              <button
-                type="button"
-                role="tab"
-                aria-selected={tab === "units"}
-                className={tab === "units" ? "btn-primary" : "btn-secondary"}
-                onClick={() => setTab("units")}
-              >
-                Inventory status ({units.length} units)
-              </button>
-            </div>
-
             {tab === "units" && (
               <>
                 <p className="muted">

@@ -210,9 +210,9 @@ function TemplateModal({ trigger, tokens, onClose, onChanged }: { trigger: Messa
         <p className="muted">{KIND[trigger.sendClass]}</p>
         {!trigger.wired && <p className="not-wired-note">Not sending yet. {trigger.unwiredReason} You can still write it now.</p>}
 
-        <div className="tab-row tab-row-spaced" role="tablist">
+        <div className="filter-row" role="group" aria-label="Which message to edit">
           {(["sms", "email"] as const).map((c) => (
-            <button key={c} type="button" role="tab" aria-selected={channel === c} className={channel === c ? "btn-primary" : "btn-secondary"} onClick={() => pick(c)}>
+            <button key={c} type="button" aria-pressed={channel === c} className={channel === c ? "btn-primary" : "btn-secondary"} onClick={() => pick(c)}>
               {c === "sms" ? "Text" : "Email"}
               {trigger[c].customized ? " (customized)" : ""}
             </button>

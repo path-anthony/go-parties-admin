@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { getBookings, getDesignRequests, getUnits, updateDesignRequest } from "../../lib/api";
 import { formatEventDay } from "../../lib/gigs";
 import type { DesignRequest } from "../../lib/types";
@@ -17,7 +18,14 @@ const REASON_TEXT = { threshold: "Over the review threshold", occasion: "Occasio
 // before it becomes a real Held booking.
 export function DesignRequestsScreen() {
   const navigate = useNavigate();
-  const [status, setStatus] = useState<(typeof STATUSES)[number]>("Open");
+  // The status filter lives in the address (?status=Converted), so a filtered
+  // view can be bookmarked. Choosing the one already showing changes nothing.
+  const [params, setParams] = useSearchParams();
+  const wanted = params.get("status");
+  const status: (typeof STATUSES)[number] = STATUSES.find((s) => s === wanted) ?? "Open";
+  const setStatus = (next: (typeof STATUSES)[number]) => {
+    if (next !== status) setParams({ status: next }, { replace: true });
+  };
   const [requests, setRequests] = useState<DesignRequest[] | null>(null);
   // Which tab the list on screen was loaded for. The screen is loading
   // whenever that differs from the tab selected, so clicking the tab that
@@ -72,13 +80,12 @@ export function DesignRequestsScreen() {
       </div>
 
       <section className="panel">
-        <div className="tab-row" role="tablist">
+        <div className="filter-row" role="group" aria-label="Show requests">
           {STATUSES.map((s) => (
             <button
               key={s}
               type="button"
-              role="tab"
-              aria-selected={status === s}
+              aria-pressed={status === s}
               className={status === s ? "btn-primary" : "btn-secondary"}
               onClick={() => setStatus(s)}
             >

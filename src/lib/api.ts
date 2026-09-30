@@ -431,3 +431,15 @@ export function resetMessageTemplate(key: string, channel: "sms" | "email"): Pro
 export function previewMessageTemplate(key: string, input: { channel: "sms" | "email"; subject?: string; body: string }): Promise<TemplatePreview> {
   return fetch(`/api/message-templates/${key}/preview`, jsonRequest("POST", input)).then(asJson<TemplatePreview>);
 }
+
+// Read-only: which outside services are hooked up and what their last send
+// did. Yes/no and a result only; no secrets.
+export type IntegrationStatus = {
+  texting: { configured: boolean; parts: { accountId: boolean; authToken: boolean; phoneNumber: boolean }; last: { status: string; createdAt: string; confirmation: string | null } | null };
+  email: { configured: boolean; last: { status: string; createdAt: string; confirmation: string | null } | null };
+  storefront: { urlSet: boolean };
+};
+
+export function getIntegrationStatus(): Promise<IntegrationStatus> {
+  return fetch("/api/integrations/status").then(asJson<IntegrationStatus>);
+}

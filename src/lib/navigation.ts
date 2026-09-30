@@ -1,10 +1,13 @@
 import { createContext, useContext } from "react";
-import type { ScreenKey } from "../components/AdminShell";
 
 // What a screen can be opened with. Overview's cards use this to land on
 // a filtered view rather than the plain screen: the Leads board on one
 // stage (or on the leads needing a follow-up), Crew & Gigs on one status
 // or straight into one gig.
+// The places other screens can send you (Overview's cards, a finished
+// New booking). Each maps to a real address in src/nav.tsx.
+export type ScreenKey = "overview" | "inventory" | "packages" | "leads" | "requests" | "scheduling" | "crew" | "messages" | "settings";
+
 export type ScreenParams = {
   leadStatus?: string;
   leadFollowUp?: boolean;

@@ -21,14 +21,15 @@ function rowKey(e: KeyboardEvent<HTMLTableRowElement>, open: () => void) {
   }
 }
 
-// Two tabs under one nav entry. Gigs: every person needed for a booked
+// Two pages under one nav group. Gigs: every person needed for a booked
 // service item, filterable by status, one row opening the gig popup.
 // Crew: the people, one row opening the crew popup. Both follow the
 // compact-row-plus-popup pattern Inventory and Scheduling use.
 // initialStatus opens the list on one status; openGigId opens that gig's
 // popup as soon as the list has loaded. Both come from Overview's cards.
-export function CrewGigsScreen({ initialStatus, openGigId: initialGigId }: { initialStatus?: string; openGigId?: string } = {}) {
-  const [tab, setTab] = useState<Tab>("gigs");
+export function CrewGigsScreen({ view = "gigs", initialStatus, openGigId: initialGigId }: { view?: Tab; initialStatus?: string; openGigId?: string } = {}) {
+  // Two pages under Crew & Gigs in the sidebar, Gigs and Crew; no tabs.
+  const tab = view;
   const [gigs, setGigs] = useState<Gig[] | null>(null);
   const [crew, setCrew] = useState<CrewMember[] | null>(null);
   const [skillNames, setSkillNames] = useState<string[]>([]);
@@ -58,9 +59,10 @@ export function CrewGigsScreen({ initialStatus, openGigId: initialGigId }: { ini
     <div className="screen screen-wide">
       <div className="screen-head screen-head-row">
         <div>
-          <h2>Crew & Gigs</h2>
+          <h2>{view === "crew" ? "Crew" : "Gigs"}</h2>
           <p className="muted">
             A gig is one person needed for one skill of one item on one booking. Crew are the people who can take them.
+            {ready && ` ${view === "crew" ? `${crew.length} crew members.` : `${gigs.length} gigs.`}`}
           </p>
         </div>
         {ready && tab === "crew" && (
@@ -75,15 +77,6 @@ export function CrewGigsScreen({ initialStatus, openGigId: initialGigId }: { ini
 
       {ready && (
         <section className="panel">
-          <div className="filter-row tab-row" role="tablist">
-            <button type="button" role="tab" aria-selected={tab === "gigs"} className={tab === "gigs" ? "btn-primary" : "btn-secondary"} onClick={() => setTab("gigs")}>
-              Gigs ({gigs.length})
-            </button>
-            <button type="button" role="tab" aria-selected={tab === "crew"} className={tab === "crew" ? "btn-primary" : "btn-secondary"} onClick={() => setTab("crew")}>
-              Crew ({crew.length})
-            </button>
-          </div>
-
           {tab === "gigs" && (
             <>
               <div className="filter-row">

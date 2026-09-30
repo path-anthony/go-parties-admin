@@ -1,12 +1,15 @@
 import "./app.css";
+import { BrowserRouter } from "react-router-dom";
 import { AdminShell } from "./components/AdminShell";
 import { AuthGate } from "./components/AuthGate";
 
 function App() {
   return (
-    <AuthGate>
-      <AdminShell />
-    </AuthGate>
+    <BrowserRouter>
+      <AuthGate>
+        <AdminShell />
+      </AuthGate>
+    </BrowserRouter>
   );
 }
 
