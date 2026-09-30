@@ -91,11 +91,18 @@ test("a different key sends again; each channel has its own key", async () => {
 
 test("a message with a missing token is blocked, logged, and never sent", async () => {
   calls = [];
-  const [o] = await sendTemplatedMessage(NURTURE, { extra: { customerFirstName: "Sam" } }, { phone: "8605550104" }, key("miss"), { now: wed });
+  const [o] = await sendTemplatedMessage(NURTURE, { extra: { eventType: "Sweet 16" } }, { phone: "8605550104" }, key("miss"), { now: wed });
   assert.equal(o.status, "blocked_missing_field");
-  assert.match(o.error ?? "", /eventType/);
+  assert.match(o.error ?? "", /customerFirstName/);
   assert.equal(calls.length, 0);
   assert.equal((await rowFor(key("miss")))?.status, "blocked_missing_field");
+});
+
+test("an empty event type falls back to the word event", async () => {
+  calls = [];
+  const [o] = await sendTemplatedMessage(NURTURE, { extra: { customerFirstName: "Sam" } }, { phone: "8605550107" }, key("fallback"), { now: wed });
+  assert.equal(o.status, "sent");
+  assert.match(decodeURIComponent(calls[0].body).replace(/\+/g, " "), /your event is still on/);
 });
 
 test("a blocked message is retried on its own row once the data exists", async () => {

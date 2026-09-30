@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useContext, useState } from "react";
+import { LeadChipsContext } from "../lib/leadChips";
 import { SOURCE_LABEL, leadTitle } from "../lib/leads";
 import type { Lead, LeadStatus } from "../lib/types";
 import { formatDate, relativeTime } from "../lib/time";
@@ -16,6 +17,7 @@ export function LeadCard({
   onOpen: () => void;
   onStatusChange: (id: string, status: LeadStatus) => Promise<void>;
 }) {
+  const chip = useContext(LeadChipsContext)[lead.id];
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -51,6 +53,7 @@ export function LeadCard({
 
       {title ? <div className="lead-card-name">{title}</div> : <div className="lead-card-name muted">No contact yet</div>}
       {lead.contact && <div className="lead-card-line">{lead.contact}</div>}
+      {chip && <div className="lead-card-line lead-automation-chip muted">{chip}</div>}
       {detail && <div className="lead-card-line">{detail}</div>}
 
       {lead.tags.length > 0 && (

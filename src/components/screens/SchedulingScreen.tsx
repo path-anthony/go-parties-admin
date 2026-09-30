@@ -58,7 +58,7 @@ function sortBookings(bookings: Booking[]): Booking[] {
 // One screen, two pages under Scheduling in the sidebar: Bookings and
 // Inventory status. They share their data, so both routes render this with
 // a view; there are no in-page tabs.
-export function SchedulingScreen({ view = "bookings" }: { view?: "bookings" | "units" } = {}) {
+export function SchedulingScreen({ view = "bookings", openBookingId }: { view?: "bookings" | "units"; openBookingId?: string } = {}) {
   const [items, setItems] = useState<Item[] | null>(null);
   const [units, setUnits] = useState<Unit[] | null>(null);
   const [bookings, setBookings] = useState<Booking[] | null>(null);
@@ -66,7 +66,7 @@ export function SchedulingScreen({ view = "bookings" }: { view?: "bookings" | "u
   const [error, setError] = useState<string | null>(null);
   // The booking popup, by id: looked up in bookings on each render so a
   // save inside the popup shows in it and in the row behind it.
-  const [openId, setOpenId] = useState<string | null>(null);
+  const [openId, setOpenId] = useState<string | null>(openBookingId ?? null);
   // Bookings are the daily view; the units have their own page,
   // searchable, since there are hundreds of them.
   const tab = view;

@@ -23,12 +23,13 @@ export function defaultsFor(def: TriggerDef, channel: Channel) {
   };
 }
 
-export async function getEffectiveTemplates(accountId: string, triggerKey: string): Promise<Record<Channel, EffectiveTemplate>> {
+type Row = { triggerKey: string; channel: string; subject: string | null; body: string | null; enabled: boolean };
+
+export function effectiveFrom(triggerKey: string, rows: Row[]): Record<Channel, EffectiveTemplate> {
   const def = mustGetTrigger(triggerKey);
-  const rows = await prisma.messageTemplate.findMany({ where: { accountId, triggerKey } });
   const build = (channel: Channel): EffectiveTemplate => {
     const d = defaultsFor(def, channel);
-    const row = rows.find((r) => r.channel === channel);
+    const row = rows.find((r) => r.triggerKey === triggerKey && r.channel === channel);
     if (!row) return { channel, ...d, customized: false, hasRow: false };
     return {
       channel,
@@ -40,4 +41,14 @@ export async function getEffectiveTemplates(accountId: string, triggerKey: strin
     };
   };
   return { sms: build("sms"), email: build("email") };
+}
+
+export async function getEffectiveTemplates(accountId: string, triggerKey: string): Promise<Record<Channel, EffectiveTemplate>> {
+  mustGetTrigger(triggerKey);
+  return effectiveFrom(triggerKey, await prisma.messageTemplate.findMany({ where: { accountId, triggerKey } }));
+}
+
+// Every customized row in one query, for the scheduler.
+export async function loadTemplateRows(accountId: string): Promise<Row[]> {
+  return prisma.messageTemplate.findMany({ where: { accountId } });
 }

@@ -453,7 +453,7 @@ export async function issueContract(target: { bookingId?: string | null; designR
   }
   const signingToken = agreement.signingToken ?? token();
   if (!agreement.signingToken || agreement.contractStatus !== "Sent" || agreement.contractProvider !== CONTRACT_PROVIDER) {
-    await prisma.agreement.update({ where: { id: agreement.id }, data: { signingToken, contractProvider: CONTRACT_PROVIDER, contractStatus: "Sent" } });
+    await prisma.agreement.update({ where: { id: agreement.id }, data: { signingToken, contractProvider: CONTRACT_PROVIDER, contractStatus: "Sent", ...(agreement.contractSentAt ? {} : { contractSentAt: new Date() }) } });
   }
   return { agreementId: agreement.id, signingToken, link: signingLink(signingToken), signed: false };
 }

@@ -17,6 +17,7 @@ import {
   type Unit,
 } from "../lib/types";
 import { EditableCell } from "./EditableCell";
+import { AutomationTimeline } from "./AutomationTimeline";
 import { RecordMessages } from "./RecordMessages";
 import { SendMessageControls } from "./SendMessageControls";
 import { AgreementChip } from "./AgreementChip";
@@ -282,6 +283,7 @@ export function BookingModal({
             </span>
           </div>
           <RecordMessages bookingId={booking.id} />
+          <AutomationTimeline kind="booking" id={booking.id} />
           <label className="detail-field">
             <span className="detail-field-label">Lead</span>
             <select

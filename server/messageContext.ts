@@ -33,11 +33,24 @@ function daysBetween(fromEastern: string, to: Date): number {
   return Math.round((to.getTime() - new Date(`${fromEastern}T00:00:00Z`).getTime()) / 86_400_000);
 }
 
+type Settings = Awaited<ReturnType<typeof getSettings>>;
+
+// The records a message can be about, already loaded. composeValues turns
+// them into token values with no database access, so the scheduler can fill
+// tokens for hundreds of records from a handful of queries.
+export type LoadedRecords = {
+  lead?: { customerName: string | null; occasion: string | null; dateOfInterest: Date | null } | null;
+  designRequest?: { customerName: string; eventDate: Date; eventTime: string | null; occasion: string | null; address: string | null; total: unknown } | null;
+  booking?: { customerName: string; eventDate: Date; eventTime: string | null; occasion: string | null; address: string | null; total: unknown } | null;
+  crew?: { name: string } | null;
+  gig?: { skill: string; itemName: string; eventDate: Date; booking: { eventTime: string | null; address: string | null } } | null;
+  extra?: Record<string, string>;
+};
+
 // Values keyed by snake_case (the resolver's spelling). A token with no
 // data behind it is simply absent or empty, and the pipeline blocks the
 // message rather than sending a hole.
-export async function buildMessageValues(accountId: string, ctx: MessageContext): Promise<Record<string, string>> {
-  const settings = await getSettings(accountId);
+export function composeValues(settings: Settings, rec: LoadedRecords): Record<string, string> {
   const v: Record<string, string> = {};
   const set = (camel: string, value: string | null | undefined) => {
     if (value !== null && value !== undefined) v[camelToSnake(camel)] = value;
@@ -49,12 +62,15 @@ export async function buildMessageValues(accountId: string, ctx: MessageContext)
   set("depositPercentage", String(settings.depositPercentage));
   set("cancellationWindowDays", String(settings.cancellationWindowDays));
   set("portalLink", storefront ? `${storefront}/party` : "");
+  // Nothing is asked of an event type that isn't known: "your event".
+  set("eventType", "event");
 
-  const applyMoney = (total: number | null) => {
-    if (total === null) return;
-    const deposit = Math.round(total * settings.depositPercentage) / 100;
+  const applyMoney = (total: unknown) => {
+    if (total === null || total === undefined) return;
+    const t = Number(total);
+    const deposit = Math.round(t * settings.depositPercentage) / 100;
     set("depositAmount", usd(deposit));
-    set("balanceDue", usd(Math.round((total - deposit) * 100) / 100));
+    set("balanceDue", usd(Math.round((t - deposit) * 100) / 100));
   };
   const applyEvent = (e: { name?: string | null; date?: Date | null; time?: string | null; type?: string | null; address?: string | null }) => {
     set("customerName", e.name?.trim());
@@ -64,54 +80,52 @@ export async function buildMessageValues(accountId: string, ctx: MessageContext)
       set("daysUntilEvent", String(Math.max(0, daysBetween(todayEastern(), e.date))));
     }
     set("eventTime", e.time?.trim());
-    set("eventType", e.type?.trim());
+    if (e.type?.trim()) set("eventType", e.type.trim());
     set("eventAddress", e.address?.trim());
   };
 
   // Lowest to highest priority: the lead, the request, then the booking.
-  if (ctx.leadId) {
-    const l = await prisma.lead.findUnique({ where: { id: ctx.leadId }, select: { customerName: true, occasion: true, dateOfInterest: true } });
-    if (l) applyEvent({ name: l.customerName, date: l.dateOfInterest, type: l.occasion });
+  if (rec.lead) applyEvent({ name: rec.lead.customerName, date: rec.lead.dateOfInterest, type: rec.lead.occasion });
+  if (rec.designRequest) {
+    const r = rec.designRequest;
+    applyEvent({ name: r.customerName, date: r.eventDate, time: r.eventTime, type: r.occasion, address: r.address });
+    applyMoney(r.total);
   }
-  if (ctx.designRequestId) {
-    const r = await prisma.designRequest.findUnique({ where: { id: ctx.designRequestId } });
-    if (r) {
-      applyEvent({ name: r.customerName, date: r.eventDate, time: r.eventTime, type: r.occasion, address: r.address });
-      applyMoney(r.total === null ? null : Number(r.total));
-    }
+  if (rec.booking) {
+    const b = rec.booking;
+    applyEvent({ name: b.customerName, date: b.eventDate, time: b.eventTime, type: b.occasion, address: b.address });
+    applyMoney(b.total);
   }
-  let bookingId = ctx.bookingId ?? null;
-  if (!bookingId && ctx.gigId) {
-    bookingId = (await prisma.gig.findUnique({ where: { id: ctx.gigId }, select: { bookingId: true } }))?.bookingId ?? null;
-  }
-  if (bookingId) {
-    const b = await prisma.booking.findUnique({ where: { id: bookingId } });
-    if (b) {
-      applyEvent({ name: b.customerName, date: b.eventDate, time: b.eventTime, type: b.occasion, address: b.address });
-      applyMoney(b.total === null ? null : Number(b.total));
-    }
-  }
-
-  if (ctx.crewMemberId) {
-    const c = await prisma.crewMember.findUnique({ where: { id: ctx.crewMemberId }, select: { name: true } });
-    set("crewFirstName", firstName(c?.name));
-  }
-  if (ctx.gigId) {
-    const g = await prisma.gig.findUnique({ where: { id: ctx.gigId }, include: { booking: { select: { eventTime: true, address: true } } } });
-    if (g) {
-      set("gigRole", g.skill);
-      set("gigItemName", g.itemName);
-      set("gigDate", shortDate(g.eventDate));
-      set("gigStartTime", g.booking.eventTime?.trim());
-      set("gigAddress", g.booking.address?.trim());
-    }
+  if (rec.crew) set("crewFirstName", firstName(rec.crew.name));
+  if (rec.gig) {
+    set("gigRole", rec.gig.skill);
+    set("gigItemName", rec.gig.itemName);
+    set("gigDate", shortDate(rec.gig.eventDate));
+    set("gigStartTime", rec.gig.booking.eventTime?.trim());
+    set("gigAddress", rec.gig.booking.address?.trim());
   }
 
   // Not available anywhere in the app yet: cartLink, holdExpiresAt,
   // gigTown, gigLink, bidLink, bidRange, bidAmount, bidDeadline. They stay
   // absent, so a message that uses one is blocked and says why.
-  for (const [k, value] of Object.entries(ctx.extra ?? {})) set(k, value);
+  for (const [k, value] of Object.entries(rec.extra ?? {})) set(k, value);
   return v;
+}
+
+// Loads what the context points at, then composes the values.
+export async function buildMessageValues(accountId: string, ctx: MessageContext): Promise<Record<string, string>> {
+  const settings = await getSettings(accountId);
+  const rec: LoadedRecords = { extra: ctx.extra };
+  if (ctx.leadId) rec.lead = await prisma.lead.findUnique({ where: { id: ctx.leadId }, select: { customerName: true, occasion: true, dateOfInterest: true } });
+  if (ctx.designRequestId) rec.designRequest = await prisma.designRequest.findUnique({ where: { id: ctx.designRequestId } });
+  let bookingId = ctx.bookingId ?? null;
+  if (!bookingId && ctx.gigId) {
+    bookingId = (await prisma.gig.findUnique({ where: { id: ctx.gigId }, select: { bookingId: true } }))?.bookingId ?? null;
+  }
+  if (bookingId) rec.booking = await prisma.booking.findUnique({ where: { id: bookingId } });
+  if (ctx.crewMemberId) rec.crew = await prisma.crewMember.findUnique({ where: { id: ctx.crewMemberId }, select: { name: true } });
+  if (ctx.gigId) rec.gig = await prisma.gig.findUnique({ where: { id: ctx.gigId }, include: { booking: { select: { eventTime: true, address: true } } } });
+  return composeValues(settings, rec);
 }
 
 // Believable values for the editor's preview when there's no real record.

@@ -1,4 +1,7 @@
 import type {
+  RunResult,
+  Timeline,
+  UpcomingView,
   AddonGroup,
   AskGoMessage,
   Booking,
@@ -435,6 +438,7 @@ export function previewMessageTemplate(key: string, input: { channel: "sms" | "e
 // Read-only: which outside services are hooked up and what their last send
 // did. Yes/no and a result only; no secrets.
 export type IntegrationStatus = {
+  automation: { last: { ranAt: string; source: string; summary: { counts?: Record<string, { sent: number; failed: number; blocked: number; skipped: number; due: number }> } } | null; needsAttention: number };
   texting: { configured: boolean; parts: { accountId: boolean; authToken: boolean; phoneNumber: boolean }; last: { status: string; createdAt: string; confirmation: string | null } | null };
   email: { configured: boolean; last: { status: string; createdAt: string; confirmation: string | null } | null };
   storefront: { urlSet: boolean };
@@ -442,4 +446,28 @@ export type IntegrationStatus = {
 
 export function getIntegrationStatus(): Promise<IntegrationStatus> {
   return fetch("/api/integrations/status").then(asJson<IntegrationStatus>);
+}
+
+export function getTimeline(kind: "lead" | "booking" | "gig", id: string): Promise<Timeline> {
+  return fetch(`/api/automation/timeline?kind=${kind}&id=${encodeURIComponent(id)}`).then(asJson<Timeline>);
+}
+
+export function setAutomationPaused(kind: "lead" | "booking" | "gig", id: string, paused: boolean): Promise<{ paused: boolean }> {
+  return fetch("/api/automation/pause", jsonRequest("PATCH", { kind, id, paused })).then(asJson<{ paused: boolean }>);
+}
+
+export function getLeadChips(): Promise<{ chips: Record<string, string> }> {
+  return fetch("/api/automation/lead-chips").then(asJson<{ chips: Record<string, string> }>);
+}
+
+export function getUpcoming(): Promise<UpcomingView> {
+  return fetch("/api/automation/upcoming").then(asJson<UpcomingView>);
+}
+
+export function runAutomationCheck(dryRun: boolean): Promise<RunResult> {
+  return fetch("/api/automation/run", jsonRequest("POST", { dryRun })).then(asJson<RunResult>);
+}
+
+export function setSmsOptOut(phone: string, optedOut: boolean): Promise<{ optedOut: boolean }> {
+  return fetch("/api/automation/opt-out", jsonRequest(optedOut ? "POST" : "DELETE", { phone })).then(asJson<{ optedOut: boolean }>);
 }

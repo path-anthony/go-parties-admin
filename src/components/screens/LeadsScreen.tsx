@@ -22,7 +22,8 @@ import {
 import { CSS } from "@dnd-kit/utilities";
 import { Settings2, X } from "lucide-react";
 import { FOLLOW_UP_DAYS, daysSinceUpdate, findStage, needsFollowUp } from "../../lib/navigation";
-import { getLeadStatuses, getLeads, reorderLeads, updateLead } from "../../lib/api";
+import { getLeadChips, getLeadStatuses, getLeads, reorderLeads, updateLead } from "../../lib/api";
+import { LeadChipsContext } from "../../lib/leadChips";
 import type { Lead, LeadStatus, LeadStatusRow } from "../../lib/types";
 import { AddLeadForm } from "../AddLeadForm";
 import { LeadCard } from "../LeadCard";
@@ -125,7 +126,8 @@ export function LeadsScreen({
   initialStatus,
   initialFollowUp = false,
   initialStaleDays,
-}: { initialStatus?: string; initialFollowUp?: boolean; initialStaleDays?: number } = {}) {
+  openLeadId,
+}: { initialStatus?: string; initialFollowUp?: boolean; initialStaleDays?: number; openLeadId?: string } = {}) {
   const [filter, setFilter] = useState<{ status?: string; followUp?: boolean; staleDays?: number } | null>(
     initialStatus ? { status: initialStatus, staleDays: initialStaleDays } : initialFollowUp ? { followUp: true } : null,
   );
@@ -133,7 +135,9 @@ export function LeadsScreen({
   const [leads, setLeads] = useState<Lead[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(openLeadId ?? null);
+  // One line per lead saying where it is in the follow-up messages.
+  const [chips, setChips] = useState<Record<string, string>>({});
   const [activeId, setActiveId] = useState<string | null>(null);
   const [managingColumns, setManagingColumns] = useState(false);
 
@@ -171,6 +175,12 @@ export function LeadsScreen({
         setLeads(list);
       })
       .catch((err) => setError(err instanceof Error ? err.message : "Failed to load leads"));
+  }, []);
+
+  useEffect(() => {
+    getLeadChips()
+      .then((r) => setChips(r.chips))
+      .catch(() => undefined);
   }, []);
 
   function isStatus(id: string): boolean {
@@ -318,6 +328,7 @@ export function LeadsScreen({
   const shownStatuses = !filter ? (statuses ?? []) : filter.followUp ? earlyStages : (statuses ?? []).filter((s) => s === filter.status);
 
   return (
+    <LeadChipsContext.Provider value={chips}>
     <div className="screen screen-wide">
       <div className="screen-head screen-head-row">
         <div>
@@ -437,5 +448,6 @@ export function LeadsScreen({
         onUpdated={(updated, movedColumns) => replaceLead(updated, movedColumns)}
       />
     </div>
+    </LeadChipsContext.Provider>
   );
 }

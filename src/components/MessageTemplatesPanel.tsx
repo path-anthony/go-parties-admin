@@ -89,6 +89,7 @@ export function MessageTemplatesPanel() {
                           <strong>{t.label}</strong>
                           {(t.sms.customized || t.email.customized) && <span className="customized-badge">Customized</span>}
                           {!t.wired && <div className="not-wired-note">Not sending yet. {t.unwiredReason}</div>}
+                          {t.wired && t.note && <div className="not-wired-note">{t.note}</div>}
                         </td>
                         <td className="muted">{t.when}</td>
                         <td className="muted">{t.stopsWhen}</td>
@@ -209,6 +210,7 @@ function TemplateModal({ trigger, tokens, onClose, onChanged }: { trigger: Messa
         <p className="muted">It stops when: {trigger.stopsWhen}</p>
         <p className="muted">{KIND[trigger.sendClass]}</p>
         {!trigger.wired && <p className="not-wired-note">Not sending yet. {trigger.unwiredReason} You can still write it now.</p>}
+        {trigger.wired && trigger.note && <p className="not-wired-note">{trigger.note}</p>}
 
         <div className="filter-row" role="group" aria-label="Which message to edit">
           {(["sms", "email"] as const).map((c) => (

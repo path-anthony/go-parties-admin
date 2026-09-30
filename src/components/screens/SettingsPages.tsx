@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import { getIntegrationStatus, type IntegrationStatus } from "../../lib/api";
+import { getIntegrationStatus, getLeadStatuses, type IntegrationStatus } from "../../lib/api";
+import { stageWarnings, LOST_STAGE, WON_STAGE } from "../../lib/leadStages";
 import { statusLabel } from "../../lib/messages";
 import { GoSignerSettings } from "../GoSignerSettings";
 import { LeadColumnsEditor } from "../LeadColumnsEditor";
@@ -74,6 +75,14 @@ export function PoliciesPage() {
 }
 
 export function LeadPipelinePage() {
+  // Live column names, so the warning follows a rename or delete as it happens.
+  const [names, setNames] = useState<string[] | null>(null);
+  useEffect(() => {
+    getLeadStatuses()
+      .then((rows) => setNames(rows.map((r) => r.name)))
+      .catch(() => setNames(null));
+  }, []);
+  const warnings = names ? stageWarnings(names) : [];
   return (
     <Page title="Lead pipeline">
       <section className="panel">
@@ -82,7 +91,16 @@ export function LeadPipelinePage() {
           The stages on the Leads board, in order. New leads land in the first one. Renaming a column moves its
           leads with it. A column can't be deleted while it still has leads.
         </p>
-        <LeadColumnsEditor />
+        <p className="muted stage-note">
+          For follow-up messages, the "{WON_STAGE}" column counts as won and the "{LOST_STAGE}" column counts as lost. A lead in either one stops getting follow-ups,
+          and so does any lead that has a booking. Columns are matched by name, so keep these two names.
+        </p>
+        {warnings.map((w) => (
+          <p key={w} className="stage-warning" role="alert">
+            {w}
+          </p>
+        ))}
+        <LeadColumnsEditor onColumnsChange={(rows) => setNames(rows.map((r) => r.name))} />
       </section>
     </Page>
   );
@@ -104,6 +122,11 @@ export function NotificationsPage() {
 }
 
 const when = (iso: string) => new Date(iso).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZone: "America/New_York" });
+
+function automationCounts(summary: NonNullable<IntegrationStatus["automation"]["last"]>["summary"]): string {
+  const t = (summary as { counts?: { total?: { sent: number; failed: number; blocked: number; skipped: number } } }).counts?.total;
+  return t ? `: ${t.sent} sent, ${t.failed} failed, ${t.blocked} blocked, ${t.skipped} skipped` : "";
+}
 
 function StatusLine({ label, ok, detail }: { label: string; ok: boolean; detail?: string }) {
   return (
@@ -168,6 +191,27 @@ export function IntegrationsPage() {
                   <strong>Last email</strong>
                 </span>
                 <span>{last(status.email.last, "None yet")}</span>
+              </li>
+            </ul>
+          </section>
+          <section className="panel">
+            <h2>Automation check</h2>
+            <ul className="addon-list">
+              <li className="unit-row">
+                <span>
+                  <strong>Last automation check</strong>
+                </span>
+                <span>
+                  {status.automation.last
+                    ? `${when(status.automation.last.ranAt)} ET, ${status.automation.last.source === "admin" ? "run by staff" : "hourly timer"}${automationCounts(status.automation.last.summary)}`
+                    : "Never. The hourly timer has not called yet."}
+                </span>
+              </li>
+              <li className="unit-row">
+                <span>
+                  <strong>Needs attention</strong>
+                </span>
+                <span>{status.automation.needsAttention} failed after 3 tries</span>
               </li>
             </ul>
           </section>

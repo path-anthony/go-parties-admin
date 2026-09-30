@@ -5,7 +5,7 @@ import { sendEmail, sendSms, type MessageLink } from "./messaging.js";
 import { checkSendRules } from "./sendRules.js";
 import { getEffectiveTemplates } from "./templates.js";
 import { renderMessage } from "./tokens.js";
-import { type Channel, mustGetTrigger } from "./triggers.js";
+import { type Channel, type TriggerDef, mustGetTrigger } from "./triggers.js";
 
 // The one way an automated message leaves the system.
 //
@@ -46,7 +46,10 @@ export type ChannelOutcome = {
   duplicate?: boolean;
 };
 
-const IN_FLIGHT = new Set(["sent", "queued"]);
+// Rows the pipeline never touches again: delivered, in flight, given up after
+// three failed attempts, or a number that opted out.
+const TERMINAL = new Set(["sent", "queued", "failed_final", "skipped_opted_out"]);
+export const MAX_SEND_ATTEMPTS = 3;
 
 function linkFor(ctx: MessageContext): MessageLink {
   return { bookingId: ctx.bookingId ?? null, designRequestId: ctx.designRequestId ?? null, crewMemberId: ctx.crewMemberId ?? null, gigId: ctx.gigId ?? null };
@@ -81,7 +84,7 @@ async function claim(accountId: string, key: string, base: { channel: Channel; r
   // The key exists. Retry it only if it never actually went out, and win
   // the row with a conditional update so two callers can't both retry.
   const existing = await prisma.messageLog.findUnique({ where: { idempotencyKey: key } });
-  if (!existing || IN_FLIGHT.has(existing.status)) return null;
+  if (!existing || TERMINAL.has(existing.status)) return null;
   const won = await prisma.messageLog.updateMany({
     where: { id: existing.id, status: existing.status },
     data: { status: "queued", error: null, recipient: base.recipient, body: base.body, subject: base.subject, purpose: base.purpose },
@@ -91,6 +94,21 @@ async function claim(accountId: string, key: string, base: { channel: Channel; r
 
 async function settle(logId: string, status: string, error: string | null, extra?: { body?: string; subject?: string | null }) {
   await prisma.messageLog.update({ where: { id: logId }, data: { status, error, ...(extra ?? {}) } });
+}
+
+// Fills a channel's wording with values. `why` is set when it cannot go:
+// a token with no value, or one this message may not use. The scheduler
+// asks the same question in advance to flag blocked messages.
+export function renderChannel(def: TriggerDef, tpl: { subject: string; body: string }, channel: Channel, values: Record<string, string>) {
+  const body = renderMessage(tpl.body, values, def.tokens);
+  const subject = channel === "email" ? renderMessage(tpl.subject, values, def.tokens) : null;
+  const empty = [...new Set([...body.empty, ...(subject?.empty ?? [])])];
+  const notAllowed = [...new Set([...body.notAllowed, ...(subject?.notAllowed ?? [])])];
+  const why =
+    empty.length > 0 || notAllowed.length > 0
+      ? [empty.length > 0 ? `No value for ${empty.map((t) => `{{${t}}}`).join(", ")}` : null, notAllowed.length > 0 ? `${notAllowed.map((t) => `{{${t}}}`).join(", ")} can't be used in this message` : null].filter(Boolean).join(". ")
+      : null;
+  return { body, subject, why };
 }
 
 export async function sendTemplatedMessage(
@@ -142,19 +160,11 @@ export async function sendTemplatedMessage(
       }
 
       values ??= await buildMessageValues(account.id, context);
-      const body = renderMessage(tpl.body, values, def.tokens);
-      const subject = channel === "email" ? renderMessage(tpl.subject, values, def.tokens) : null;
-      const empty = [...new Set([...body.empty, ...(subject?.empty ?? [])])];
-      const notAllowed = [...new Set([...body.notAllowed, ...(subject?.notAllowed ?? [])])];
-      if (empty.length > 0 || notAllowed.length > 0) {
-        const why = [
-          empty.length > 0 ? `No value for ${empty.map((t) => `{{${t}}}`).join(", ")}` : null,
-          notAllowed.length > 0 ? `${notAllowed.map((t) => `{{${t}}}`).join(", ")} can't be used in this message` : null,
-        ]
-          .filter(Boolean)
-          .join(". ");
-        await settle(row.id, "blocked_missing_field", why, { body: body.text, subject: subject?.text ?? null });
-        outcomes.push({ channel, status: "blocked_missing_field", logId: row.id, error: why });
+      const rendered = renderChannel(def, tpl, channel, values);
+      const { body, subject } = rendered;
+      if (rendered.why) {
+        await settle(row.id, "blocked_missing_field", rendered.why, { body: body.text, subject: subject?.text ?? null });
+        outcomes.push({ channel, status: "blocked_missing_field", logId: row.id, error: rendered.why });
         continue;
       }
 
@@ -165,18 +175,30 @@ export async function sendTemplatedMessage(
         continue;
       }
 
+      // One real attempt. A failure is retried on later scheduler runs until
+      // it has been tried MAX_SEND_ATTEMPTS times, then it is failed_final.
+      const tried = await prisma.messageLog.update({ where: { id: row.id }, data: { attempts: { increment: 1 } }, select: { attempts: true } });
       const meta = { triggerKey, journey: def.journey, leadId: context.leadId ?? null, idempotencyKey: key, logId: row.id };
       const result =
         channel === "sms"
           ? await sendSms({ to: recipient.phone, body: body.text, purpose, link, meta })
           : await sendEmail({ to: recipient.email, subject: subject?.text ?? "", body: body.text, purpose, pdfUrl: values["contract_pdf_link"] || null, link, meta });
-      outcomes.push({ channel, status: result.status, logId: row.id, error: result.error });
+      let status = result.status;
+      if (status === "sent") {
+        await prisma.messageLog.update({ where: { id: row.id }, data: { sentAt: new Date() } });
+      } else if (status === "failed" && tried.attempts >= MAX_SEND_ATTEMPTS) {
+        status = "failed_final";
+        await prisma.messageLog.update({ where: { id: row.id }, data: { status } });
+      }
+      outcomes.push({ channel, status, logId: row.id, error: result.error });
     } catch (err) {
       // Nothing here may throw into the flow that asked for the message.
       const message = err instanceof Error ? err.message : "unexpected error";
       console.error(`[send] ${triggerKey} ${channel} failed:`, err);
-      await settle(row.id, "failed", message).catch(() => undefined);
-      outcomes.push({ channel, status: "failed", logId: row.id, error: message });
+      const attempts = (await prisma.messageLog.findUnique({ where: { id: row.id }, select: { attempts: true } }).catch(() => null))?.attempts ?? 0;
+      const status = attempts >= MAX_SEND_ATTEMPTS ? "failed_final" : "failed";
+      await settle(row.id, status, message).catch(() => undefined);
+      outcomes.push({ channel, status, logId: row.id, error: message });
     }
   }
   return outcomes;

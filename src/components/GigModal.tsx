@@ -3,6 +3,7 @@ import { X } from "lucide-react";
 import { getGig, sendGigOffers, updateGigOffer } from "../lib/api";
 import { formatEventDay, gigPillClass } from "../lib/gigs";
 import type { Gig, GigDetail } from "../lib/types";
+import { AutomationTimeline } from "./AutomationTimeline";
 import { RecordMessages } from "./RecordMessages";
 import { SendMessageControls } from "./SendMessageControls";
 import { AgreementChip } from "./AgreementChip";
@@ -111,6 +112,7 @@ export function GigModal({ gig: summary, onClose, onChanged }: { gig: Gig; onClo
         </div>
 
         <RecordMessages gigId={g.id} />
+        <AutomationTimeline kind="gig" id={g.id} />
 
         {error && (
           <p className="form-error booking-notice" role="alert">

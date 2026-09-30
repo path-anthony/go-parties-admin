@@ -566,6 +566,7 @@ export type MessageTrigger = {
   tokens: string[];
   wired: boolean;
   unwiredReason: string | null;
+  note: string | null;
   sms: TemplateChannel;
   email: TemplateChannel;
 };
@@ -580,3 +581,24 @@ export type TemplatePreview = {
   fromSample: string[];
   sms: { characters: number; segments: number; encoding: "GSM-7" | "Unicode"; perSegment: number } | null;
 };
+
+// The scheduler, as the admin sees it (server/automation/planner.ts).
+export type TimelineItem = {
+  what: string;
+  triggerKey: string;
+  channel: "sms" | "email";
+  state: "sent" | "scheduled" | "due" | "skipped" | "blocked" | "stopped" | "paused" | "waiting" | "failed_final";
+  reason: string | null;
+  dueAt: string;
+  sendAt: string;
+  when: string;
+  attempts: number;
+};
+export type TimelineEntry = { name: string; enrolled: boolean; notEnrolled: string | null; summary: string; items: TimelineItem[]; phone: string | null; optedOut: boolean };
+export type Timeline = { paused: boolean; entries: TimelineEntry[] };
+export type UpcomingEntry = { journey: "lead" | "client" | "crew"; kind: string; recordId: string; name: string; href: string; what: string; channel: string; sendAt: string; when: string; state: string; reason?: string };
+export type FailedEntry = { id: string; triggerKey: string | null; channel: string; recipient: string; error: string | null; at: string; href: string | null };
+export type UpcomingView = { entries: UpcomingEntry[]; needsAttention: number; failed: FailedEntry[] };
+export type RunCounts = { records: number; due: number; sent: number; failed: number; blocked: number; skipped: number; other: number };
+export type RunLine = { journey: string; kind: string; recordId: string; name: string; href: string; trigger: string; what: string; channel: string; dueAt: string; result: string; reason?: string };
+export type RunResult = { dryRun: boolean; ranAt: string; durationMs: number; counts: Record<"lead" | "client" | "crew" | "total", RunCounts>; lines: RunLine[]; needsAttention: number };

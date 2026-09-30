@@ -47,7 +47,7 @@ test("every place the app sends you (navigate) lands on a real page", () => {
   assert.equal(screenToPath("leads", { leadFollowUp: true }), "/leads?followUp=1");
   assert.equal(screenToPath("leads", { leadStatus: "Proposal sent", leadStaleDays: 5 }), "/leads?status=Proposal+sent&staleDays=5");
   assert.equal(screenToPath("crew", { gigStatus: "Needs Crew", gigId: "abc" }), "/crew/gigs?status=Needs+Crew&gig=abc");
-  assert.equal(screenToPath("messages"), "/messages/sent-log");
+  assert.equal(screenToPath("messages"), "/messages/upcoming");
   assert.equal(screenToPath("scheduling"), "/scheduling/bookings");
 });
 
@@ -60,6 +60,6 @@ test("the breadcrumb matches the sidebar path", () => {
 });
 
 test("the pages that were on the old Settings screen and its tabs all have a home", () => {
-  const want = ["/settings/business-rules", "/settings/policies", "/settings/lead-pipeline", "/settings/notifications", "/settings/integrations", "/messages/templates", "/messages/sent-log", "/crew/skills", "/scheduling/bookings", "/scheduling/inventory-status", "/crew/gigs", "/crew/members"];
+  const want = ["/settings/business-rules", "/settings/policies", "/settings/lead-pipeline", "/settings/notifications", "/settings/integrations", "/messages/upcoming", "/messages/templates", "/messages/sent-log", "/crew/skills", "/scheduling/bookings", "/scheduling/inventory-status", "/crew/gigs", "/crew/members"];
   for (const w of want) assert.ok(pages.includes(w), w);
 });

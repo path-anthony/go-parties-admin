@@ -22,7 +22,11 @@ router.get("/status", async (_req, res) => {
     prisma.messageLog.findFirst({ where: { accountId: account.id, channel: "email" }, orderBy: { createdAt: "desc" }, select: { status: true, createdAt: true, confirmation: true } }),
   ]);
 
+  const lastRun = await prisma.automationRun.findFirst({ where: { accountId: account.id }, orderBy: { ranAt: "desc" } });
+  const needsAttention = await prisma.messageLog.count({ where: { accountId: account.id, status: "failed_final" } });
+
   res.json({
+    automation: { last: lastRun ? { ranAt: lastRun.ranAt, source: lastRun.source, summary: lastRun.summary } : null, needsAttention },
     texting: { configured: twilioParts.accountId && twilioParts.authToken && twilioParts.phoneNumber, parts: twilioParts, last: lastText },
     email: { configured: has("EMAIL_WEBHOOK_URL"), last: lastEmail },
     storefront: { urlSet: has("STOREFRONT_URL") },

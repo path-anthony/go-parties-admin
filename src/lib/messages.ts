@@ -21,6 +21,10 @@ export function describeSend(row: MessageLogRow): string {
     case "deferred_quiet_hours":
     case "deferred_sunday":
       return `Held, not sent: ${row.error ?? "outside the sending hours"}`;
+    case "skipped_opted_out":
+      return "Not sent: this number replied STOP or was marked opted out. Email is not affected.";
+    case "failed_final":
+      return `Gave up after 3 tries: ${row.error ?? "unknown error"}.`;
     case "skipped-no-webhook":
       return "Not sent: the email webhook isn't set up. It is in the log as skipped.";
     default:
@@ -46,13 +50,15 @@ export function statusLabel(status: string): string {
       "skipped-not-configured": "Not sent: Twilio not set up",
       "skipped-no-webhook": "Not sent: no email webhook",
       "skipped-no-policy": "Not sent: no policy text",
+      skipped_opted_out: "Not sent: opted out",
+      failed_final: "Failed, gave up",
     } as Record<string, string>
   )[status] ?? status;
 }
 
 export function statusClass(status: string): string {
   if (status === "sent") return "msg-sent";
-  if (status === "failed") return "msg-failed";
+  if (status === "failed" || status === "failed_final") return "msg-failed";
   if (status === "queued") return "msg-queued";
   return "msg-skipped";
 }

@@ -44,6 +44,7 @@ router.get("/", async (_req, res) => {
         tokens: t.tokens,
         wired: t.wired,
         unwiredReason: t.unwiredReason ?? null,
+        note: t.note ?? null,
         sms: build("sms"),
         email: build("email"),
       };

@@ -16,7 +16,7 @@ The admin is built from one config, `src/nav.tsx`. The sidebar, the routes, the 
 - Every old address, including old tab query strings, redirects to its new home. When a page moves, add the old address to `LEGACY_REDIRECTS` (or `LEGACY_TABS` for a group's old `?tab=`). Never leave a bookmark or an already-sent link broken.
 - `src/nav.test.tsx` enforces this (groups have two or more pages, addresses are unique, every redirect lands on a real page). Run `npm test`.
 
-Room is left, not built, for: Leads groups, Crew & Gigs > Bids, Messages > Upcoming, Settings > Account and access.
+Room is left, not built, for: Leads groups, Crew & Gigs > Bids, Settings > Account and access. (Messages > Upcoming exists, first in the Messages group.)
 
 ## How work is done here
 
@@ -25,3 +25,5 @@ Room is left, not built, for: Leads groups, Crew & Gigs > Bids, Messages > Upcom
 - Migrations: Railway does not run them on deploy (start is `tsx server/index.ts`). Apply with `npx prisma migrate deploy` before pushing code that needs them; never `migrate dev` against production. Make schema changes additive first (add columns, then drop later) so the running build keeps working.
 - Writing rules for chat, code comments, commits and docs: no em dashes, no hype, plain direct sentences. Brand voice for customer-facing copy is in the storefront's `docs/BRAND.md` section 10.
 - Every automated text and email goes through `sendTemplatedMessage` (`server/sendTemplated.ts`) and a trigger in `server/triggers.ts`. Do not call the Twilio or email wrappers directly for an automated message.
+- Anything timed goes through the planner (`server/automation/planner.ts`). The sender, the record timelines, the Leads chips and Messages > Upcoming all read its output; never add a second place that decides what is due. New timed messages are a milestone in the planner, a trigger in the registry, and a test in `server/tests/planner.test.ts`.
+- Server tests need DATABASE_URL in the environment: `npx tsx --env-file=.env --test server/tests/*.test.ts` (or `set -a; source .env; set +a` before `npm test`). They use the production database with stubbed Twilio and clean up their own rows.

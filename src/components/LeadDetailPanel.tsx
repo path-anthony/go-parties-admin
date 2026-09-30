@@ -6,6 +6,7 @@ import { relativeTime } from "../lib/time";
 import { SOURCE_LABEL, leadTitle } from "../lib/leads";
 import { deltaLabel } from "../lib/addons";
 import { EditableCell } from "./EditableCell";
+import { AutomationTimeline } from "./AutomationTimeline";
 import { RecordMessages } from "./RecordMessages";
 import { SendMessageControls } from "./SendMessageControls";
 import { AgreementChip, BalanceLabel } from "./AgreementChip";
@@ -229,6 +230,10 @@ function LeadDetailBody({
       <div className="detail-section">
         <SendMessageControls target={{ leadId: lead.id }} contract={!!lead.bookings && lead.bookings.length > 0} label="Text the customer" />
         <RecordMessages leadId={lead.id} />
+      </div>
+
+      <div className="detail-section">
+        <AutomationTimeline kind="lead" id={lead.id} />
       </div>
 
       {lead.bookings && lead.bookings.length > 0 && (

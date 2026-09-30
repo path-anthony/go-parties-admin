@@ -2761,3 +2761,15 @@ a.nav-item {
     overflow-x: auto;
   }
 }
+
+/* Automation timeline and Upcoming */
+.automation-timeline { display: flex; flex-direction: column; gap: 8px; }
+.automation-pause { display: flex; align-items: center; gap: 8px; font-weight: 600; }
+.automation-summary { margin: 0; font-weight: 600; }
+.automation-entry { display: flex; flex-direction: column; gap: 6px; }
+.automation-optout { margin: 0; font-size: 13px; }
+.upcoming-day { margin: 16px 0 6px; font-size: 14px; }
+.upcoming-row { display: flex; gap: 8px; flex-wrap: wrap; align-items: baseline; padding: 6px 0; border-bottom: 1px solid #eee; }
+.upcoming-attention { margin-top: 12px; }
+.stage-note { margin: 0 0 12px; }
+.stage-warning { margin: 8px 0 0; color: #b54708; font-size: 13px; }

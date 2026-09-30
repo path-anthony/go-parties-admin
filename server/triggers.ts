@@ -33,6 +33,8 @@ export type TriggerDef = {
   wired: boolean;
   // Why it isn't wired yet, shown in the admin.
   unwiredReason?: string;
+  // Anything the admin should know about how it behaves today.
+  note?: string;
   // Texts are on by default for every trigger. Email is off unless the app
   // already sent that email before the pipeline existed, so the pipeline
   // changes nothing until someone turns a channel on.
@@ -105,28 +107,26 @@ const lead: TriggerDef[] = [
     journey: "lead",
     sendClass: "nurture",
     label: "Follow up, day 3",
-    when: "Three days after a lead came in with no booking.",
+    when: "Three days after a lead was entered by hand, at 10 AM Eastern (Monday if that is a Sunday). Website and storefront leads never get it.",
     stopsWhen: "They book, reply, reply STOP, or the lead is closed.",
     tokens: ["customerFirstName", "eventType", "companyName", "companyPhone"],
     sms: "Hi {{customerFirstName}}, still planning your {{eventType}}? Reply with your date and we'll check what's open. {{companyName}}." + STOP,
     emailSubject: "Still planning your {{eventType}}?",
     emailBody: "Hi {{customerFirstName}},\n\nStill planning your {{eventType}}? Reply with your date and we'll check what's open. You can also call or text {{companyPhone}}." + SIGN,
-    wired: false,
-    unwiredReason: "Waiting on the scheduler and lead rules in Block 2.",
+    wired: true,
   },
   {
     key: "lead_nurture_day10",
     journey: "lead",
     sendClass: "nurture",
     label: "Follow up, day 10",
-    when: "Ten days after a lead came in with no booking.",
+    when: "Ten days after a lead was entered by hand, at 10 AM Eastern (Monday if that is a Sunday). Website and storefront leads never get it.",
     stopsWhen: "They book, reply, reply STOP, or the lead is closed.",
     tokens: ["customerFirstName", "eventType", "companyName"],
     sms: "Hi {{customerFirstName}}, last note from {{companyName}}. If your {{eventType}} is still on, text us your date and we'll hold it while you decide." + STOP,
     emailSubject: "Your {{eventType}}, one last check",
     emailBody: "Hi {{customerFirstName}},\n\nLast note from us. If your {{eventType}} is still on, reply with your date and we'll hold it while you decide." + SIGN,
-    wired: false,
-    unwiredReason: "Waiting on the scheduler and lead rules in Block 2.",
+    wired: true,
   },
   {
     key: "lead_concierge_ack",
@@ -157,6 +157,7 @@ const client: TriggerDef[] = [
     emailSubject: "Your {{companyName}} contract is ready",
     emailBody: "Hi {{customerFirstName}},\n\nYour contract for {{eventDate}} is ready to review and sign: {{contractLink}}" + SIGN,
     wired: true,
+    emailDefaultOn: true,
   },
   {
     key: "contract_signed",
@@ -197,6 +198,7 @@ const client: TriggerDef[] = [
     emailSubject: "We received your retainer",
     emailBody: "Hi {{customerFirstName}},\n\nWe received your retainer for {{eventDate}}. Thank you. Your date is confirmed once the contract is signed too." + SIGN,
     wired: true,
+    emailDefaultOn: true,
   },
   {
     key: "booking_confirmed",
@@ -210,6 +212,7 @@ const client: TriggerDef[] = [
     emailSubject: "Your booking is confirmed",
     emailBody: "Hi {{customerFirstName}},\n\nYour booking for {{eventDate}} is confirmed. We're looking forward to your event." + SIGN,
     wired: true,
+    emailDefaultOn: true,
   },
   {
     key: "booking_cancelled",
@@ -243,14 +246,14 @@ const client: TriggerDef[] = [
     journey: "client",
     sendClass: "reminder",
     label: "Contract still unsigned",
-    when: "A couple of days after the contract went out and it is still unsigned.",
+    when: "48 hours after the signing link went out, if it is still unsigned.",
     stopsWhen: "The contract is signed or the booking is cancelled.",
     tokens: ["customerFirstName", "eventDate", "contractLink", "companyName"],
     sms: "Hi {{customerFirstName}}, your contract for {{eventDate}} still needs your signature. Sign here: {{contractLink}}",
     emailSubject: "Your contract still needs a signature",
     emailBody: "Hi {{customerFirstName}},\n\nYour contract for {{eventDate}} still needs your signature. Sign here: {{contractLink}}" + SIGN,
-    wired: false,
-    unwiredReason: "Waiting on the scheduler in Block 2.",
+    wired: true,
+    emailDefaultOn: true,
   },
   {
     key: "balance_due_reminder",
@@ -264,6 +267,7 @@ const client: TriggerDef[] = [
     emailSubject: "Your balance is coming due",
     emailBody: "Hi {{customerFirstName}},\n\nA reminder that the remaining balance of {{balanceDue}} for your event on {{eventDate}} is coming due. Please call or text us to arrange payment." + SIGN,
     wired: true,
+    emailDefaultOn: true,
   },
   {
     key: "event_week_reminder",
@@ -276,8 +280,8 @@ const client: TriggerDef[] = [
     sms: "Hi {{customerFirstName}}, your event is {{daysUntilEvent}} days out, on {{eventDate}}. Check the details and text us any changes: {{portalLink}}",
     emailSubject: "Your event is {{daysUntilEvent}} days away",
     emailBody: "Hi {{customerFirstName}},\n\nYour event is {{daysUntilEvent}} days out, on {{eventDate}}, at {{eventAddress}}. Check the details and text us any changes: {{portalLink}}" + SIGN,
-    wired: false,
-    unwiredReason: "Waiting on the scheduler in Block 2.",
+    wired: true,
+    emailDefaultOn: true,
   },
   {
     key: "event_eve_reminder",
@@ -290,8 +294,8 @@ const client: TriggerDef[] = [
     sms: "Hi {{customerFirstName}}, your event is tomorrow, {{eventDate}}. Confirm the address is {{eventAddress}} and the setup area is clear. Changes? Text {{companyPhone}}.",
     emailSubject: "Your event is tomorrow",
     emailBody: "Hi {{customerFirstName}},\n\nYour event is tomorrow, {{eventDate}}. Confirm the address is {{eventAddress}} and the setup area is clear. Changes? Text {{companyPhone}}." + SIGN,
-    wired: false,
-    unwiredReason: "Waiting on the scheduler in Block 2.",
+    wired: true,
+    emailDefaultOn: true,
   },
   {
     key: "post_event_thanks",
@@ -304,8 +308,8 @@ const client: TriggerDef[] = [
     sms: "Hi {{customerFirstName}}, thanks for having {{companyName}} at your event. Tell us how it went, or plan the next one: {{portalLink}}",
     emailSubject: "Thanks for having us",
     emailBody: "Hi {{customerFirstName}},\n\nThanks for having us at your event. Tell us how it went, or plan the next one: {{portalLink}}" + SIGN,
-    wired: false,
-    unwiredReason: "Waiting on the scheduler in Block 2.",
+    wired: true,
+    emailDefaultOn: true,
   },
 ];
 
@@ -371,8 +375,8 @@ const crew: TriggerDef[] = [
       sms: `Hi {{crewFirstName}}, your {{gigRole}} gig is ${lead === "tomorrow" ? "tomorrow" : `in ${lead}`}: {{gigDate}}, {{gigStartTime}}, at {{gigAddress}}. Tap to confirm you're set or flag a question: {{gigLink}}`,
       emailSubject: `Your {{gigRole}} gig ${lead === "tomorrow" ? "is tomorrow" : `is ${lead === "a week" ? "a week" : lead} away`}`,
       emailBody: `Hi {{crewFirstName}},\n\nYour {{gigRole}} gig is ${lead === "tomorrow" ? "tomorrow" : `in ${lead}`}: {{gigDate}}, {{gigStartTime}}, at {{gigAddress}}.\n\nTap to confirm you're set or flag a question: {{gigLink}}` + SIGN,
-      wired: false,
-      unwiredReason: "Waiting on the scheduler in Block 2 and the crew gig page in Block 3.",
+      wired: true,
+      note: "Sends by text only. Until the crew gig page ships (Block 3) there is no {{gigLink}}, so these are logged as Blocked and nothing goes.",
     }),
   ),
 ];

@@ -6,7 +6,7 @@ import { CrewGigsScreen } from "./components/screens/CrewGigsScreen";
 import { DesignRequestsScreen } from "./components/screens/DesignRequestsScreen";
 import { InventoryScreen } from "./components/screens/InventoryScreen";
 import { LeadsScreen } from "./components/screens/LeadsScreen";
-import { MessageTemplatesPage, SentLogPage } from "./components/screens/MessagesScreen";
+import { MessageTemplatesPage, MessagesUpcomingPage, SentLogPage } from "./components/screens/MessagesScreen";
 import { OverviewScreen } from "./components/screens/OverviewScreen";
 import { PackagesScreen } from "./components/screens/PackagesScreen";
 import { SchedulingScreen } from "./components/screens/SchedulingScreen";
@@ -46,7 +46,12 @@ const num = (v: string | null) => (v && Number.isFinite(Number(v)) ? Number(v) :
 // the page they open is bookmarkable.
 function LeadsRoute() {
   const [q] = useSearchParams();
-  return <LeadsScreen initialStatus={q.get("status") ?? undefined} initialFollowUp={q.get("followUp") === "1"} initialStaleDays={num(q.get("staleDays"))} />;
+  return <LeadsScreen openLeadId={q.get("lead") ?? undefined} initialStatus={q.get("status") ?? undefined} initialFollowUp={q.get("followUp") === "1"} initialStaleDays={num(q.get("staleDays"))} />;
+}
+
+function BookingsRoute() {
+  const [q] = useSearchParams();
+  return <SchedulingScreen view="bookings" openBookingId={q.get("booking") ?? undefined} />;
 }
 
 function GigsRoute() {
@@ -63,7 +68,7 @@ export const NAV: NavItem[] = [
     icon: CalendarDays,
     path: "/scheduling",
     pages: [
-      { label: "Bookings", path: "/scheduling/bookings", element: <SchedulingScreen view="bookings" /> },
+      { label: "Bookings", path: "/scheduling/bookings", element: <BookingsRoute /> },
       { label: "Inventory status", path: "/scheduling/inventory-status", element: <SchedulingScreen view="units" /> },
     ],
   },
@@ -89,8 +94,9 @@ export const NAV: NavItem[] = [
     label: "Messages",
     icon: MessageSquare,
     path: "/messages",
-    landing: "/messages/sent-log",
+    landing: "/messages/upcoming",
     pages: [
+      { label: "Upcoming", path: "/messages/upcoming", element: <MessagesUpcomingPage /> },
       { label: "Templates", path: "/messages/templates", element: <MessageTemplatesPage /> },
       { label: "Sent log", path: "/messages/sent-log", element: <SentLogPage /> },
     ],

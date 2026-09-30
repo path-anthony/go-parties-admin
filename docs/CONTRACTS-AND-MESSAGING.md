@@ -30,8 +30,31 @@ Status in: `POST /api/webhooks/n8n/send-status` (header `x-webhook-secret`)
 `{ channel: "sms"|"email", recipient, success: boolean, referenceId?, detail?, providerId?, occurredAt? }`.
 `referenceId` is the one we sent. Matched: 200 `{ ok, matched: true, logId, confirmation }`. Unmatched (a send n8n made itself): 201 `{ ok, matched: false, logId, confirmation }`.
 
-Reminders: `POST /api/automations/check-reminders` (header `x-webhook-secret`) `{ windowDays?: 0-120, dryRun?: boolean }`
-returns `{ windowDays, dryRun, today, due, reminders: [{ bookingId, customerName, eventDate, balance, balancePaymentPreference, result }] }`.
+Scheduler: `POST /api/automations/check-reminders` (header `x-webhook-secret`), hourly from n8n. Optional `?dryRun=true`
+(or `dryRun` in the body) sends and logs nothing; optional body `windowDays` (0-120) overrides how far ahead of the event balance
+reminders start. It plans lead nurture, client and crew messages with `server/automation/planner.ts` and sends what is due through
+`sendTemplatedMessage`. Returns `{ dryRun, ranAt, durationMs, counts: { lead, client, crew, total }, lines: [...], needsAttention }`.
+Staff can run the same code from Messages > Upcoming ("Run check now": preview, then confirm).
+
+Email purposes: scheduled sends use the trigger key as `purpose` (`event_week_reminder`, `balance-reminder`, and so on). The payload is
+otherwise unchanged. Open risk: I can't inspect the n8n workflow; it must forward any `subject` and `body` generically, not only the
+signed-contract email, or the new emails will not arrive.
+
+## How the scheduler decides (server/automation/planner.ts)
+
+One pure function per record type (`planLead`, `planBooking`, `planGig`) returns every planned message with a state: sent, scheduled,
+due, skipped (with a code and reason), blocked, stopped, paused, waiting, failed_final. The sender and every admin view call it.
+
+- Leads: only source `manual`. Day 3 and day 10 at 10 AM Eastern; a Sunday moves to Monday. Stops when the lead has a booking, sits in the
+  column named "Booked" or "Lost" (matched by name, ignoring case), or is paused.
+- Clients: contract nudge 48 hours after `Agreement.contractSentAt` if unsigned; event week (E-7), eve (E-1) and thanks (E+1) at 10 AM,
+  only for Retainer Paid or Confirmed; balance reminders every 3 days from `balanceReminderWindowDays` before the event while a balance is open.
+- Crew: Accepted offers only. 30, 15, 7 and 3 days before at 10 AM, the day before at 6 PM. Text only by default. Blocked until `gigLink` exists (Block 3).
+- Catch-up: an overdue message goes only if the next one in its series is not yet due and the event has not started. The last message in a series
+  is dropped if it would go more than 3 days late. Nothing before the record entered automation (`Account.automationStartedAt` or its own creation/acceptance).
+- Event reminder keys include the event date, so a reschedule produces a fresh set.
+- Failed sends retry on later runs, 3 attempts in all (`message_logs.attempts`), then `failed_final` (counted as "Needs attention").
+- Opt-outs: Twilio error 21610 stores the number in `sms_opt_outs`; every later text to it is `skipped_opted_out` before Twilio is called. Staff can mark or unmark a number.
 
 ## Merge fields in the policy text
 

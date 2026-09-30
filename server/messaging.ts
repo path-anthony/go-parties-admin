@@ -1,5 +1,6 @@
 import { getDefaultAccount } from "./account.js";
 import { prisma } from "./db.js";
+import { isOptedOut, markOptedOut } from "./optOuts.js";
 import { WEBHOOK_SECRET_HEADER } from "./webhookAuth.js";
 
 // Everything the system sends to a person goes through here, and every
@@ -111,6 +112,12 @@ export async function sendSms(input: { to: string | null | undefined; body: stri
     return { logId: await safeLog({ channel: "sms", purpose, recipient: raw || "(none)", body, status: "failed", error, link, meta }), status: "failed", error };
   }
 
+  // A number that replied STOP is never texted again, from any journey.
+  if (await isOptedOut(to)) {
+    const error = "This number opted out of texts.";
+    return { logId: await safeLog({ channel: "sms", purpose, recipient: to, body, status: "skipped_opted_out", error, link, meta }), status: "skipped_opted_out", error };
+  }
+
   const sid = process.env.TWILIO_ACCOUNT_SID;
   const token = process.env.TWILIO_AUTH_TOKEN;
   const from = process.env.TWILIO_PHONE_NUMBER;
@@ -133,6 +140,12 @@ export async function sendSms(input: { to: string | null | undefined; body: stri
       signal: AbortSignal.timeout(TWILIO_TIMEOUT_MS),
     });
     const json = (await res.json().catch(() => ({}))) as { sid?: string; message?: string; code?: number };
+    if (!res.ok && json.code === 21610) {
+      // Twilio says the person replied STOP. Remember it.
+      await markOptedOut(to, "twilio-21610", json.message ?? null).catch((err) => console.error("[sms] could not record the opt-out:", err));
+      const error = "This number opted out of texts (Twilio 21610).";
+      return { logId: await safeLog({ channel: "sms", purpose, recipient: to, body, status: "skipped_opted_out", error, link, meta }), status: "skipped_opted_out", error };
+    }
     if (!res.ok) {
       const error = `Twilio ${res.status}${json.code ? ` (${json.code})` : ""}: ${json.message ?? "request failed"}`;
       console.error(`[sms] FAILED (${purpose}) to ${to}: ${error}`);

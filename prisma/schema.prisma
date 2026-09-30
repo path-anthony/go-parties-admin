@@ -44,6 +44,10 @@ model Account {
   // either is empty, no block is drawn.
   authorizedSignerName      String?  @map("authorized_signer_name")
   authorizedSignerTitle     String?  @map("authorized_signer_title")
+  // When the scheduler first went live. Milestones that fell due before this
+  // are never sent retroactively (a booking made last month does not get a
+  // "your event is a week away" text for a week that already passed).
+  automationStartedAt       DateTime @default(now()) @map("automation_started_at")
   // Off until the storefront sends the agreement checkbox. While off, a
   // storefront booking that arrives without it is still recorded, with the
   // checkbox marked unchecked; on, it is refused.
@@ -65,6 +69,8 @@ model Account {
   contractDocuments ContractDocument[]
   messageLogs       MessageLog[]
   messageTemplates  MessageTemplate[]
+  smsOptOuts        SmsOptOut[]
+  automationRuns    AutomationRun[]
 
   @@map("accounts")
 }
@@ -143,17 +149,19 @@ model CrewMember {
 // item is renamed or deleted. status: Needs Crew, Offered, Filled,
 // Cancelled. filledById is the crew member whose offer was accepted.
 model Gig {
-  id         String   @id @default(cuid())
-  accountId  String   @map("account_id")
-  bookingId  String   @map("booking_id")
-  itemId     String?  @map("item_id")
-  itemName   String   @map("item_name")
-  skill      String
-  eventDate  DateTime @map("event_date") @db.Date
-  status     String   @default("Needs Crew")
-  filledById String?  @map("filled_by_id")
-  createdAt  DateTime @default(now()) @map("created_at")
-  updatedAt  DateTime @default(now()) @updatedAt @map("updated_at")
+  id               String   @id @default(cuid())
+  accountId        String   @map("account_id")
+  bookingId        String   @map("booking_id")
+  itemId           String?  @map("item_id")
+  itemName         String   @map("item_name")
+  skill            String
+  eventDate        DateTime @map("event_date") @db.Date
+  status           String   @default("Needs Crew")
+  // Staff switch: no crew reminders for this gig while true.
+  automationPaused Boolean  @default(false) @map("automation_paused")
+  filledById       String?  @map("filled_by_id")
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @default(now()) @updatedAt @map("updated_at")
 
   account  Account     @relation(fields: [accountId], references: [id])
   booking  Booking     @relation(fields: [bookingId], references: [id], onDelete: Cascade)
@@ -279,6 +287,9 @@ model Booking {
   // The balance (total less the deposit) has been paid. Ticked by hand. The
   // reminder check skips bookings where it is true.
   balancePaid              Boolean   @default(false) @map("balance_paid")
+  // Staff switch: no scheduled (timed) messages while true. Stage-change
+  // messages are not affected.
+  automationPaused         Boolean   @default(false) @map("automation_paused")
   // When the reminder check last messaged the customer about the balance.
   lastBalanceReminderAt    DateTime? @map("last_balance_reminder_at")
   // Set when the booking was made from a logged-in customer account; null
@@ -519,26 +530,29 @@ model BookingAddon {
 // (see server/routes/leads.ts) rather than Postgres enums, so adding a
 // value later is a code change, not a migration.
 model Lead {
-  id             String    @id @default(cuid())
-  accountId      String    @map("account_id")
+  id               String    @id @default(cuid())
+  accountId        String    @map("account_id")
   // Name of a LeadStatus row on the same account (see statusRef).
-  status         String
-  source         String    @default("ask-go")
+  status           String
+  source           String    @default("ask-go")
   // Position within its status column on the Leads board. New rows and
   // dropdown status changes get 0, which sorts them into the top group
   // (ties broken newest first); a drag renumbers the whole target column.
-  sortOrder      Int       @default(0) @map("sort_order")
+  sortOrder        Int       @default(0) @map("sort_order")
+  // Staff switch: no scheduled (timed) messages while true. Stage-change
+  // messages are not affected.
+  automationPaused Boolean   @default(false) @map("automation_paused")
   // Free-form labels, independent of status.
-  tags           String[]  @default([])
-  customerName   String?   @map("customer_name")
-  contact        String?
-  occasion       String?
-  dateOfInterest DateTime? @map("date_of_interest") @db.Date
-  notes          String?
-  theme          String?
-  itemsReturned  Json?     @map("items_returned")
-  createdAt      DateTime  @default(now()) @map("created_at")
-  updatedAt      DateTime  @default(now()) @updatedAt @map("updated_at")
+  tags             String[]  @default([])
+  customerName     String?   @map("customer_name")
+  contact          String?
+  occasion         String?
+  dateOfInterest   DateTime? @map("date_of_interest") @db.Date
+  notes            String?
+  theme            String?
+  itemsReturned    Json?     @map("items_returned")
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @default(now()) @updatedAt @map("updated_at")
 
   account    Account        @relation(fields: [accountId], references: [id])
   statusRef  LeadStatus     @relation(fields: [accountId, status], references: [accountId, name], onUpdate: Cascade, onDelete: Restrict)
@@ -576,22 +590,25 @@ model PolicyVersion {
 // are reserved for the signed-contract integration and stay empty until it
 // exists: provider, that provider's document id, its status, and a link.
 model Agreement {
-  id                 String   @id @default(cuid())
-  accountId          String   @map("account_id")
-  customerId         String?  @map("customer_id")
-  bookingId          String?  @unique @map("booking_id")
-  designRequestId    String?  @unique @map("design_request_id")
-  policyVersionId    String   @map("policy_version_id")
-  checkboxChecked    Boolean  @map("checkbox_checked")
-  agreedAt           DateTime @default(now()) @map("agreed_at")
-  contractProvider   String?  @map("contract_provider")
-  contractExternalId String?  @map("contract_external_id")
-  contractStatus     String?  @map("contract_status")
-  contractUrl        String?  @map("contract_url")
+  id                 String    @id @default(cuid())
+  accountId          String    @map("account_id")
+  customerId         String?   @map("customer_id")
+  bookingId          String?   @unique @map("booking_id")
+  designRequestId    String?   @unique @map("design_request_id")
+  policyVersionId    String    @map("policy_version_id")
+  checkboxChecked    Boolean   @map("checkbox_checked")
+  agreedAt           DateTime  @default(now()) @map("agreed_at")
+  contractProvider   String?   @map("contract_provider")
+  contractExternalId String?   @map("contract_external_id")
+  contractStatus     String?   @map("contract_status")
+  contractUrl        String?   @map("contract_url")
   // The unguessable part of the signing link. Set when the contract is
   // issued to the customer.
-  signingToken       String?  @unique @map("signing_token")
-  createdAt          DateTime @default(now()) @map("created_at")
+  signingToken       String?   @unique @map("signing_token")
+  // When the signing link first went out. The unsigned-contract nudge counts
+  // 48 hours from here.
+  contractSentAt     DateTime? @map("contract_sent_at")
+  createdAt          DateTime  @default(now()) @map("created_at")
 
   account          Account           @relation(fields: [accountId], references: [id])
   customer         Customer?         @relation(fields: [customerId], references: [id], onDelete: SetNull)
@@ -706,6 +723,12 @@ model MessageLog {
   // never sent again; one that was skipped, blocked or deferred is retried
   // by updating its own row.
   idempotencyKey     String?   @unique @map("idempotency_key")
+  // Real send attempts made under this key. A failed send is retried on later
+  // scheduler runs until it has been tried 3 times, then it is failed_final.
+  attempts           Int       @default(0)
+  // When it was handed over (status sent). createdAt is when the key was
+  // claimed, which for a retried or deferred message is earlier.
+  sentAt             DateTime? @map("sent_at")
   confirmation       String?
   confirmationAt     DateTime? @map("confirmation_at")
   confirmationDetail String?   @map("confirmation_detail")
@@ -716,6 +739,8 @@ model MessageLog {
   @@index([accountId, createdAt])
   @@index([bookingId])
   @@index([triggerKey])
+  @@index([leadId])
+  @@index([gigId])
   @@map("message_logs")
 }
 
@@ -738,4 +763,41 @@ model MessageTemplate {
 
   @@unique([accountId, triggerKey, channel])
   @@map("message_templates")
+}
+
+// A phone number that must not be texted. Added when Twilio answers 21610
+// (the person replied STOP) or by staff. Checked before every text, across
+// every journey. Email is unaffected. Stored as +1XXXXXXXXXX.
+model SmsOptOut {
+  id         String   @id @default(cuid())
+  accountId  String   @map("account_id")
+  phone      String
+  optedOutAt DateTime @default(now()) @map("opted_out_at")
+  // twilio-21610 or staff
+  source     String
+  note       String?
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  account Account @relation(fields: [accountId], references: [id])
+
+  @@unique([accountId, phone])
+  @@map("sms_opt_outs")
+}
+
+// One pass of the scheduler (POST /api/automations/check-reminders, or
+// "Run check now" in the admin). Dry runs are not recorded. Shown on
+// Settings > Integrations so it is clear the hourly timer is alive.
+model AutomationRun {
+  id         String   @id @default(cuid())
+  accountId  String   @map("account_id")
+  ranAt      DateTime @default(now()) @map("ran_at")
+  // n8n or admin
+  source     String
+  durationMs Int      @default(0) @map("duration_ms")
+  summary    Json
+
+  account Account @relation(fields: [accountId], references: [id])
+
+  @@index([accountId, ranAt])
+  @@map("automation_runs")
 }
