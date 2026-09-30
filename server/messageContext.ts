@@ -3,6 +3,7 @@ import { getSettings } from "./settings.js";
 import { TOKEN_CATALOG, camelToSnake } from "./tokens.js";
 import { toE164 } from "./messaging.js";
 import { todayEastern } from "./validate.js";
+import { humanWhen } from "./automation/time.js";
 
 // What a message is about. Point at the records; the values for every
 // merge token are read from them. extra carries values only the caller
@@ -13,11 +14,14 @@ export type MessageContext = {
   designRequestId?: string | null;
   crewMemberId?: string | null;
   gigId?: string | null;
+  // The crew offer the message is about: its link, bid and deadline.
+  offerId?: string | null;
   extra?: Record<string, string>;
 };
 
 export const COMPANY_NAME = "GO! Event Group";
 
+const wholeDollars = (n: number) => `$${n.toLocaleString("en-US")}`;
 const usd = (n: number) => n.toLocaleString("en-US", { style: "currency", currency: "USD" });
 const shortDate = (d: Date) => d.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", timeZone: "UTC" });
 const firstName = (full: string | null | undefined) => (full ?? "").trim().split(/\s+/)[0] ?? "";
@@ -43,7 +47,17 @@ export type LoadedRecords = {
   designRequest?: { customerName: string; eventDate: Date; eventTime: string | null; occasion: string | null; address: string | null; total: unknown } | null;
   booking?: { customerName: string; eventDate: Date; eventTime: string | null; occasion: string | null; address: string | null; total: unknown } | null;
   crew?: { name: string } | null;
-  gig?: { skill: string; itemName: string; eventDate: Date; booking: { eventTime: string | null; address: string | null } } | null;
+  gig?: {
+    skill: string;
+    itemName: string;
+    eventDate: Date;
+    payMin?: number | null;
+    payMax?: number | null;
+    town?: string | null;
+    startTime?: string | null;
+    booking: { eventTime: string | null; address: string | null };
+  } | null;
+  offer?: { token: string | null; bidAmount: number | null; deadlineAt: Date | null } | null;
   extra?: Record<string, string>;
 };
 
@@ -101,8 +115,21 @@ export function composeValues(settings: Settings, rec: LoadedRecords): Record<st
     set("gigRole", rec.gig.skill);
     set("gigItemName", rec.gig.itemName);
     set("gigDate", shortDate(rec.gig.eventDate));
-    set("gigStartTime", rec.gig.booking.eventTime?.trim());
+    set("gigStartTime", (rec.gig.startTime ?? rec.gig.booking.eventTime)?.trim());
     set("gigAddress", rec.gig.booking.address?.trim());
+    set("gigTown", rec.gig.town?.trim());
+    if (rec.gig.payMin != null && rec.gig.payMax != null) set("bidRange", `${wholeDollars(rec.gig.payMin)} to ${wholeDollars(rec.gig.payMax)}`);
+  }
+  if (rec.offer) {
+    // Crew pages live on the storefront. Without STOREFRONT_URL there is no
+    // link to make, so the token stays empty and the send is blocked.
+    if (storefront && rec.offer.token) {
+      set("bidLink", `${storefront}/bid/${rec.offer.token}`);
+      set("gigLink", `${storefront}/bid/${rec.offer.token}`);
+    }
+    // A gig accepted by hand has no bid; the text says the rate was agreed.
+    set("bidAmount", rec.offer.bidAmount != null ? wholeDollars(rec.offer.bidAmount) : "the agreed rate");
+    if (rec.offer.deadlineAt) set("bidDeadline", humanWhen(rec.offer.deadlineAt));
   }
 
   // Not available anywhere in the app yet: cartLink, holdExpiresAt,
@@ -125,6 +152,7 @@ export async function buildMessageValues(accountId: string, ctx: MessageContext)
   if (bookingId) rec.booking = await prisma.booking.findUnique({ where: { id: bookingId } });
   if (ctx.crewMemberId) rec.crew = await prisma.crewMember.findUnique({ where: { id: ctx.crewMemberId }, select: { name: true } });
   if (ctx.gigId) rec.gig = await prisma.gig.findUnique({ where: { id: ctx.gigId }, include: { booking: { select: { eventTime: true, address: true } } } });
+  if (ctx.offerId) rec.offer = await prisma.gigOffer.findUnique({ where: { id: ctx.offerId }, select: { token: true, bidAmount: true, deadlineAt: true } });
   return composeValues(settings, rec);
 }
 

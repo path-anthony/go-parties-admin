@@ -60,6 +60,6 @@ test("the breadcrumb matches the sidebar path", () => {
 });
 
 test("the pages that were on the old Settings screen and its tabs all have a home", () => {
-  const want = ["/settings/business-rules", "/settings/policies", "/settings/lead-pipeline", "/settings/notifications", "/settings/integrations", "/messages/upcoming", "/messages/templates", "/messages/sent-log", "/crew/skills", "/scheduling/bookings", "/scheduling/inventory-status", "/crew/gigs", "/crew/members"];
+  const want = ["/settings/business-rules", "/settings/policies", "/settings/lead-pipeline", "/settings/notifications", "/settings/integrations", "/messages/upcoming", "/messages/templates", "/messages/sent-log", "/crew/skills", "/scheduling/bookings", "/scheduling/inventory-status", "/crew/gigs", "/crew/bids", "/crew/members"];
   for (const w of want) assert.ok(pages.includes(w), w);
 });

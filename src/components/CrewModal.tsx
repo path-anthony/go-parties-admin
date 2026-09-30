@@ -13,6 +13,7 @@ function toInput(member: CrewMember | null): CrewMemberInput {
     skills: member?.skills ?? [],
     active: member?.active ?? true,
     notes: member?.notes ?? "",
+    smsConsent: member?.smsConsent ?? false,
   };
 }
 
@@ -105,6 +106,20 @@ export function CrewModal({
               ))}
             </div>
             {form.skills.length === 0 && <span className="muted field-help">With no skills, this person is never offered a gig.</span>}
+          </div>
+
+          <div className="detail-field">
+            <label className="checkbox-label">
+              <input type="checkbox" checked={form.smsConsent} onChange={(e) => set("smsConsent", e.target.checked)} />
+              This person agreed to be texted
+            </label>
+            <span className="muted field-help">
+              {form.smsConsent && member?.smsConsent && member.smsConsentAt
+                ? `Recorded ${new Date(member.smsConsentAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "America/New_York" })}.`
+                : form.smsConsent
+                  ? "The date is recorded when you save."
+                  : "Bid invites and reminders go out by text. Without this, the invite list shows a warning next to their name."}
+            </span>
           </div>
 
           <label>

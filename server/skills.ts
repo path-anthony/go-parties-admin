@@ -25,4 +25,4 @@ export async function validateSkills(accountId: string, value: unknown): Promise
 }
 
 export const GIG_STATUSES = ["Needs Crew", "Offered", "Filled", "Cancelled"] as const;
-export const OFFER_STATUSES = ["Sent", "Accepted", "Declined"] as const;
+export const OFFER_STATUSES = ["Sent", "Accepted", "Declined", "Not Selected"] as const;

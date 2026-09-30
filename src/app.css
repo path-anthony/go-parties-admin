@@ -2773,3 +2773,6 @@ a.nav-item {
 .upcoming-attention { margin-top: 12px; }
 .stage-note { margin: 0 0 12px; }
 .stage-warning { margin: 8px 0 0; color: #b54708; font-size: 13px; }
+.bids-fields { display: flex; flex-wrap: wrap; gap: 8px 12px; }
+.bids-row { display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: center; }
+.bids-questions { flex-basis: 100%; margin: 0; padding-left: 16px; font-size: 13px; }

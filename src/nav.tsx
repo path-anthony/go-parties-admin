@@ -6,6 +6,7 @@ import { CrewGigsScreen } from "./components/screens/CrewGigsScreen";
 import { DesignRequestsScreen } from "./components/screens/DesignRequestsScreen";
 import { InventoryScreen } from "./components/screens/InventoryScreen";
 import { LeadsScreen } from "./components/screens/LeadsScreen";
+import { BidsPage } from "./components/screens/BidsPage";
 import { MessageTemplatesPage, MessagesUpcomingPage, SentLogPage } from "./components/screens/MessagesScreen";
 import { OverviewScreen } from "./components/screens/OverviewScreen";
 import { PackagesScreen } from "./components/screens/PackagesScreen";
@@ -85,6 +86,7 @@ export const NAV: NavItem[] = [
     path: "/crew",
     pages: [
       { label: "Gigs", path: "/crew/gigs", element: <GigsRoute /> },
+      { label: "Bids", path: "/crew/bids", element: <BidsPage /> },
       { label: "Crew", path: "/crew/members", element: <CrewGigsScreen view="crew" /> },
       { label: "Skills", path: "/crew/skills", element: <SkillsPage /> },
     ],

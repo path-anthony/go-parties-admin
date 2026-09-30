@@ -108,3 +108,22 @@ export const contractSignLimiter = rateLimit({
   legacyHeaders: false,
   message: { error: "Too many requests. Try again in a few minutes." },
 });
+
+// The crew bid page is public (an unguessable token is the only credential).
+// Reads are loose; anything that writes is capped per IP in its own bucket.
+// A refusal carries reason "rate-limited", which the page understands.
+const bidLimit = (windowMs: number, limit: number) =>
+  rateLimit({
+    windowMs,
+    limit,
+    standardHeaders: true,
+    legacyHeaders: false,
+    handler: (_req, res) => {
+      res.status(429).json({ error: "Too many requests. Try again in a minute.", reason: "rate-limited" });
+    },
+  });
+
+export const makeBidReadLimiter = (limit = 120) => bidLimit(60 * 1000, limit);
+export const makeBidWriteLimiter = (limit = 30) => bidLimit(10 * 60 * 1000, limit);
+export const bidReadLimiter = makeBidReadLimiter();
+export const bidWriteLimiter = makeBidWriteLimiter();

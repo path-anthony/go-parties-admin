@@ -116,6 +116,7 @@ test("existing sends keep their exact wording", () => {
   assert.equal(sms("contract_signed_recorded"), "Thanks {{customerFirstName}}, we have your signed contract for {{eventDate}}. The next step is the retainer payment to confirm your date.");
   assert.equal(sms("booking_cancelled"), "Hi {{customerFirstName}}, your {{companyName}} booking for {{eventDate}} has been cancelled. If that doesn't look right, please call or text us.");
   assert.equal(sms("balance_due_reminder"), "Hi {{customerFirstName}}, a reminder that the remaining balance of {{balanceDue}} for your {{companyName}} event on {{eventDate}} is coming due. Please call or text us to arrange payment.");
-  assert.equal(sms("gig_bid_invite"), "Hi {{crewFirstName}}, {{companyName}} has a {{gigRole}} gig for {{gigItemName}} on {{gigDate}}. Can you take it? Please call or text us back to say yes or no.");
+  // Replaced in Block 3: the invite now carries the bid link.
+  assert.equal(sms("gig_bid_invite"), "Hi {{crewFirstName}}, {{companyName}} needs a {{gigRole}} on {{gigDate}} in {{gigTown}}. Pay range {{bidRange}}. Send your bid by {{bidDeadline}}: {{bidLink}}");
   assert.equal(sms("staff_contract_signed"), "Signed: {{customerName}} signed the contract for {{eventDate}}. {{contractPdfLink}}");
 });

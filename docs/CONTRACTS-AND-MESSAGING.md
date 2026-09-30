@@ -60,3 +60,20 @@ due, skipped (with a code and reason), blocked, stopped, paused, waiting, failed
 
 `{{customer_name}} {{event_date}} {{event_time}} {{event_address}} {{total}} {{deposit_percentage}} {{deposit_amount}} {{balance_amount}} {{cancellation_window_days}}`,
 also in camelCase. `deposit_percentage` is a bare number (write the % yourself). Unknown fields are left as typed.
+
+## Crew bidding (Block 3)
+
+Public API for the storefront's crew page, by the offer's unguessable token (no credentials, plain fetch, CORS from `ALLOWED_ORIGINS`):
+`GET /api/bids/:token`, `PUT /api/bids/:token/bid {amount, note?}`, `POST .../decline`, `POST .../confirm` (`{confirmedAt}`), `POST .../question {text}` (`{ok:true}`).
+Errors are `{ error, reason }`, reason one of `deadline-passed`, `already-filled`, `bid-invalid`, `not-open`, `rate-limited`. Unknown or expired token: 404.
+A link works through the end of the second day after the gig (Eastern). Link format: `STOREFRONT_URL/bid/<32 character token>`.
+
+The GET response is built in one serializer (`serializeBid` in `server/bids.ts`). Address, arrival notes, contact phone, crew first name, confirmedAt and questions
+appear only when the offer is accepted. Customer name, phone, email and the booking id are never read by it. `server/tests/bids.test.ts` asserts this for every state.
+
+Stored offer status -> page state: Sent with no bid and time left = open; Sent past the deadline with no bid = expired; Sent with a bid = bid_submitted (stays so after the
+deadline, but can't be edited); Accepted = accepted; Not Selected = not_selected; Declined = declined; gig Cancelled = expired.
+
+One accept function (`acceptOffer`) serves the bid screen and the manual PATCH. Under a row lock on the gig: winner Accepted, every other offer still Sent becomes Not Selected,
+gig Filled. After commit, `bid_accepted` goes to the winner and `bid_not_selected` to the rest (`{{bidAmount}}` reads "the agreed rate" when there was no bid). A bid edit takes
+the same lock, so an accept and an edit never both win. Crew reminders use the same `{{gigLink}}` (the accepted offer's page).

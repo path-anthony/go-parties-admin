@@ -12,7 +12,7 @@ const router = Router();
 
 const ORDER = [{ active: "desc" as const }, { name: "asc" as const }];
 
-type Fields = { name?: string; phone?: string | null; email?: string | null; skills?: string[]; active?: boolean; notes?: string | null };
+type Fields = { name?: string; phone?: string | null; email?: string | null; skills?: string[]; active?: boolean; notes?: string | null; smsConsent?: boolean; smsConsentAt?: Date | null };
 
 // Reads and checks the editable fields present in a body. Returns a
 // message on the first problem. `creating` makes name required.
@@ -37,6 +37,12 @@ async function readFields(accountId: string, body: Record<string, unknown>, crea
   if ("active" in body) {
     if (typeof body.active !== "boolean") return "active must be true or false";
     data.active = body.active;
+  }
+  if ("smsConsent" in body) {
+    if (typeof body.smsConsent !== "boolean") return "smsConsent must be true or false";
+    data.smsConsent = body.smsConsent;
+    // The date is when staff recorded the consent; clearing it clears the date.
+    data.smsConsentAt = body.smsConsent ? new Date() : null;
   }
   if ("notes" in body) {
     const notes = normalizeText(body.notes);
@@ -70,6 +76,8 @@ router.post("/", async (req, res) => {
       skills: fields.skills ?? [],
       active: fields.active ?? true,
       notes: fields.notes ?? null,
+      smsConsent: fields.smsConsent ?? false,
+      smsConsentAt: fields.smsConsentAt ?? null,
     },
   });
   res.status(201).json(member);
@@ -81,10 +89,15 @@ router.post("/", async (req, res) => {
 router.patch("/:id", async (req, res) => {
   const id = String(req.params.id);
   const account = await getDefaultAccount();
-  const existing = await prisma.crewMember.findFirst({ where: { id, accountId: account.id }, select: { id: true } });
+  const existing = await prisma.crewMember.findFirst({ where: { id, accountId: account.id }, select: { id: true, smsConsent: true } });
   if (!existing) return res.status(404).json({ error: "crew member not found" });
   const fields = await readFields(account.id, (req.body ?? {}) as Record<string, unknown>, false);
   if (typeof fields === "string") return res.status(400).json({ error: fields });
+  // Saving the form again must not restamp a consent date that has not changed.
+  if (fields.smsConsent === existing.smsConsent) {
+    delete fields.smsConsent;
+    delete fields.smsConsentAt;
+  }
   if (Object.keys(fields).length === 0) return res.status(400).json({ error: "no editable fields provided" });
   res.json(await prisma.crewMember.update({ where: { id }, data: fields }));
 });

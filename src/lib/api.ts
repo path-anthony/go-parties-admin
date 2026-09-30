@@ -1,4 +1,5 @@
 import type {
+  BidsSummaryRow,
   RunResult,
   Timeline,
   UpcomingView,
@@ -328,11 +329,35 @@ export function getGig(id: string): Promise<GigDetail> {
   return fetch(`/api/gigs/${id}`).then(asJson<GigDetail>);
 }
 
-// Records an offer to each crew member; nothing is sent anywhere yet.
-export function sendGigOffers(gigId: string, crewMemberIds: string[]): Promise<GigDetail & { offered: number; skipped: number; messages: { crewMemberId: string; name: string; status: string; error: string | null }[] }> {
-  return fetch(`/api/gigs/${gigId}/offers`, jsonRequest("POST", { crewMemberIds })).then(
-    asJson<GigDetail & { offered: number; skipped: number; messages: { crewMemberId: string; name: string; status: string; error: string | null }[] }>,
-  );
+export type InviteBody = {
+  crewMemberIds: string[];
+  payMin: number;
+  payMax: number;
+  deadlineAt: string;
+  fields: { eventType?: string; guestCount?: number; startTime?: string; endTime?: string; town?: string; arrivalNotes?: string };
+};
+export type InviteResult = GigDetail & { offered: number; skipped: number; messages: { crewMemberId: string; offerId: string; status: string; error: string | null }[] };
+
+// Invites crew to bid: sets the pay range and deadline, gives each person
+// their own link and texts it.
+export function inviteGigBids(gigId: string, body: InviteBody): Promise<InviteResult> {
+  return fetch(`/api/gigs/${gigId}/offers`, jsonRequest("POST", body)).then(asJson<InviteResult>);
+}
+
+export function previewGigInvite(gigId: string, body: Omit<InviteBody, "crewMemberIds">): Promise<{ text: string; problem: string | null }> {
+  return fetch(`/api/gigs/${gigId}/invite-preview`, jsonRequest("POST", body)).then(asJson<{ text: string; problem: string | null }>);
+}
+
+export function extendGigDeadline(gigId: string, deadlineAt: string): Promise<GigDetail> {
+  return fetch(`/api/gigs/${gigId}/extend-deadline`, jsonRequest("POST", { deadlineAt })).then(asJson<GigDetail>);
+}
+
+export function updateGigDetails(gigId: string, patch: Record<string, string | number | null>): Promise<GigDetail> {
+  return fetch(`/api/gigs/${gigId}`, jsonRequest("PATCH", patch)).then(asJson<GigDetail>);
+}
+
+export function getBidsSummary(): Promise<BidsSummaryRow[]> {
+  return fetch("/api/gigs/bids/summary").then(asJson<BidsSummaryRow[]>);
 }
 
 export function updateGigOffer(gigId: string, offerId: string, status: "Accepted" | "Declined"): Promise<GigDetail> {

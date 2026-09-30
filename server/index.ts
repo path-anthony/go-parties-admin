@@ -15,6 +15,7 @@ import conciergeLeadsRouter from "./routes/conciergeLeads.js";
 import crewRouter from "./routes/crew.js";
 import gigsRouter from "./routes/gigs.js";
 import customerRouter from "./routes/customer.js";
+import bidsRouter from "./routes/bids.js";
 import automationAdminRouter from "./routes/automationAdmin.js";
 import automationsRouter from "./routes/automations.js";
 import { adminContractsRouter, publicContractsRouter } from "./routes/contracts.js";
@@ -132,6 +133,7 @@ app.use("/api/customers", requireAuth, customersRouter);
 // log. The automations and webhooks are n8n calling in, behind the shared
 // secret like the lead webhook.
 app.use("/api/contracts", publicContractsRouter);
+app.use("/api/bids", bidsRouter);
 app.use("/api/contract-admin", requireAuth, adminContractsRouter);
 app.use("/api/message-templates", requireAuth, messageTemplatesRouter);
 app.use("/api/integrations", requireAuth, integrationsRouter);

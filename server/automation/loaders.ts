@@ -30,7 +30,7 @@ export type Planned = {
   plan: Plan;
   // What the sender needs to make the call.
   send: {
-    context: { leadId?: string; bookingId?: string; crewMemberId?: string; gigId?: string; extra?: Record<string, string> };
+    context: { leadId?: string; bookingId?: string; crewMemberId?: string; gigId?: string; offerId?: string; extra?: Record<string, string> };
     afterSend?: "balance";
   };
 };
@@ -201,7 +201,7 @@ export async function loadPlans(scope: PlanScope = {}): Promise<Planned[]> {
     for (const o of offers) {
       const contact = asContact(o.crewMember.phone, o.crewMember.email);
       const subject: PlanSubject = { kind: "gig", id: o.gig.id };
-      base.valuesFor(subject, { crew: { name: o.crewMember.name }, gig: o.gig });
+      base.valuesFor(subject, { crew: { name: o.crewMember.name }, gig: o.gig, offer: { token: o.token, bidAmount: o.bidAmount, deadlineAt: o.deadlineAt } });
       const plan = planGig(
         {
           gigId: o.gig.id,
@@ -223,7 +223,7 @@ export async function loadPlans(scope: PlanScope = {}): Promise<Planned[]> {
         href: `/crew/gigs?gig=${o.gig.id}`,
         contact,
         plan,
-        send: { context: { crewMemberId: o.crewMemberId, gigId: o.gig.id } },
+        send: { context: { crewMemberId: o.crewMemberId, gigId: o.gig.id, offerId: o.id } },
       });
     }
   }

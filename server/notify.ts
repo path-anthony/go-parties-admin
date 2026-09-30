@@ -126,24 +126,6 @@ export async function notifyContractSigned(agreement: { bookingId: string | null
   });
 }
 
-// A gig offer goes out as a real text to the crew member.
-export async function sendGigOfferSms(input: {
-  crew: { id: string; name: string; phone: string | null; email?: string | null };
-  gig: { id: string; skill: string; itemName: string; eventDate: Date };
-}): Promise<SendResult | null> {
-  return guard("gig offer", async () =>
-    asSendResult(
-      await sendTemplatedMessage(
-        "gig_bid_invite",
-        { crewMemberId: input.crew.id, gigId: input.gig.id },
-        { phone: input.crew.phone, email: input.crew.email ?? null },
-        `gig_bid_invite:${input.gig.id}:${input.crew.id}`,
-        { purpose: "gig-offer" },
-      ),
-    ),
-  );
-}
-
 // Used by the reminder check. One per booking per Eastern day.
 export async function sendBalanceReminder(bookingId: string): Promise<SendResult | null> {
   return guard("balance reminder", async () => {

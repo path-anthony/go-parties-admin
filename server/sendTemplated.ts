@@ -104,7 +104,10 @@ export function renderChannel(def: TriggerDef, tpl: { subject: string; body: str
   const subject = channel === "email" ? renderMessage(tpl.subject, values, def.tokens) : null;
   const empty = [...new Set([...body.empty, ...(subject?.empty ?? [])])];
   const notAllowed = [...new Set([...body.notAllowed, ...(subject?.notAllowed ?? [])])];
-  const why =
+  const linkMissing = !process.env.STOREFRONT_URL?.trim() && empty.some((t) => t === "bidLink" || t === "gigLink");
+  const why = linkMissing
+    ? "STOREFRONT_URL is not set, so the crew page link can't be made"
+    : 
     empty.length > 0 || notAllowed.length > 0
       ? [empty.length > 0 ? `No value for ${empty.map((t) => `{{${t}}}`).join(", ")}` : null, notAllowed.length > 0 ? `${notAllowed.map((t) => `{{${t}}}`).join(", ")} can't be used in this message` : null].filter(Boolean).join(". ")
       : null;

@@ -1,26 +1,22 @@
 import { useEffect, useState } from "react";
 import { X } from "lucide-react";
-import { getGig, sendGigOffers, updateGigOffer } from "../lib/api";
+import { getGig } from "../lib/api";
 import { formatEventDay, gigPillClass } from "../lib/gigs";
 import type { Gig, GigDetail } from "../lib/types";
 import { AutomationTimeline } from "./AutomationTimeline";
+import { BidsPanel } from "./BidsPanel";
 import { RecordMessages } from "./RecordMessages";
-import { SendMessageControls } from "./SendMessageControls";
 import { AgreementChip } from "./AgreementChip";
 import { BookingStatusTag } from "./BookingStatusTag";
 import { RushTag } from "./RushTag";
 
-// One gig: where it came from, who could take it, who was asked, who said
-// yes. Offers are records only for now; nothing is sent anywhere.
+// One gig: where it came from, the details crew see, who was invited to bid,
+// each bid, and the pick.
 export function GigModal({ gig: summary, onClose, onChanged }: { gig: Gig; onClose: () => void; onChanged: (gig: Gig) => void }) {
   const [gig, setGig] = useState<GigDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
-  // Who to offer this round. Everyone eligible starts checked; the admin
-  // unchecks anyone not wanted. People who already have an offer are
-  // listed but can't be picked again.
-  const [picked, setPicked] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     let alive = true;
@@ -28,8 +24,6 @@ export function GigModal({ gig: summary, onClose, onChanged }: { gig: Gig; onClo
       .then((detail) => {
         if (!alive) return;
         setGig(detail);
-        const offered = new Set(detail.offers.map((o) => o.crewMemberId));
-        setPicked(new Set(detail.candidates.filter((c) => !offered.has(c.id)).map((c) => c.id)));
       })
       .catch((err) => alive && setError(err instanceof Error ? err.message : "Couldn't load the gig"));
     return () => {
@@ -48,8 +42,6 @@ export function GigModal({ gig: summary, onClose, onChanged }: { gig: Gig; onClo
   function apply(detail: GigDetail) {
     setGig(detail);
     onChanged(detail);
-    const offered = new Set(detail.offers.map((o) => o.crewMemberId));
-    setPicked((prev) => new Set([...prev].filter((id) => !offered.has(id))));
   }
 
   async function run(action: () => Promise<GigDetail>, done?: (detail: GigDetail) => string) {
@@ -69,9 +61,6 @@ export function GigModal({ gig: summary, onClose, onChanged }: { gig: Gig; onClo
 
   const g = gig ?? summary;
   const cancelled = g.status === "Cancelled";
-  const offeredIds = new Set(g.offers.map((o) => o.crewMemberId));
-  const candidates = gig?.candidates ?? [];
-  const open = candidates.filter((c) => !offeredIds.has(c.id));
 
   return (
     <div className="modal-backdrop" onClick={onClose}>
@@ -131,108 +120,7 @@ export function GigModal({ gig: summary, onClose, onChanged }: { gig: Gig; onClo
           </div>
         ) : (
           <>
-            <div className="modal-section">
-              <span className="detail-field-label">Who could take it</span>
-              {!gig && !error && <p className="muted">Loading…</p>}
-              {gig && candidates.length === 0 && (
-                <p className="muted">Nobody active on the crew has the {g.skill} skill. Add someone under the Crew tab first.</p>
-              )}
-              {gig && candidates.length > 0 && (
-                <>
-                  <p className="muted addon-help">
-                    Every active crew member with the {g.skill} skill. Uncheck anyone you don't want to ask this round, then send. Each person is
-                    sent a text and the offer is recorded; replies aren't read yet, so mark each answer below.
-                  </p>
-                  <ul className="addon-list">
-                    {candidates.map((member) => {
-                      const existing = g.offers.find((o) => o.crewMemberId === member.id);
-                      return (
-                        <li key={member.id} className="crew-candidate">
-                          <label className="checkbox-label">
-                            <input
-                              type="checkbox"
-                              checked={existing ? false : picked.has(member.id)}
-                              disabled={busy || !!existing}
-                              onChange={(e) =>
-                                setPicked((prev) => {
-                                  const next = new Set(prev);
-                                  if (e.target.checked) next.add(member.id);
-                                  else next.delete(member.id);
-                                  return next;
-                                })
-                              }
-                            />
-                            {member.name}
-                          </label>
-                          <span className="muted">
-                            {[member.phone, member.email].filter(Boolean).join(" · ") || "No contact details"}
-                            {existing ? ` · already offered (${existing.status})` : ""}
-                          </span>
-                        </li>
-                      );
-                    })}
-                  </ul>
-                  <div className="form-actions">
-                    <button
-                      type="button"
-                      className="btn-primary"
-                      disabled={busy || picked.size === 0}
-                      onClick={() =>
-                        run(
-                          () => sendGigOffers(g.id, [...picked]),
-                          (detail) => {
-                            const d = detail as GigDetail & { offered?: number; messages?: { status: string }[] };
-                            const n = d.offered ?? picked.size;
-                            const sent = (d.messages ?? []).filter((m) => m.status === "sent").length;
-                            const held = (d.messages ?? []).length - sent;
-                            return (
-                              `Recorded ${n} ${n === 1 ? "offer" : "offers"}. ${sent} ${sent === 1 ? "text was" : "texts were"} handed to Twilio` +
-                              (held > 0 ? `; ${held} could not go out (see Messages for why)` : "") +
-                              ". Mark each one below as the person answers."
-                            );
-                          },
-                        )
-                      }
-                    >
-                      Send offers to selected ({picked.size})
-                    </button>
-                    {open.length === 0 && <span className="muted">Everyone eligible has been offered this gig.</span>}
-                  </div>
-                </>
-              )}
-            </div>
-
-            <div className="modal-section">
-              <span className="detail-field-label">Offers</span>
-              {g.offers.length === 0 ? (
-                <p className="muted">No offers yet.</p>
-              ) : (
-                <ul className="addon-list">
-                  {g.offers.map((offer) => (
-                    <li key={offer.id} className="crew-offer">
-                      <span>
-                        <strong>{offer.crewMember.name}</strong>
-                        {!offer.crewMember.active && <span className="muted"> · inactive</span>}
-                      </span>
-                      <span className={offer.status === "Accepted" ? "status-pill status-pill-live" : "status-pill"}>{offer.status}</span>
-                      <span className="form-actions">
-                        {offer.status !== "Accepted" && (
-                          <button type="button" className="btn-secondary" disabled={busy} onClick={() => run(() => updateGigOffer(g.id, offer.id, "Accepted"))}>
-                            Mark accepted
-                          </button>
-                        )}
-                        <SendMessageControls target={{ crewMemberId: offer.crewMemberId }} contract={false} />
-                        {offer.status !== "Declined" && (
-                          <button type="button" className="btn-secondary" disabled={busy} onClick={() => run(() => updateGigOffer(g.id, offer.id, "Declined"))}>
-                            Mark declined
-                          </button>
-                        )}
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
+            {gig ? <BidsPanel gig={gig} busy={busy} run={run} setNotice={setNotice} /> : !error && <p className="muted">Loading…</p>}
           </>
         )}
 

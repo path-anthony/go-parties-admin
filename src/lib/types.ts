@@ -95,6 +95,8 @@ export type CrewMember = {
   skills: Skill[];
   active: boolean;
   notes: string | null;
+  smsConsent: boolean;
+  smsConsentAt: string | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -106,6 +108,7 @@ export type CrewMemberInput = {
   skills: Skill[];
   active: boolean;
   notes: string;
+  smsConsent: boolean;
 };
 
 export type GigOffer = {
@@ -115,7 +118,18 @@ export type GigOffer = {
   status: OfferStatus;
   createdAt: string;
   updatedAt: string;
-  crewMember: { id: string; name: string; phone: string | null; email: string | null; active: boolean };
+  crewMember: { id: string; name: string; phone: string | null; email: string | null; active: boolean; smsConsent: boolean };
+  token: string | null;
+  bidAmount: number | null;
+  bidNote: string | null;
+  bidSubmittedAt: string | null;
+  declinedAt: string | null;
+  deadlineAt: string | null;
+  confirmedAt: string | null;
+  // What the crew page would show, and whether the bid sits outside the pay range.
+  bidState: "open" | "bid_submitted" | "accepted" | "not_selected" | "expired" | "declined";
+  rangeFlag: "above range" | "below range" | null;
+  questions: { id: string; text: string; createdAt: string }[];
 };
 
 // One person needed for one service item on one booking.
@@ -129,16 +143,40 @@ export type Gig = {
   eventDate: string; // serialized DATE
   status: GigStatus;
   filledById: string | null;
+  payMin: number | null;
+  payMax: number | null;
+  eventType: string | null;
+  guestCount: number | null;
+  startTime: string | null;
+  endTime: string | null;
+  town: string | null;
+  arrivalNotes: string | null;
   createdAt: string;
   updatedAt: string;
-  booking: { id: string; customerName: string; eventDate: string; eventTime: string | null; status: BookingStatus; leadId: string | null; rush: boolean; retainerPaid: boolean; balancePaymentPreference: BalancePreference; agreement: AgreementInfo | null };
+  booking: { id: string; customerName: string; eventDate: string; eventTime: string | null; address: string | null; occasion: string | null; status: BookingStatus; leadId: string | null; rush: boolean; retainerPaid: boolean; balancePaymentPreference: BalancePreference; agreement: AgreementInfo | null };
   filledBy: { id: string; name: string } | null;
   offers: GigOffer[];
 };
 
 // The gig plus every active crew member with its skill.
 export type GigDetail = Gig & {
-  candidates: { id: string; name: string; phone: string | null; email: string | null }[];
+  candidates: { id: string; name: string; phone: string | null; email: string | null; smsConsent: boolean }[];
+  // What the booking could fill in for the crew page; null where it had nothing.
+  prefill: { eventType: string | null; startTime: string | null; endTime: string | null; town: string | null; guestCount: number | null };
+};
+
+export type BidsSummaryRow = {
+  id: string;
+  role: string;
+  itemName: string;
+  eventDate: string;
+  town: string | null;
+  invited: number;
+  bidsIn: number;
+  declines: number;
+  deadlineAt: string | null;
+  lowestBid: number | null;
+  readyToPick: boolean;
 };
 
 // The slim gig view carried on an admin booking.
