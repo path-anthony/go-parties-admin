@@ -230,7 +230,7 @@ router.patch("/:id", async (req, res) => {
   // (unitId, eventDate) never holds a date for something that isn't
   // happening. Setting units on a cancelled booking is refused for the
   // same reason.
-  const cancelling = nextStatus === "Cancelled";
+  const cancelling = nextStatus === "Cancelled" || nextStatus === "Released";
   if (cancelling && unitIds !== null && unitIds.length > 0) {
     return res.status(400).json({ error: "A cancelled booking can't hold units. Set it back to Held first." });
   }

@@ -2,7 +2,12 @@ import Anthropic from "@anthropic-ai/sdk";
 import { Router } from "express";
 import { getDefaultAccount } from "../account.js";
 import { prisma } from "../db.js";
+import { aiGate, companyPhone } from "../ai.js";
+import { botCheck } from "../botCheck.js";
 import { getDefaultStatus } from "../leadStatuses.js";
+import { safeErr } from "../log.js";
+import { safeInline, stripControlKeepNewlines } from "../sanitize.js";
+import { canonicalOccasion } from "../../src/lib/occasions.js";
 import { PUBLIC_ITEM_RELATIONS, toPublicItem } from "../publicItem.js";
 import type { Item } from "../../src/generated/prisma/client.js";
 
@@ -18,6 +23,10 @@ const MAX_ATTEMPTS = 3;
 // The prompt asks for at most this many; the cap is enforced here too so
 // a generous no-budget pick can't turn into an unmanageable list.
 const MAX_RECOMMENDED_ITEMS = 20;
+// A conversation is a short back and forth. These bound what one request can
+// cost: the model reads every message on every turn.
+export const MAX_MESSAGES = 10;
+export const MAX_MESSAGE_CHARS = 500;
 
 type ConversationMessage = { role: "user" | "assistant"; content: string };
 type LeadItem = { id: string; name: string; category: string; price: number | null; priceUnit: string | null };
@@ -36,7 +45,7 @@ function logLead(accountId: string, theme: string, items: LeadItem[], total: num
       }),
     )
     .catch((err: unknown) => {
-      console.error("[lead] failed to log lead:", err);
+      console.error("[lead] failed to log lead:", safeErr(err));
     });
 }
 
@@ -58,9 +67,74 @@ function isValidMessage(entry: unknown): entry is ConversationMessage {
   return roleValid && contentValid;
 }
 
-function parseMessages(value: unknown): ConversationMessage[] | null {
-  if (!Array.isArray(value) || value.length === 0) return null;
-  return value.every(isValidMessage) ? value : null;
+export type ParsedMessages = { ok: true; messages: ConversationMessage[] } | { ok: false; error: string; reason: "bad-messages" | "too-many-messages" };
+
+// Shape and size checks. A message longer than the cap is clipped to it, not
+// refused: the storefront sends the whole conversation back on every turn,
+// so refusing one long message would break the conversation for good. The
+// count is a hard stop. Control characters are replaced so they cannot be
+// used to smuggle structure into the prompt.
+export function parseMessages(value: unknown): ParsedMessages {
+  if (!Array.isArray(value) || value.length === 0 || !value.every(isValidMessage)) {
+    return { ok: false, reason: "bad-messages", error: "messages is required and must be a non-empty array of {role, content}" };
+  }
+  if (value.length > MAX_MESSAGES) {
+    return { ok: false, reason: "too-many-messages", error: `A conversation can have at most ${MAX_MESSAGES} messages.` };
+  }
+  return { ok: true, messages: value.map((m) => ({ role: m.role, content: stripControlKeepNewlines(m.content).slice(0, MAX_MESSAGE_CHARS) })) };
+}
+
+type CatalogRow = { id: string; name: string; category: string; price: unknown; priceUnit: string | null };
+
+// What the model may see about an item: id, name, category, price and unit.
+// Nothing internal. In particular not Item.notes, which hold supplier names,
+// costs and staff remarks; whatever is in the prompt can come back out in a
+// reply, so the prompt only ever holds what is already public.
+export function catalogLine(item: CatalogRow): string {
+  return `- id: ${item.id}, name: ${item.name}, category: ${item.category}, price: $${item.price}${item.priceUnit ? ` (${item.priceUnit})` : ""}`;
+}
+
+const INSTRUCTIONS =
+    "You are Ask GO, a knowledgeable crew member at The Go Event Group, not a chatbot. You help a customer build " +
+  "a real party from a real catalog over a short back-and-forth conversation.\n\n" +
+  "The bar for ready is exactly three signals: occasion type, a rough guest count, and a budget signal. The " +
+  "moment all three are present in the conversation, go ready immediately and recommend, even on the first " +
+  "message. Budget has three distinct states, keep them apart:\n" +
+  "1. Never addressed: nobody has mentioned money yet. This is a missing signal, exactly like a missing " +
+  "occasion or guest count. Once you have occasion and guest count, ask about budget with one short casual " +
+  "question. Do not skip this and do not assume 'no budget' from silence.\n" +
+  "2. Explicitly declined: the customer says something like 'no budget', 'money's not an issue', 'whatever " +
+  "it costs', 'don't worry about price'. Only then stop asking about it, treat it as 'show me what's " +
+  "possible', and lean toward the highest-value items in the catalog across categories, not a safe modest " +
+  "set. Never ask about budget again after a decline.\n" +
+  "3. A real number or range: build within or close to it.\n" +
+  "Do not ask about logistics, venue, colors, preferences, or anything beyond those three signals; those " +
+  "are details you can reasonably assume or the customer can adjust later, not a reason to hold back a " +
+  "recommendation. Ask at most one clarifying question per turn, for exactly one missing signal, never a " +
+  "list of questions. Recommend at most 20 items.\n\n" +
+  "Concierge: GO also offers a planning call with a real person. When you are ready and the party is a wedding, " +
+  "has a large guest count (roughly 100 or more), or comes to a total well above a typical booking (several " +
+  "thousand dollars), set suggest_concierge true alongside your normal recommendation. It's a nudge for the " +
+  "storefront to offer the call, not a reason to hold back items or to mention it in your message.\n\n" +
+  "Voice: short, sure, chill. 1-3 sentences. No exclamation points, no emoji, no 'Great question', no hype " +
+  "words ('unforgettable', 'elevate', 'seamless', 'magical'). Matter-of-fact, then a little warmth. No em " +
+  "dashes, use a period or comma instead.\n\n" +
+  "You may only recommend items by the exact id given in the catalog below. Never invent an item, id, or price. " +
+  "Pick a set of items that fits the occasion, guest count, and budget as closely as possible, favoring a mix " +
+  "of categories over many items from one category. If the budget can't be met with real items, get as close " +
+  "as you can and say so.\n";
+
+// The static part (instructions, then the catalog) comes first and carries the
+// cache marker, so every turn of every conversation reuses it at a fraction of
+// the price. Only the short sub-occasion line, which changes, comes after.
+export function buildSystem(catalogItems: CatalogRow[], subOcc: string | null): Anthropic.TextBlockParam[] {
+  const catalog = catalogItems.map(catalogLine).join("\n");
+  const blocks: Anthropic.TextBlockParam[] = [
+    { type: "text", text: INSTRUCTIONS },
+    { type: "text", text: `Catalog:\n${catalog}`, cache_control: { type: "ephemeral" } },
+  ];
+  if (subOcc) blocks.push({ type: "text", text: `The customer selected sub-occasion: ${subOcc}.` });
+  return blocks;
 }
 
 const RESPOND_TOOL: Anthropic.Tool = {
@@ -108,20 +182,39 @@ const RESPOND_TOOL: Anthropic.Tool = {
   },
 };
 
-router.post("/", async (req, res) => {
-  const { subOcc, messages: rawMessages } = req.body ?? {};
-  const messages = parseMessages(rawMessages);
-  if (!messages) {
-    return res.status(400).json({ error: "messages is required and must be a non-empty array of {role, content}" });
+// Mounted in index.ts behind markAdmin and the per-IP limiter. The bot check
+// runs here. Ask GO's timestamp is when the conversation started, so on the
+// first message it is "now" by design: the too-fast rule applies from the
+// second message on.
+router.post("/", botCheck("recommend", { minAgeApplies: (req) => Array.isArray(req.body?.messages) && req.body.messages.length > 1 }), async (req, res) => {
+  const { subOcc: rawSubOcc, messages: rawMessages } = req.body ?? {};
+  const parsed = parseMessages(rawMessages);
+  if (!parsed.ok && parsed.reason === "too-many-messages") {
+    // A friendly end to a long conversation, in the shape the storefront
+    // already shows as a reply. Nothing is spent.
+    const phone = await companyPhone();
+    return res.json({ ready: false, suggestConcierge: false, limit: "conversation", message: `That's as far as I can take this one here. Call or text us${phone ? ` at ${phone}` : ""} and we'll finish it with you.` });
   }
-  if (subOcc !== null && subOcc !== undefined && typeof subOcc !== "string") {
+  if (!parsed.ok) {
+    return res.status(400).json({ error: parsed.error, reason: parsed.reason });
+  }
+  const messages = parsed.messages;
+  if (rawSubOcc !== null && rawSubOcc !== undefined && typeof rawSubOcc !== "string") {
     return res.status(400).json({ error: "subOcc must be a string or null" });
   }
+  // A known occasion in its known spelling, or short clean text: customer
+  // text never reaches the instructions part of the prompt unchecked.
+  const subOcc = typeof rawSubOcc === "string" && rawSubOcc.trim() !== "" ? (canonicalOccasion(rawSubOcc) ?? safeInline(rawSubOcc, 40)) || null : null;
 
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) {
     return res.status(500).json({ error: "ANTHROPIC_API_KEY is not set on the server" });
   }
+  // Budget: every AI request counts, whichever feature makes it.
+  // Over the daily cap the answer is a normal reply, so every storefront
+  // build shows the sentence instead of a generic error.
+  const budget = await aiGate(req, res);
+  if (!budget.ok) return res.json({ ready: false, suggestConcierge: false, limit: "daily-cap", message: budget.message });
 
   const account = await getDefaultAccount();
   // theme is derived from every user turn so far, joined — used only for the
@@ -144,52 +237,8 @@ router.post("/", async (req, res) => {
     return res.json({ ready: true, message: "No priced items in the catalog yet.", items: [], total: 0, suggestConcierge: false });
   }
 
-  const catalogText = catalogItems
-    .map((item: Item) => {
-      const parts = [
-        `id: ${item.id}`,
-        `name: ${item.name}`,
-        `category: ${item.category}`,
-        `price: $${item.price}${item.priceUnit ? ` (${item.priceUnit})` : ""}`,
-      ];
-      if (item.notes) parts.push(`notes: ${item.notes}`);
-      return `- ${parts.join(", ")}`;
-    })
-    .join("\n");
-
   const anthropic = new Anthropic({ apiKey });
-
-  const system =
-    "You are Ask GO, a knowledgeable crew member at The Go Event Group, not a chatbot. You help a customer build " +
-    "a real party from a real catalog over a short back-and-forth conversation.\n\n" +
-    "The bar for ready is exactly three signals: occasion type, a rough guest count, and a budget signal. The " +
-    "moment all three are present in the conversation, go ready immediately and recommend, even on the first " +
-    "message. Budget has three distinct states, keep them apart:\n" +
-    "1. Never addressed: nobody has mentioned money yet. This is a missing signal, exactly like a missing " +
-    "occasion or guest count. Once you have occasion and guest count, ask about budget with one short casual " +
-    "question. Do not skip this and do not assume 'no budget' from silence.\n" +
-    "2. Explicitly declined: the customer says something like 'no budget', 'money's not an issue', 'whatever " +
-    "it costs', 'don't worry about price'. Only then stop asking about it, treat it as 'show me what's " +
-    "possible', and lean toward the highest-value items in the catalog across categories, not a safe modest " +
-    "set. Never ask about budget again after a decline.\n" +
-    "3. A real number or range: build within or close to it.\n" +
-    "Do not ask about logistics, venue, colors, preferences, or anything beyond those three signals; those " +
-    "are details you can reasonably assume or the customer can adjust later, not a reason to hold back a " +
-    "recommendation. Ask at most one clarifying question per turn, for exactly one missing signal, never a " +
-    "list of questions. Recommend at most 20 items.\n\n" +
-    "Concierge: GO also offers a planning call with a real person. When you are ready and the party is a wedding, " +
-    "has a large guest count (roughly 100 or more), or comes to a total well above a typical booking (several " +
-    "thousand dollars), set suggest_concierge true alongside your normal recommendation. It's a nudge for the " +
-    "storefront to offer the call, not a reason to hold back items or to mention it in your message.\n\n" +
-    "Voice: short, sure, chill. 1-3 sentences. No exclamation points, no emoji, no 'Great question', no hype " +
-    "words ('unforgettable', 'elevate', 'seamless', 'magical'). Matter-of-fact, then a little warmth. No em " +
-    "dashes, use a period or comma instead.\n\n" +
-    "You may only recommend items by the exact id given in the catalog below. Never invent an item, id, or price. " +
-    "Pick a set of items that fits the occasion, guest count, and budget as closely as possible, favoring a mix " +
-    "of categories over many items from one category. If the budget can't be met with real items, get as close " +
-    "as you can and say so.\n" +
-    (subOcc ? `\nThe customer selected sub-occasion: ${subOcc}.\n` : "") +
-    `\nCatalog:\n${catalogText}`;
+  const system = buildSystem(catalogItems, subOcc);
 
   let ready = false;
   let message = "";
@@ -231,7 +280,7 @@ router.post("/", async (req, res) => {
       break;
     }
     console.warn(
-      `[recommend] attempt ${attempt}: degenerate response (ready=${ready}, ids=${requestedIds.length}, stop=${response.stop_reason}, message="${message}"), retrying`,
+      `[recommend] attempt ${attempt}: degenerate response (ready=${ready}, ids=${requestedIds.length}, stop=${response.stop_reason}, message length ${message.length}), retrying`,
     );
   }
 
@@ -250,15 +299,14 @@ router.post("/", async (req, res) => {
   const droppedIds = requestedIds.filter((id) => !catalogById.has(id));
 
   if (droppedIds.length > 0) {
-    console.warn(`[recommend] theme="${theme}": dropped ${droppedIds.length} id(s) not in catalog: ${droppedIds.join(", ")}`);
+    console.warn(`[recommend] dropped ${droppedIds.length} id(s) not in the catalog`);
   }
 
   const total = recommended.reduce((sum, item) => sum + Number(item.price), 0);
 
   logLead(account.id, theme, toLeadItems(recommended), total, suggestConcierge);
 
-  // The full rows were loaded because the prompt needs the notes. What
-  // goes back to the customer is the same allowlist the public catalog
+  // What goes back to the customer is the same allowlist the public catalog
   // uses, nothing internal. The total stays the base prices: no add-on has
   // been chosen yet.
   const items = recommended.map(toPublicItem);

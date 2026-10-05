@@ -1,4 +1,5 @@
 import { type FormEvent, type KeyboardEvent, useEffect, useState } from "react";
+import { isInactiveStage } from "../../lib/bookingStatus";
 import { ChevronRight } from "lucide-react";
 import {
   createUnit,
@@ -336,7 +337,7 @@ function BookingSummaryRow({
       </td>
       <td className="catalog-name">
         {booking.customerName}
-        <RushTag rush={booking.rush} cancelled={booking.status === "Cancelled"} />
+        <RushTag rush={booking.rush} cancelled={isInactiveStage(booking.status)} />
       </td>
       <td>
         <BookingStatusTag booking={booking} />

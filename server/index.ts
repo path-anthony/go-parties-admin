@@ -3,10 +3,11 @@ import { existsSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import cookieParser from "cookie-parser";
-import cors from "cors";
 import express, { type ErrorRequestHandler } from "express";
 import { requireAuth } from "./auth.js";
-import { isOriginAllowed } from "./cors.js";
+import { safeErr } from "./log.js";
+import { markAdmin } from "./ai.js";
+import { corsPolicy, customerWriteGuard, securityHeaders } from "./security.js";
 import { conciergeLeadLimiter, directBookingLimiter, externalLeadLimiter, recommendLimiter } from "./rateLimit.js";
 import addonGroupsRouter from "./routes/addonGroups.js";
 import authRouter from "./routes/auth.js";
@@ -67,30 +68,30 @@ const app = express();
 // client IP instead of Railway's edge proxy — trust exactly one hop.
 app.set("trust proxy", 1);
 
-// CORS only applies to the API. Static assets (and the SPA's own JS/CSS,
-// which Vite serves with a `crossorigin` attribute — that makes the browser
-// send an Origin header even for same-origin loads) must never be evaluated
-// against the origin allowlist, or the deployed app's own origin gets
-// rejected trying to load its own bundle.
-//
-// The cors package's `origin` callback only gets the Origin header, not the
-// request — so it can't tell "this app calling itself" from "some other
-// site". Wrapped per-request here to pass req.headers.host through, since
-// same-origin calls (e.g. the frontend's own POST /api/auth/login) must
-// always be allowed regardless of ALLOWED_ORIGINS.
-app.use("/api", (req, res, next) => {
-  cors({
-    origin(origin, callback) {
-      // No Origin header (curl, server-to-server): allow.
-      if (!origin || isOriginAllowed(origin, req.headers.host)) {
-        callback(null, true);
-      } else {
-        callback(new Error("Not allowed by CORS"));
-      }
-    },
-    credentials: true,
-  })(req, res, next);
-});
+// Headers first, on every response: CSP, HSTS, nosniff, frame-ancestors none,
+// referrer policy. X-Powered-By is removed.
+app.disable("x-powered-by");
+app.use(securityHeaders);
+
+// CORS and the origin policy apply to the API only (see server/security.ts):
+// the storefront's public and customer routes get the credentialed allowlist,
+// admin routes get no CORS at all and refuse foreign origins. Static assets
+// are never evaluated, so the app can load its own bundle.
+app.use("/api", corsPolicy);
+// Customer routes act with the customer's cookie: JSON bodies and an allowed
+// Origin only for anything that changes state.
+app.use("/api/customer", customerWriteGuard);
+app.use("/api/bookings/direct", customerWriteGuard);
+// Public write routes parse a small body first (body-parser skips a body that
+// is already parsed), so a flood of big requests is refused early.
+app.use("/api/recommend", express.json({ limit: "20kb" }));
+app.use("/api/bookings/direct", express.json({ limit: "50kb" }));
+app.use("/api/leads/concierge", express.json({ limit: "10kb" }));
+app.use("/api/customer", express.json({ limit: "20kb" }));
+app.use("/api/contracts", express.json({ limit: "20kb" }));
+app.use("/api/bids", express.json({ limit: "20kb" }));
+app.use("/api/webhooks/n8n", express.json({ limit: "100kb" }));
+app.use("/api/leads/external", express.json({ limit: "50kb" }));
 // Item photos are stored as compressed data URLs in photoUrl (see
 // src/lib/photo.ts), so a PATCH can carry a few hundred KB. The default
 // 100kb limit would reject them.
@@ -154,7 +155,7 @@ app.use("/api/bookings", requireAuth, bookingsRouter);
 // inside the router), everything else there requires the customer cookie,
 // which is a separate session from the admin's (see server/customerAuth.ts).
 app.use("/api/customer", customerRouter);
-app.use("/api/recommend", recommendLimiter, recommendRouter);
+app.use("/api/recommend", markAdmin, recommendLimiter, recommendRouter);
 
 app.get("/api/health", (_req, res) => {
   res.json({ ok: true });
@@ -174,7 +175,12 @@ const handleError: ErrorRequestHandler = (err, _req, res, _next) => {
   if (err instanceof Error && err.message === "Not allowed by CORS") {
     return res.status(403).json({ error: "Not allowed by CORS" });
   }
-  console.error(err);
+  const type = (err as { type?: string } | null)?.type;
+  if (type === "entity.too.large") return res.status(413).json({ error: "That request is too large." });
+  if (type === "entity.parse.failed") return res.status(400).json({ error: "That request could not be read." });
+  // The error's kind and a short redacted line, never the object: database
+  // errors can carry query values, and bodies carry customer text.
+  console.error("[error]", safeErr(err));
   res.status(500).json({ error: "Internal server error" });
 };
 app.use(handleError);

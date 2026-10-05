@@ -2,6 +2,7 @@ import { prisma } from "./db.js";
 import { getSettings } from "./settings.js";
 import { TOKEN_CATALOG, camelToSnake } from "./tokens.js";
 import { toE164 } from "./messaging.js";
+import { safeInline } from "./sanitize.js";
 import { todayEastern } from "./validate.js";
 import { humanWhen } from "./automation/time.js";
 
@@ -26,7 +27,7 @@ const usd = (n: number) => n.toLocaleString("en-US", { style: "currency", curren
 const shortDate = (d: Date) => d.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", timeZone: "UTC" });
 const firstName = (full: string | null | undefined) => (full ?? "").trim().split(/\s+/)[0] ?? "";
 
-function prettyPhone(raw: string | null | undefined): string {
+export function prettyPhone(raw: string | null | undefined): string {
   const e164 = toE164(raw);
   if (!e164) return raw?.trim() ?? "";
   const m = /^\+1(\d{3})(\d{3})(\d{4})$/.exec(e164);
@@ -86,8 +87,12 @@ export function composeValues(settings: Settings, rec: LoadedRecords): Record<st
     set("depositAmount", usd(deposit));
     set("balanceDue", usd(Math.round((t - deposit) * 100) / 100));
   };
-  const applyEvent = (e: { name?: string | null; date?: Date | null; time?: string | null; type?: string | null; address?: string | null }) => {
-    set("customerName", e.name?.trim());
+  // Everything a customer typed is cleaned on its way into a message: no
+  // links, no control characters, a sane length. A "name" that is a phishing
+  // link must not go out from our number.
+  const applyEvent = (raw: { name?: string | null; date?: Date | null; time?: string | null; type?: string | null; address?: string | null }) => {
+    const e = { ...raw, name: safeInline(raw.name, 100), time: safeInline(raw.time, 60), type: safeInline(raw.type, 80), address: safeInline(raw.address, 200) };
+    set("customerName", e.name);
     set("customerFirstName", firstName(e.name));
     if (e.date) {
       set("eventDate", shortDate(e.date));
@@ -110,14 +115,14 @@ export function composeValues(settings: Settings, rec: LoadedRecords): Record<st
     applyEvent({ name: b.customerName, date: b.eventDate, time: b.eventTime, type: b.occasion, address: b.address });
     applyMoney(b.total);
   }
-  if (rec.crew) set("crewFirstName", firstName(rec.crew.name));
+  if (rec.crew) set("crewFirstName", firstName(safeInline(rec.crew.name, 100)));
   if (rec.gig) {
     set("gigRole", rec.gig.skill);
     set("gigItemName", rec.gig.itemName);
     set("gigDate", shortDate(rec.gig.eventDate));
-    set("gigStartTime", (rec.gig.startTime ?? rec.gig.booking.eventTime)?.trim());
-    set("gigAddress", rec.gig.booking.address?.trim());
-    set("gigTown", rec.gig.town?.trim());
+    set("gigStartTime", safeInline(rec.gig.startTime ?? rec.gig.booking.eventTime, 60));
+    set("gigAddress", safeInline(rec.gig.booking.address, 200));
+    set("gigTown", safeInline(rec.gig.town, 80));
     if (rec.gig.payMin != null && rec.gig.payMax != null) set("bidRange", `${wholeDollars(rec.gig.payMin)} to ${wholeDollars(rec.gig.payMax)}`);
   }
   if (rec.offer) {

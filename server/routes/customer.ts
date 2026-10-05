@@ -19,6 +19,7 @@ import {
   startCustomerSession,
 } from "../customerAuth.js";
 import { prisma } from "../db.js";
+import { safeInline } from "../sanitize.js";
 import { BOOKING_GIGS_SELECT, NoCrewFree } from "../gigs.js";
 import { customerActionLimiter, customerLoginLimiter, customerSignupLimiter } from "../rateLimit.js";
 import { INVALID, normalizeDate, normalizeText, todayEastern } from "../validate.js";
@@ -69,7 +70,7 @@ router.post("/signup", customerSignupLimiter, async (req, res) => {
   let customer: Customer;
   try {
     customer = await prisma.customer.create({
-      data: { accountId: account.id, phone: phoneDigits, email: emailText, passwordHash, name: normalizeText(name) },
+      data: { accountId: account.id, phone: phoneDigits, email: emailText, passwordHash, name: typeof name === "string" ? safeInline(name, 100) || null : null },
     });
   } catch (err) {
     // Two sign-ups racing past the checks above; the unique indexes decide.
@@ -139,6 +140,7 @@ async function ownBooking(customer: Customer, id: string) {
 
 function notChangeable(status: string): string | null {
   if (status === "Cancelled") return "This booking was cancelled.";
+  if (status === "Released") return "This hold was released because it wasn't confirmed in time. Please book again, or call or text us.";
   if (status === "Completed") return "This booking already happened.";
   return null;
 }
@@ -149,7 +151,7 @@ router.post("/bookings/:id/cancel", requireCustomer, customerActionLimiter, asyn
   if (!booking) {
     return res.status(404).json({ error: "booking not found" });
   }
-  if (booking.status === "Cancelled") {
+  if (booking.status === "Cancelled" || booking.status === "Released") {
     return res.json(serializeCustomerBooking(booking));
   }
   if (booking.status === "Completed") {

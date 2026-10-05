@@ -1,6 +1,8 @@
 import { getDefaultAccount } from "../account.js";
 import { prisma } from "../db.js";
+import { safeErr } from "../log.js";
 import { sendTemplatedMessage } from "../sendTemplated.js";
+import { findExpiredHolds, releaseExpiredHolds, type HoldRelease } from "../holds.js";
 import { loadPlans, type Journey, type Planned } from "./loaders.js";
 import { channelWord, itemName, type PlanItem } from "./planner.js";
 import { humanWhen } from "./time.js";
@@ -37,6 +39,8 @@ export type RunResult = {
   counts: Record<Journey, Counts> & { total: Counts };
   lines: RunLine[];
   needsAttention: number;
+  // Unpaid storefront holds past the limit: released on a real run, listed on a dry run.
+  holds: { days: number; released: HoldRelease[]; dryRun: boolean };
 };
 
 const empty = (): Counts => ({ records: 0, due: 0, sent: 0, failed: 0, blocked: 0, skipped: 0, other: 0 });
@@ -97,7 +101,9 @@ export async function runAutomation(opts: { dryRun: boolean; source: "n8n" | "ad
     for (const k of Object.keys(counts.total) as (keyof Counts)[]) counts.total[k] += counts[j][k];
   }
 
-  const result: RunResult = { dryRun: opts.dryRun, ranAt: now.toISOString(), durationMs: Date.now() - started, counts, lines, needsAttention: await countNeedsAttention() };
+  const holds = opts.dryRun ? { ...(await findExpiredHolds(now)), dryRun: true } : { ...(await releaseExpiredHolds(now)), dryRun: false };
+  const holdsOut = { days: holds.days, released: "holds" in holds ? holds.holds : holds.released, dryRun: holds.dryRun };
+  const result: RunResult = { dryRun: opts.dryRun, ranAt: now.toISOString(), durationMs: Date.now() - started, counts, lines, needsAttention: await countNeedsAttention(), holds: holdsOut };
   if (!opts.dryRun) {
     const account = await getDefaultAccount();
     await prisma.automationRun.create({
@@ -105,7 +111,7 @@ export async function runAutomation(opts: { dryRun: boolean; source: "n8n" | "ad
         accountId: account.id,
         source: opts.source,
         durationMs: result.durationMs,
-        summary: { counts: result.counts, lines: result.lines.length, needsAttention: result.needsAttention },
+        summary: { counts: result.counts, lines: result.lines.length, needsAttention: result.needsAttention, holdsReleased: result.holds.released.length },
       },
     });
   }
@@ -124,7 +130,7 @@ async function sendItem(rec: Planned, item: PlanItem, now: Date): Promise<{ stat
     }
     return { status: o.status, error: o.error };
   } catch (err) {
-    console.error(`[automation] ${item.triggerKey} for ${rec.kind} ${rec.recordId} failed:`, err);
+    console.error(`[automation] ${item.triggerKey} for ${rec.kind} ${rec.recordId} failed:`, safeErr(err));
     return { status: "failed", error: err instanceof Error ? err.message : "unexpected error" };
   }
 }

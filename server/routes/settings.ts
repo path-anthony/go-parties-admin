@@ -19,11 +19,13 @@ export const publicSettingsRouter = Router();
 publicSettingsRouter.get("/public", availabilityLimiter, async (_req, res) => {
   const account = await getDefaultAccount();
   const [settings, policy] = await Promise.all([getSettings(account.id), currentPolicy(account.id)]);
+  // Only what the storefront renders: the rush warning, the day-of phone,
+  // the policy and the numbers its text may merge. The review threshold and
+  // the review occasion list are staff rules enforced on the server; a
+  // customer has no use for them and no reason to learn where the line is.
   res.json({
     minBookingNoticeHours: settings.minBookingNoticeHours,
     rushContactPhone: settings.rushContactPhone,
-    fullReviewThreshold: settings.fullReviewThreshold,
-    reviewOccasions: settings.reviewOccasions,
     depositPercentage: settings.depositPercentage,
     cancellationWindowDays: settings.cancellationWindowDays,
     policy: publicPolicy(policy),
@@ -52,6 +54,10 @@ router.patch("/", async (req, res) => {
     balanceReminderWindowDays?: number;
     authorizedSignerName?: string | null;
     authorizedSignerTitle?: string | null;
+    aiDailyCap?: number;
+    directBookingDailyCap?: number;
+    requireBotCheck?: boolean;
+    holdReleaseDays?: number;
   } = {};
 
   if ("minBookingNoticeHours" in body) {
@@ -128,6 +134,19 @@ router.patch("/", async (req, res) => {
       return res.status(400).json({ error: "balanceReminderWindowDays must be a whole number of days from 0 to 120" });
     }
     data.balanceReminderWindowDays = days;
+  }
+  for (const [field, max] of [["aiDailyCap", 100000], ["directBookingDailyCap", 10000], ["holdReleaseDays", 365]] as const) {
+    if (field in body) {
+      const n = body[field];
+      if (typeof n !== "number" || !Number.isInteger(n) || n < 0 || n > max) {
+        return res.status(400).json({ error: `${field} must be a whole number from 0 to ${max}` });
+      }
+      data[field] = n;
+    }
+  }
+  if ("requireBotCheck" in body) {
+    if (typeof body.requireBotCheck !== "boolean") return res.status(400).json({ error: "requireBotCheck must be true or false" });
+    data.requireBotCheck = body.requireBotCheck;
   }
   if ("requireAgreementCheckbox" in body) {
     if (typeof body.requireAgreementCheckbox !== "boolean") {

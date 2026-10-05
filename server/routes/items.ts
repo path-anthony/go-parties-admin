@@ -7,7 +7,7 @@ import { prisma } from "../db.js";
 import { validateSkills } from "../skills.js";
 import { ITEM_SOURCES } from "../../src/lib/itemFields.js";
 import { normalizeBilledPer } from "../itemFields.js";
-import { isOneOf } from "../validate.js";
+import { INVALID as PHOTO_INVALID, isOneOf, normalizePhotoUrl } from "../validate.js";
 
 const CSV_HEADERS = ["name", "category", "price", "price_unit", "notes", "photo_url", "source", "needs_price_review"];
 
@@ -26,6 +26,7 @@ function normalizePrice(value: unknown): number | null | typeof INVALID {
 }
 
 const INVALID = Symbol("invalid");
+const PHOTO_MESSAGE = "photoUrl must be an https link or an uploaded png, jpeg, gif or webp image";
 
 // A compressed upload is a few hundred KB; anything near this is not one.
 const MAX_PHOTO_URL_LENGTH = 2_000_000;
@@ -157,6 +158,10 @@ router.post("/", async (req, res) => {
   if (photoUrlTooLong(photoUrl)) {
     return res.status(400).json({ error: "photoUrl is too large" });
   }
+  const cleanPhoto = normalizePhotoUrl(photoUrl);
+  if (cleanPhoto === PHOTO_INVALID) {
+    return res.status(400).json({ error: PHOTO_MESSAGE });
+  }
   const billedPer = normalizeBilledPer(priceUnit);
   if ("error" in billedPer) {
     return res.status(400).json({ error: billedPer.error });
@@ -192,7 +197,7 @@ router.post("/", async (req, res) => {
         ...(source !== undefined ? { source } : {}),
         ...(needsPriceReview !== undefined ? { needsPriceReview } : {}),
         notes: normalizeText(notes),
-        photoUrl: normalizeText(photoUrl),
+        photoUrl: cleanPhoto,
         skills: skillList,
       },
     });
@@ -281,7 +286,13 @@ router.patch("/:id", async (req, res) => {
       continue;
     }
 
-    data[field as "notes" | "photoUrl"] = normalizeText(body[field]);
+    if (field === "photoUrl") {
+      const clean = normalizePhotoUrl(body.photoUrl);
+      if (clean === PHOTO_INVALID) return res.status(400).json({ error: PHOTO_MESSAGE });
+      data.photoUrl = clean;
+      continue;
+    }
+    data[field as "notes"] = normalizeText(body[field]);
   }
 
   const item = await prisma.item.update({ where: { id }, data, include: ADDON_GROUPS_INCLUDE });

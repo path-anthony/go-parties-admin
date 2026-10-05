@@ -5,22 +5,26 @@ import rateLimit from "express-rate-limit";
 // the auth gate that protects everything else. Generous enough for a real
 // visitor trying a few themes, tight enough to block a tight loop.
 export const recommendLimiter = rateLimit({
-  windowMs: 10 * 60 * 1000, // 10 minutes
-  limit: 10,
+  windowMs: 60 * 60 * 1000, // 1 hour
+  limit: 20,
   standardHeaders: true,
   legacyHeaders: false,
-  message: { error: "Too many requests. Try again in a few minutes." },
+  // Staff signed in to the admin are never limited (see server/ai.ts).
+  skip: (_req, res) => res.locals.isAdmin === true,
+  handler: (_req, res) => {
+    res.status(429).json({ error: "You've asked a lot of questions. Give it a little while, or call or text us.", reason: "rate-limited" });
+  },
 });
 
 // POST /api/bookings/direct is public like /api/recommend and writes real
 // rows, so it gets the same tight per-IP cap, in its own bucket so a long
 // Ask GO conversation can't use up someone's booking attempts.
 export const directBookingLimiter = rateLimit({
-  windowMs: 10 * 60 * 1000, // 10 minutes
-  limit: 10,
+  windowMs: 60 * 60 * 1000, // 1 hour
+  limit: 5,
   standardHeaders: true,
   legacyHeaders: false,
-  message: { error: "Too many requests. Try again in a few minutes." },
+  message: { error: "Too many booking attempts from this connection. Please try again later, or call or text us.", reason: "rate-limited" },
 });
 
 // POST /api/leads/concierge is public and writes a Lead per call, so it
@@ -41,20 +45,6 @@ export const availabilityLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: "Too many requests. Try again in a minute." },
-});
-
-// The admin login is one shared password behind everything else in the
-// admin, so it gets the same cap as the customer login: 5 failed attempts
-// per 15 minutes per IP. Successful logins don't count, so a typo on the
-// first try isn't punished, and a locked-out IP gets a clear message rather
-// than a generic 401.
-export const adminLoginLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  limit: 5,
-  skipSuccessfulRequests: true,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: { error: "Too many failed login attempts from this connection. Try again in 15 minutes." },
 });
 
 // Customer login is a public password endpoint, so it's the strictest cap

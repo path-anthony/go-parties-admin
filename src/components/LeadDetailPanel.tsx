@@ -1,4 +1,5 @@
 import { type FormEvent, useEffect, useState } from "react";
+import { isInactiveStage } from "../lib/bookingStatus";
 import { X } from "lucide-react";
 import { addLeadActivity, getLeadActivity, updateLead } from "../lib/api";
 import type { Lead, LeadActivity, LeadPatch, LeadStatus } from "../lib/types";
@@ -253,7 +254,7 @@ function LeadDetailBody({
                   {booking.eventTime ? `, ${booking.eventTime}` : ""}
                   {" "}
                   <BookingStatusTag booking={booking} /> <AgreementChip agreement={booking.agreement} /> <BalanceLabel preference={booking.balancePaymentPreference} />
-                  <RushTag rush={booking.rush} cancelled={booking.status === "Cancelled"} />
+                  <RushTag rush={booking.rush} cancelled={isInactiveStage(booking.status)} />
                 </span>
                 {booking.total !== null && <span className="item-price">{usd(Number(booking.total))}</span>}
               </div>

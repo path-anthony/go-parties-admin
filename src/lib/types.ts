@@ -484,6 +484,10 @@ export type AccountSettings = {
   balanceReminderWindowDays: number;
   authorizedSignerName: string | null;
   authorizedSignerTitle: string | null;
+  aiDailyCap: number;
+  directBookingDailyCap: number;
+  requireBotCheck: boolean;
+  holdReleaseDays: number;
 };
 
 export type PolicyVersionInfo = { id: string; version: number; text: string; createdAt: string; agreements: number };
@@ -639,4 +643,4 @@ export type FailedEntry = { id: string; triggerKey: string | null; channel: stri
 export type UpcomingView = { entries: UpcomingEntry[]; needsAttention: number; failed: FailedEntry[] };
 export type RunCounts = { records: number; due: number; sent: number; failed: number; blocked: number; skipped: number; other: number };
 export type RunLine = { journey: string; kind: string; recordId: string; name: string; href: string; trigger: string; what: string; channel: string; dueAt: string; result: string; reason?: string };
-export type RunResult = { dryRun: boolean; ranAt: string; durationMs: number; counts: Record<"lead" | "client" | "crew" | "total", RunCounts>; lines: RunLine[]; needsAttention: number };
+export type RunResult = { dryRun: boolean; ranAt: string; durationMs: number; counts: Record<"lead" | "client" | "crew" | "total", RunCounts>; lines: RunLine[]; needsAttention: number; holds: { days: number; dryRun: boolean; released: { bookingId: string; customerName: string; eventDate: string; heldDays: number }[] } };

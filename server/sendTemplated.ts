@@ -1,5 +1,6 @@
 import { getDefaultAccount } from "./account.js";
 import { prisma } from "./db.js";
+import { safeErr } from "./log.js";
 import { type MessageContext, buildMessageValues } from "./messageContext.js";
 import { sendEmail, sendSms, type MessageLink } from "./messaging.js";
 import { checkSendRules } from "./sendRules.js";
@@ -197,7 +198,7 @@ export async function sendTemplatedMessage(
     } catch (err) {
       // Nothing here may throw into the flow that asked for the message.
       const message = err instanceof Error ? err.message : "unexpected error";
-      console.error(`[send] ${triggerKey} ${channel} failed:`, err);
+      console.error(`[send] ${triggerKey} ${channel} failed:`, safeErr(err));
       const attempts = (await prisma.messageLog.findUnique({ where: { id: row.id }, select: { attempts: true } }).catch(() => null))?.attempts ?? 0;
       const status = attempts >= MAX_SEND_ATTEMPTS ? "failed_final" : "failed";
       await settle(row.id, status, message).catch(() => undefined);

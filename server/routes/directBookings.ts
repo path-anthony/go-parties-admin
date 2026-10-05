@@ -2,13 +2,19 @@ import { Router } from "express";
 import { getDefaultAccount } from "../account.js";
 import { parseAddonSelections } from "../addons.js";
 import { currentCustomer } from "../customerAuth.js";
+import { botCheck } from "../botCheck.js";
 import { createDirectBooking, MAX_UNITS_PER_BOOKING } from "../directBooking.js";
+import { prettyPhone } from "../messageContext.js";
+import { safeInline } from "../sanitize.js";
+import { getSettings } from "../settings.js";
+import { bumpDaily, usedToday } from "../usage.js";
 import { prisma } from "../db.js";
 import { BALANCE_PREFERENCES } from "../../src/lib/bookingStatus.js";
 import { canonicalOccasion } from "../../src/lib/occasions.js";
 import { INVALID, normalizeDate, normalizeText, splitContact, todayEastern } from "../validate.js";
 
 const MAX_ADDRESS_LENGTH = 300;
+const MAX_NAME_LENGTH = 100;
 const MAX_TIME_LENGTH = 60;
 const MAX_ITEMS_PER_BOOKING = 10;
 
@@ -103,11 +109,14 @@ function resolvePackageId(body: Record<string, unknown>): string | null | typeof
 // Each chosen option's price delta (times the units held of that item) is
 // added to the total, and the choices are stored as BookingAddon rows with
 // their names, so they read as choices in the admin, not as a bigger number.
-router.post("/", async (req, res) => {
+router.post("/", botCheck("direct-booking"), async (req, res) => {
   const body = (req.body ?? {}) as Record<string, unknown>;
 
   const customer = await currentCustomer(req);
-  const name = normalizeText(body.customerName) ?? customer?.name ?? null;
+  // Names and free text from the public form are cleaned before they are
+  // stored, because they end up in texts and emails we send: no links, no
+  // control characters, a sane length.
+  const name = safeInline(normalizeText(body.customerName), MAX_NAME_LENGTH) || (customer?.name ? safeInline(customer.name, MAX_NAME_LENGTH) : null) || null;
   if (!name) {
     return res.status(400).json({
       error: customer ? "customerName is required the first time; it's saved to your account after that" : "customerName is required",
@@ -137,6 +146,8 @@ router.post("/", async (req, res) => {
   if (eventTime === INVALID) {
     return res.status(400).json({ error: `eventTime must be text up to ${MAX_TIME_LENGTH} characters` });
   }
+  const cleanAddress = address === null ? null : safeInline(address, MAX_ADDRESS_LENGTH) || null;
+  const cleanTime = eventTime === null ? null : safeInline(eventTime, MAX_TIME_LENGTH) || null;
   const selections = parseAddonSelections(body.addons, itemIds);
   if (typeof selections === "string") {
     return res.status(400).json({ error: selections, reason: "addon-invalid" });
@@ -158,6 +169,20 @@ router.post("/", async (req, res) => {
     return res.status(400).json({ error: "agreedToPolicy must be true or false" });
   }
 
+  // Site-wide cap on storefront bookings per day. Staff bookings are not
+  // counted or limited. Checked here, counted only when a booking (or a
+  // design request) was actually made.
+  const account = await getDefaultAccount();
+  const settings = await getSettings(account.id);
+  if ((await usedToday(account.id, "direct_booking")) >= settings.directBookingDailyCap) {
+    const phone = prettyPhone(settings.rushContactPhone ?? process.env.TWILIO_PHONE_NUMBER);
+    console.warn("[bookings] storefront daily cap reached");
+    return res.status(429).json({
+      error: `We're taking bookings by phone for the rest of today. Call or text us${phone ? ` at ${phone}` : ""}.`,
+      reason: "daily-cap",
+    });
+  }
+
   const result = await createDirectBooking({
     staff: false,
     occasion,
@@ -169,11 +194,12 @@ router.post("/", async (req, res) => {
     itemIds,
     date,
     dateText,
-    eventTime,
-    address,
+    eventTime: cleanTime,
+    address: cleanAddress,
     selections,
     packageId,
   });
+  if (result.status === 201 || result.status === 202) await bumpDaily(account.id, "direct_booking");
   res.status(result.status).json(result.body);
 });
 

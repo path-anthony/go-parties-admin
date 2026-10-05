@@ -42,3 +42,24 @@ export function todayEastern(now: Date = new Date()): string {
   // en-CA formats a date as YYYY-MM-DD.
   return new Intl.DateTimeFormat("en-CA", { timeZone: BUSINESS_TIME_ZONE, year: "numeric", month: "2-digit", day: "2-digit" }).format(now);
 }
+
+// A photo is either an https link or an uploaded image kept inline as a data
+// URL (png, jpeg, gif or webp). Anything else (javascript:, http:, data:
+// text/html, svg) is refused: the value is rendered as an image source on
+// the storefront and in the admin. Returns the cleaned value, null for
+// blank, or INVALID.
+const DATA_IMAGE = /^data:image\/(png|jpe?g|gif|webp);base64,[A-Za-z0-9+/=\s]+$/i;
+
+export function normalizePhotoUrl(value: unknown): string | null | typeof INVALID {
+  if (value === undefined || value === null) return null;
+  if (typeof value !== "string") return INVALID;
+  const text = value.trim();
+  if (text === "") return null;
+  if (DATA_IMAGE.test(text)) return text;
+  try {
+    const url = new URL(text);
+    return url.protocol === "https:" && url.hostname !== "" ? text : INVALID;
+  } catch {
+    return INVALID;
+  }
+}

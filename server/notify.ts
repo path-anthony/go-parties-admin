@@ -1,4 +1,5 @@
 import { getDefaultAccount } from "./account.js";
+import { redact, safeErr } from "./log.js";
 import { ContractError, issueContract, type signContract } from "./contracts.js";
 import { prisma } from "./db.js";
 import type { SendResult } from "./messaging.js";
@@ -16,7 +17,7 @@ async function guard<T>(what: string, fn: () => Promise<T>): Promise<T | null> {
   try {
     return await fn();
   } catch (err) {
-    console.error(`[notify] ${what} failed:`, err);
+    console.error(`[notify] ${what} failed:`, safeErr(err));
     return null;
   }
 }
@@ -59,7 +60,7 @@ export async function sendContractLinkSms(target: { bookingId?: string; designRe
       return asSendResult(await sendTemplatedMessage("contract_sent", { ...ctx, extra: { contractLink: issued.link } }, recipient, `contract_sent:${recordId}${unique}`, { purpose }));
     } catch (err) {
       if (err instanceof ContractError) {
-        console.warn(`[notify] contract link not sent: ${err.message}`);
+        console.warn(`[notify] contract link not sent: ${redact(err.message)}`);
         const account = await getDefaultAccount();
         const row = await prisma.messageLog.create({
           data: {

@@ -147,7 +147,11 @@ export async function createDirectBooking(input: DirectBookingInput): Promise<{ 
   if (!designRequestId) {
     const reasons = reviewReasons({
       total,
-      occasions: occasion ? [occasion] : (pkg?.occasions ?? []),
+      // Every source of an occasion counts, not just the optional field a
+      // customer can leave out or change: what they said, what the package
+      // is for, and what the cart contains.
+      occasions: [...(occasion ? [occasion] : []), ...(pkg?.occasions ?? [])],
+      categories: items.map((item) => item.category),
       fullReviewThreshold: settings.fullReviewThreshold,
       reviewOccasions: settings.reviewOccasions,
     });

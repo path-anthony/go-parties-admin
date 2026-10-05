@@ -66,6 +66,22 @@ export async function cancelBooking(bookingId: string, activity: string): Promis
   });
 }
 
+// Releases an unpaid storefront hold that lapsed: units freed, gigs cancelled,
+// status Released, logged on the lead. Refuses (returns false) if the booking
+// moved on in the meantime: not Held any more, or the retainer was paid. Done
+// under the same transaction so a staff edit racing it wins cleanly.
+export async function releaseBooking(bookingId: string, activity: string): Promise<boolean> {
+  return prisma.$transaction(async (tx) => {
+    const locked = await tx.$queryRaw<{ status: string; retainer_paid: boolean }[]>`SELECT status, retainer_paid FROM bookings WHERE id = ${bookingId} FOR UPDATE`;
+    if (locked.length === 0 || locked[0].status !== "Held" || locked[0].retainer_paid) return false;
+    await releaseUnits(tx, bookingId);
+    await cancelGigs(tx, bookingId);
+    const booking = await tx.booking.update({ where: { id: bookingId }, data: { status: "Released" } });
+    await logActivity(tx, booking.leadId, activity);
+    return true;
+  });
+}
+
 // Moves a booking to a new date and/or time. A date change re-claims every
 // unit the booking holds under the same lock the original booking used:
 // for each held unit's item, one free unit on the new date is locked
@@ -188,8 +204,8 @@ export async function addBookingItem(
 ): Promise<BookingWithUnits> {
   return prisma.$transaction(async (tx) => {
     const booking = await tx.booking.findUniqueOrThrow({ where: { id: bookingId }, include: WITH_UNIT_DETAILS });
-    if (booking.status === "Cancelled") {
-      throw new BookingEditError("A cancelled booking can't hold items. Set it back to Held first.");
+    if (booking.status === "Cancelled" || booking.status === "Released") {
+      throw new BookingEditError("A cancelled or released booking can't hold items. Set it back to Held first.");
     }
     if (item.unitCount === 0 && !needsCrew(item)) {
       throw new BookingEditError(`${item.name} has no units and needs no crew, so there is nothing to hold. Give it a unit first.`);
@@ -352,11 +368,28 @@ export async function setBookingItemAddons(
 // The portal reads a booking's items off `units`, so a service item (a
 // gig, no physical unit) is listed there too with a null unitId and the
 // label "Crew", and again under `gigs` with its skill and status.
+// Built field by field, never by spreading the row: a column added to Booking
+// later (an internal flag, a staff note, an automation switch) must not reach a
+// customer by default. Only what the portal shows, plus the customer's own
+// contact details and totals.
 export function serializeCustomerBooking(booking: BookingWithUnits) {
-  const { units, addons, gigs, customerId: _customerId, accountId: _accountId, ...rest } = booking;
+  const { units, addons, gigs } = booking;
   const liveGigs = gigs.filter((g) => g.status !== "Cancelled");
   return {
-    ...rest,
+    id: booking.id,
+    eventDate: booking.eventDate,
+    eventTime: booking.eventTime,
+    address: booking.address,
+    customerName: booking.customerName,
+    phone: booking.phone,
+    email: booking.email,
+    occasion: booking.occasion,
+    total: booking.total === null ? null : Number(booking.total),
+    rush: booking.rush,
+    balancePaymentPreference: booking.balancePaymentPreference,
+    balancePaid: booking.balancePaid,
+    createdAt: booking.createdAt,
+    updatedAt: booking.updatedAt,
     // status keeps the meaning the storefront portal reads ("Confirmed" is
     // a live booking); stage is the real one (Held, Contract Sent, ...,
     // Confirmed only when Signed and the retainer is paid). depositPaid is

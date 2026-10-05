@@ -72,6 +72,12 @@ function RunSummary({ result }: { result: RunResult }) {
           ))}
         </ul>
       )}
+      {result.holds.days > 0 && (
+        <p>
+          Unpaid storefront holds older than {result.holds.days} days: {result.holds.released.length} {result.holds.dryRun ? "would be released" : "released"}
+          {result.holds.released.length > 0 ? ` (${result.holds.released.map((h) => h.customerName).join(", ")})` : ""}.
+        </p>
+      )}
       {!result.dryRun && COUNT_LABEL.length > 0 && <p className="muted">Lead {result.counts.lead.sent} sent · Client {result.counts.client.sent} sent · Crew {result.counts.crew.sent} sent</p>}
     </div>
   );
@@ -152,7 +158,7 @@ export function MessagesUpcomingPage() {
         <>
           <RunSummary result={preview} />
           <p>
-            <button type="button" className="btn btn-primary" disabled={busy || preview.lines.length === 0} onClick={confirmCheck}>
+            <button type="button" className="btn btn-primary" disabled={busy || (preview.lines.length === 0 && preview.holds.released.length === 0)} onClick={confirmCheck}>
               Send these now
             </button>{" "}
             <button type="button" className="btn" disabled={busy} onClick={() => setPreview(null)}>

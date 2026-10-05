@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { isInactiveStage } from "../lib/bookingStatus";
 import { X } from "lucide-react";
 import { getGig } from "../lib/api";
 import { formatEventDay, gigPillClass } from "../lib/gigs";
@@ -91,7 +92,7 @@ export function GigModal({ gig: summary, onClose, onChanged }: { gig: Gig; onClo
             <span className="detail-field-label">Booking</span>
             <span>
               {g.booking.customerName} <BookingStatusTag booking={g.booking} /> <AgreementChip agreement={g.booking.agreement} />
-              <RushTag rush={g.booking.rush} cancelled={g.booking.status === "Cancelled"} />
+              <RushTag rush={g.booking.rush} cancelled={isInactiveStage(g.booking.status)} />
             </span>
           </div>
           <div className="detail-field">

@@ -1,4 +1,5 @@
 import { type KeyboardEvent, useEffect, useState } from "react";
+import { isInactiveStage } from "../../lib/bookingStatus";
 import { ChevronRight, Plus } from "lucide-react";
 import { getCrew, getGigs, getSkills } from "../../lib/api";
 import { GIG_STATUSES, type GigStatus } from "../../lib/skills";
@@ -122,7 +123,7 @@ export function CrewGigsScreen({ view = "gigs", initialStatus, openGigId: initia
                           <td className="booking-date">{formatEventDay(g.eventDate)}</td>
                           <td className="catalog-name">
                             {g.booking.customerName} <BookingStatusTag booking={g.booking} /> <AgreementChip agreement={g.booking.agreement} />
-                            <RushTag rush={g.booking.rush} cancelled={g.booking.status === "Cancelled"} />
+                            <RushTag rush={g.booking.rush} cancelled={isInactiveStage(g.booking.status)} />
                           </td>
                           <td>{g.itemName}</td>
                           <td>{g.skill}</td>

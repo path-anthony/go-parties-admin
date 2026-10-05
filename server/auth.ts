@@ -1,3 +1,4 @@
+import { createHash, timingSafeEqual } from "node:crypto";
 import type { NextFunction, Request, RequestHandler, Response } from "express";
 import { createSession, findSession, revokeSession, signedCookie } from "./sessions.js";
 
@@ -19,10 +20,14 @@ export function cookieOptions() {
   };
 }
 
+// Compared in constant time, so the response time says nothing about how much
+// of a guess was right.
 export function isValidPassword(password: unknown): boolean {
-  return (
-    typeof password === "string" && process.env.ADMIN_PASSWORD !== undefined && password === process.env.ADMIN_PASSWORD
-  );
+  const expected = process.env.ADMIN_PASSWORD;
+  if (typeof password !== "string" || expected === undefined) return false;
+  const a = createHash("sha256").update(password).digest();
+  const b = createHash("sha256").update(expected).digest();
+  return timingSafeEqual(a, b);
 }
 
 // Called only after the password checked out: opens a session row and

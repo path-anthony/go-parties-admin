@@ -202,6 +202,23 @@ describe("client journey", () => {
 
 const gig = (over: Partial<GigInput> = {}): GigInput => ({ gigId: "G1", crewMemberId: "C1", eventDate: "2026-11-20", acceptedAt: et("2026-10-01", 12), offerStatus: "Accepted", gigStatus: "Filled", paused: false, contact: { phone: "+15555550111", email: "c@example.com" }, ...over });
 
+describe("storefront holds", () => {
+  it("sends nothing scheduled to a storefront booking that is Held and unsigned", () => {
+    const p = planBooking(booking({ stage: "Held", retainerPaid: true, storefrontHeldUnsigned: true, contract: { sentAt: et("2026-10-01", 12), signed: false } }), facts(et("2026-10-13", 10, 5)));
+    assert.ok(p.items.length > 0);
+    assert.ok(p.items.every((i) => i.state === "stopped" || i.state === "sent"), "balance, event reminders and the contract nudge are all held back");
+    assert.match(p.items[0].reason ?? "", /Storefront hold/);
+  });
+  it("resumes once it moves past Held or is signed", () => {
+    const p = planBooking(booking({ storefrontHeldUnsigned: false }), facts(et("2026-10-13", 10, 5)));
+    assert.equal(byTrigger(p.items, "event_week_reminder").state, "due");
+  });
+  it("the balance reminder respects it even when the retainer was ticked", () => {
+    const p = planBooking(booking({ stage: "Held", retainerPaid: true, storefrontHeldUnsigned: true }), facts(et("2026-10-16", 10, 5)));
+    assert.ok(p.items.filter((i) => i.triggerKey === "balance_due_reminder").every((i) => i.state === "stopped"));
+  });
+});
+
 describe("crew journey", () => {
   it("plans 30, 15, 7, 3 at 10 AM and the eve at 6 PM, text only", () => {
     const p = planGig(gig(), facts(et("2026-10-02", 9)));

@@ -9,7 +9,6 @@ import { renderChannel } from "../sendTemplated.js";
 import { effectiveFrom, loadTemplateRows } from "../templates.js";
 import { mustGetTrigger, TRIGGERS, type Channel } from "../triggers.js";
 import { todayEastern } from "../validate.js";
-import { displayStatus } from "../../src/lib/bookingStatus.js";
 import { CREW_STEPS, NURTURE_SOURCES, planBooking, planGig, planLead, type Contact, type Facts, type LogFact, type Plan, type PlanSubject } from "./planner.js";
 import { addDays } from "./time.js";
 
@@ -149,8 +148,8 @@ export async function loadPlans(scope: PlanScope = {}): Promise<Planned[]> {
 
   if (want("booking")) {
     const bookings = await prisma.booking.findMany({
-      where: { accountId: base.accountId, ...(scope.bookingId ? { id: scope.bookingId } : { eventDate: { gte: cutoff }, status: { not: "Cancelled" } }) },
-      include: { agreement: true, designRequest: { include: { agreement: true } } },
+      where: { accountId: base.accountId, ...(scope.bookingId ? { id: scope.bookingId } : { eventDate: { gte: cutoff }, status: { notIn: ["Cancelled", "Released"] } }) },
+      include: { agreement: true, designRequest: { include: { agreement: true } }, lead: { select: { source: true } } },
     });
     for (const b of bookings) {
       const agreement = b.agreement ?? b.designRequest?.agreement ?? null;
@@ -163,7 +162,7 @@ export async function loadPlans(scope: PlanScope = {}): Promise<Planned[]> {
           id: b.id,
           createdAt: b.createdAt,
           eventDate: dayText(b.eventDate),
-          stage: displayStatus(b) === "Cancelled" ? "Cancelled" : b.status === "Completed" ? "Completed" : b.status,
+          stage: b.status === "Released" ? "Cancelled" : b.status,
           retainerPaid: b.retainerPaid,
           balancePaid: b.balancePaid,
           total: b.total === null ? null : Number(b.total),
@@ -173,6 +172,7 @@ export async function loadPlans(scope: PlanScope = {}): Promise<Planned[]> {
           contact,
           contract: agreement ? { sentAt: agreement.contractSentAt, signed: agreement.contractStatus === "Signed" } : null,
           balanceWindowDays: base.balanceWindowDays,
+          storefrontHeldUnsigned: b.lead?.source === "storefront" && b.status === "Held" && agreement?.contractStatus !== "Signed",
         },
         base.facts,
       );

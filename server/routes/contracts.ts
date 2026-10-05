@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { getDefaultAccount } from "../account.js";
-import { ContractError, buildContractContent, buildContractPdf, issueContract, pdfLink, signContract } from "../contracts.js";
+import { ContractError, buildContractContent, buildContractPdf, issueContract, pdfLink, signContract, signingWindow } from "../contracts.js";
 import { prisma } from "../db.js";
 import { notifyContractSigned } from "../notify.js";
 import { availabilityLimiter, contractSignLimiter } from "../rateLimit.js";
@@ -26,6 +26,7 @@ publicContractsRouter.get("/pdf/:downloadToken", availabilityLimiter, async (req
   const doc = await prisma.contractDocument.findUnique({ where: { downloadToken: String(req.params.downloadToken) }, select: { pdf: true, sha256: true, signedName: true } });
   if (!doc) return res.status(404).json({ error: "That document link isn't valid." });
   res.setHeader("Content-Type", "application/pdf");
+  res.removeHeader("Content-Security-Policy");
   res.setHeader("Content-Disposition", 'inline; filename="signed-contract.pdf"');
   res.setHeader("Cache-Control", "private, max-age=300");
   res.setHeader("ETag", `"${doc.sha256}"`);
@@ -39,6 +40,11 @@ publicContractsRouter.get("/:token", availabilityLimiter, async (req, res) => {
   try {
     const agreement = await prisma.agreement.findUnique({ where: { signingToken: String(req.params.token) }, include: { contractDocument: true } });
     if (!agreement) return res.status(404).json({ error: "This signing link isn't valid." });
+    // The link stops working 30 days after the event, and for an unsigned
+    // contract on a cancelled, completed or released booking. The signed PDF
+    // has its own link and is unaffected.
+    const window = await signingWindow(agreement);
+    if (window === "expired" || (window === "closed" && !agreement.contractDocument)) return res.status(404).json({ error: "This signing link isn't valid." });
 
     if (agreement.contractDocument) {
       const doc = agreement.contractDocument;
@@ -154,6 +160,7 @@ adminContractsRouter.get("/preview/:bookingId.pdf", async (req, res) => {
     const content = await buildContractContent(issued.agreementId);
     const pdf = await buildContractPdf(content);
     res.setHeader("Content-Type", "application/pdf");
+  res.removeHeader("Content-Security-Policy");
     res.setHeader("Content-Disposition", 'inline; filename="contract-preview.pdf"');
     res.send(Buffer.from(pdf));
   } catch (err) {

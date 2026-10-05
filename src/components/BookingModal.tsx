@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { X } from "lucide-react";
 import { addBookingUnit, getPolicy, removeBookingGig, removeBookingUnit, setBookingAddons, updateBooking } from "../lib/api";
-import { BALANCE_PREFERENCES, type BalancePreference } from "../lib/bookingStatus";
+import { BALANCE_PREFERENCES, type BalancePreference, isInactiveStage } from "../lib/bookingStatus";
 import { deltaLabel, describeAddon } from "../lib/addons";
 import { leadTitle } from "../lib/leads";
 import {
@@ -104,7 +104,7 @@ export function BookingModal({
 
   const who = booking.customerName;
   const date = booking.eventDate.slice(0, 10);
-  const cancelled = booking.status === "Cancelled";
+  const cancelled = isInactiveStage(booking.status);
   const held = booking.unitIds.map((id) => units.find((u) => u.id === id)).filter((u): u is Unit => !!u);
   const heldItems = [...new Set(held.map((u) => u.itemId))]
     .map((id) => items.find((i) => i.id === id))
@@ -207,6 +207,11 @@ export function BookingModal({
                 aria-label={`Stage for ${who}`}
                 onChange={(e) => run(() => updateBooking(booking.id, { status: e.target.value as BookingStatus }))}
               >
+                {(booking.status as string) === "Released" && (
+                  <option value="Released" disabled>
+                    Released (unpaid hold lapsed)
+                  </option>
+                )}
                 {BOOKING_STAGES.map((s) => (
                   <option key={s} value={s}>
                     {s}

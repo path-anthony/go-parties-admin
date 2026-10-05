@@ -2,6 +2,7 @@ import { randomBytes } from "node:crypto";
 import { getDefaultAccount } from "./account.js";
 import { addDays, atEastern } from "./automation/time.js";
 import { prisma } from "./db.js";
+import { safeErr } from "./log.js";
 import { toE164 } from "./messaging.js";
 import { sendTemplatedMessage } from "./sendTemplated.js";
 import { getSettings } from "./settings.js";
@@ -208,7 +209,7 @@ export async function askQuestion(token: string, text: unknown, now = new Date()
       { purpose: "crew-question" },
     );
   } catch (err) {
-    console.error("[bids] could not notify staff of a crew question:", err);
+    console.error("[bids] could not notify staff of a crew question:", safeErr(err));
   }
   return { ok: true as const };
 }
@@ -254,7 +255,7 @@ export async function notifyAccepted(r: AcceptResult): Promise<void> {
     try {
       await sendTemplatedMessage(trigger, { gigId: r.gigId, crewMemberId, offerId }, { phone: p.phone, email: p.email }, `${trigger}:${offerId}`, { purpose: trigger });
     } catch (err) {
-      console.error(`[bids] ${trigger} failed:`, err);
+      console.error(`[bids] ${trigger} failed:`, safeErr(err));
     }
   };
   await send("bid_accepted", r.winner.offerId, r.winner.crewMemberId);

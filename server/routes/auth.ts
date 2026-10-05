@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { endAdminSession, isAuthenticated, isValidPassword, startAdminSession } from "../auth.js";
-import { adminLoginLimiter } from "../rateLimit.js";
+import { isLockedOut, recordFailure } from "../loginLimit.js";
 
 const router = Router();
 
@@ -8,12 +8,16 @@ router.get("/me", async (req, res) => {
   res.json({ authenticated: await isAuthenticated(req) });
 });
 
-// The limiter only counts failures (see rateLimit.ts), so five wrong
-// passwords from one IP in 15 minutes lock that IP out with a clear 429;
-// a right password never adds to the count.
-router.post("/login", adminLoginLimiter, async (req, res) => {
+// Five wrong passwords from one address in 15 minutes lock that address out
+// with a clear 429. The count lives in the database, so a deploy does not
+// reset it; a right password never adds to it.
+router.post("/login", async (req, res) => {
+  if (await isLockedOut("admin", req.ip)) {
+    return res.status(429).json({ error: "Too many failed login attempts from this connection. Try again in 15 minutes." });
+  }
   const { password } = req.body ?? {};
   if (!isValidPassword(password)) {
+    await recordFailure("admin", req.ip);
     return res.status(401).json({ error: "Incorrect password" });
   }
   await startAdminSession(res);

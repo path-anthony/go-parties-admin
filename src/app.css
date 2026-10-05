@@ -2554,7 +2554,7 @@ button.kpi-card:focus-visible {
 .bstatus-retainer-paid { background: #0e7090; }
 .bstatus-confirmed { background: #067647; }
 .bstatus-completed { background: #475467; }
-.bstatus-cancelled { background: transparent; color: #667085; border: 1px solid #98a2b3; padding: 1px 8px; }
+.bstatus-cancelled, .bstatus-released { background: transparent; color: #667085; border: 1px solid #98a2b3; padding: 1px 8px; }
 .status-control {
   display: flex;
   flex-wrap: wrap;

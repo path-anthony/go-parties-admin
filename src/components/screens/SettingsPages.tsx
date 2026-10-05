@@ -8,6 +8,7 @@ import { NotificationSettings } from "../NotificationSettings";
 import { PolicyEditor } from "../PolicyEditor";
 import { ReviewSettings } from "../ReviewSettings";
 import { RushSettings } from "../RushSettings";
+import { SafetySettings } from "../SafetySettings";
 
 // Settings is a group in the sidebar; each of these is one of its pages,
 // with its own address. The panels are the same ones that used to be
@@ -44,6 +45,15 @@ export function BusinessRulesPage() {
           storefront reads all of it.
         </p>
         <ReviewSettings />
+      </section>
+
+      <section className="panel">
+        <h2>Spending and abuse limits</h2>
+        <p className="muted settings-help">
+          Protects the public storefront's forms and Ask GO from running up costs or filling the calendar with junk bookings. Counts are kept per day and survive
+          a deploy.
+        </p>
+        <SafetySettings />
       </section>
     </Page>
   );

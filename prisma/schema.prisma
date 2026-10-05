@@ -39,6 +39,17 @@ model Account {
   // The balance reminder check looks at events starting within this many
   // days. POST /api/automations/check-reminders may override it per call.
   balanceReminderWindowDays Int      @default(7) @map("balance_reminder_window_days")
+  // Spending and abuse caps for the public storefront routes. The AI cap is
+  // shared by every AI feature (Ask GO, keyword suggestions); the booking cap
+  // is storefront bookings per day, site-wide. Counted in usage_counters so
+  // a deploy does not reset them.
+  aiDailyCap            Int     @default(150) @map("ai_daily_cap")
+  directBookingDailyCap Int     @default(50) @map("direct_booking_daily_cap")
+  // When on, the public write routes refuse requests that lack the bot-check
+  // fields (hpField, formStartedAt). Off until the storefront sends them.
+  requireBotCheck       Boolean @default(false) @map("require_bot_check")
+  // Unpaid storefront holds are released after this many days. 0 = never.
+  holdReleaseDays       Int     @default(0) @map("hold_release_days")
   // GO's side of a signed contract: who signs for the company. When both are
   // set, the signed PDF carries a second signature block for them; when
   // either is empty, no block is drawn.
@@ -71,6 +82,7 @@ model Account {
   messageTemplates  MessageTemplate[]
   smsOptOuts        SmsOptOut[]
   automationRuns    AutomationRun[]
+  usageCounters     UsageCounter[]
 
   @@map("accounts")
 }
@@ -838,4 +850,32 @@ model AutomationRun {
 
   @@index([accountId, ranAt])
   @@map("automation_runs")
+}
+
+// A per-day count of something that costs money or can be abused: AI
+// requests, storefront bookings. One row per account, key and Eastern day.
+model UsageCounter {
+  id        String @id @default(cuid())
+  accountId String @map("account_id")
+  key       String
+  // YYYY-MM-DD, Eastern.
+  day       String
+  count     Int    @default(0)
+
+  account Account @relation(fields: [accountId], references: [id])
+
+  @@unique([accountId, key, day])
+  @@map("usage_counters")
+}
+
+// Failed admin logins, so the lockout survives a deploy. ipHash is a keyed
+// hash of the address, never the address itself.
+model LoginFailure {
+  id       String   @id @default(cuid())
+  scope    String
+  ipHash   String   @map("ip_hash")
+  failedAt DateTime @default(now()) @map("failed_at")
+
+  @@index([scope, ipHash, failedAt])
+  @@map("login_failures")
 }

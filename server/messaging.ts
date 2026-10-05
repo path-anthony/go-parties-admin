@@ -1,5 +1,6 @@
 import { getDefaultAccount } from "./account.js";
 import { prisma } from "./db.js";
+import { maskEmail, maskPhone, redact, safeErr } from "./log.js";
 import { isOptedOut, markOptedOut } from "./optOuts.js";
 import { WEBHOOK_SECRET_HEADER } from "./webhookAuth.js";
 
@@ -96,7 +97,7 @@ async function safeLog(...args: Parameters<typeof writeLog>): Promise<string> {
     return await writeLog(...args);
   } catch (err) {
     // The log itself failing must not break the flow either.
-    console.error("[messaging] could not write the message log:", err);
+    console.error("[messaging] could not write the message log:", safeErr(err));
     return "";
   }
 }
@@ -108,7 +109,7 @@ export async function sendSms(input: { to: string | null | undefined; body: stri
 
   if (!to) {
     const error = raw === "" ? "no phone number on file" : `"${raw}" is not a phone number that can be texted`;
-    console.warn(`[sms] not sent (${purpose}): ${error}`);
+    console.warn(`[sms] not sent (${purpose}): ${redact(error)}`);
     return { logId: await safeLog({ channel: "sms", purpose, recipient: raw || "(none)", body, status: "failed", error, link, meta }), status: "failed", error };
   }
 
@@ -125,7 +126,7 @@ export async function sendSms(input: { to: string | null | undefined; body: stri
     const missing = [!sid && "TWILIO_ACCOUNT_SID", !token && "TWILIO_AUTH_TOKEN", !from && "TWILIO_PHONE_NUMBER"].filter(Boolean).join(", ");
     const status = !token ? "skipped-no-token" : "skipped-not-configured";
     const error = `${missing} not set, so nothing was sent`;
-    console.warn(`[sms] SKIPPED (${purpose}) to ${to}: ${error}. Would have sent: ${body}`);
+    console.warn(`[sms] SKIPPED (${purpose}) to ${maskPhone(to)}: ${redact(error)}`);
     return { logId: await safeLog({ channel: "sms", purpose, recipient: to, body, status, error, link, meta }), status, error };
   }
 
@@ -142,19 +143,19 @@ export async function sendSms(input: { to: string | null | undefined; body: stri
     const json = (await res.json().catch(() => ({}))) as { sid?: string; message?: string; code?: number };
     if (!res.ok && json.code === 21610) {
       // Twilio says the person replied STOP. Remember it.
-      await markOptedOut(to, "twilio-21610", json.message ?? null).catch((err) => console.error("[sms] could not record the opt-out:", err));
+      await markOptedOut(to, "twilio-21610", json.message ?? null).catch((err) => console.error("[sms] could not record the opt-out:", safeErr(err)));
       const error = "This number opted out of texts (Twilio 21610).";
       return { logId: await safeLog({ channel: "sms", purpose, recipient: to, body, status: "skipped_opted_out", error, link, meta }), status: "skipped_opted_out", error };
     }
     if (!res.ok) {
       const error = `Twilio ${res.status}${json.code ? ` (${json.code})` : ""}: ${json.message ?? "request failed"}`;
-      console.error(`[sms] FAILED (${purpose}) to ${to}: ${error}`);
+      console.error(`[sms] FAILED (${purpose}) to ${maskPhone(to)}: ${redact(error)}`);
       return { logId: await safeLog({ channel: "sms", purpose, recipient: to, body, status: "failed", error, link, meta }), status: "failed", error };
     }
     return { logId: await safeLog({ channel: "sms", purpose, recipient: to, body, status: "sent", providerRef: json.sid ?? null, link, meta }), status: "sent" };
   } catch (err) {
     const error = err instanceof Error ? err.message : "request failed";
-    console.error(`[sms] FAILED (${purpose}) to ${to}: ${error}`);
+    console.error(`[sms] FAILED (${purpose}) to ${maskPhone(to)}: ${redact(error)}`);
     return { logId: await safeLog({ channel: "sms", purpose, recipient: to, body, status: "failed", error, link, meta }), status: "failed", error };
   }
 }
@@ -176,14 +177,14 @@ export async function sendEmail(input: {
   const to = input.to?.trim() ?? "";
   if (!to || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(to)) {
     const error = to === "" ? "no email address on file" : `"${to}" is not an email address`;
-    console.warn(`[email] not sent (${purpose}): ${error}`);
+    console.warn(`[email] not sent (${purpose}): ${redact(error)}`);
     return { logId: await safeLog({ channel: "email", purpose, recipient: to || "(none)", subject, body, status: "failed", error, link, meta }), status: "failed", error };
   }
 
   const url = process.env.EMAIL_WEBHOOK_URL;
   if (!url) {
     const error = "EMAIL_WEBHOOK_URL is not set, so nothing was sent";
-    console.warn(`[email] SKIPPED (${purpose}) to ${to}: ${error}. Subject: ${subject}`);
+    console.warn(`[email] SKIPPED (${purpose}) to ${maskEmail(to)}: ${redact(error)}`);
     return { logId: await safeLog({ channel: "email", purpose, recipient: to, subject, body, status: "skipped-no-webhook", error, link, meta }), status: "skipped-no-webhook", error };
   }
 
@@ -212,7 +213,7 @@ export async function sendEmail(input: {
     return { logId, status: "sent" };
   } catch (err) {
     const error = err instanceof Error ? err.message : "request failed";
-    console.error(`[email] FAILED (${purpose}) to ${to}: ${error}`);
+    console.error(`[email] FAILED (${purpose}) to ${maskEmail(to)}: ${redact(error)}`);
     if (logId) await prisma.messageLog.update({ where: { id: logId }, data: { status: "failed", error } }).catch(() => undefined);
     return { logId, status: "failed", error };
   }

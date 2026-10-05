@@ -1,7 +1,9 @@
 import { Router } from "express";
 import { getDefaultAccount } from "../account.js";
+import { botCheck } from "../botCheck.js";
 import { prisma } from "../db.js";
 import { getDefaultStatus } from "../leadStatuses.js";
+import { safeInline } from "../sanitize.js";
 import { INVALID, isOneOf, normalizeDate, normalizeText } from "../validate.js";
 
 // Where the customer chose to talk to a person instead of checking out.
@@ -13,9 +15,12 @@ const CALENDLY_URL = "https://calendly.com/goevent/30min";
 const router = Router();
 
 function shortText(value: unknown): string | null | typeof INVALID {
-  const text = normalizeText(value);
-  if (text === null) return null;
-  return text.length <= MAX_TEXT ? text : INVALID;
+  const raw = normalizeText(value);
+  if (raw === null) return null;
+  if (raw.length > MAX_TEXT) return INVALID;
+  // Lands in a note staff read and in a Calendly prefill: no links, no
+  // control characters.
+  return safeInline(raw, MAX_TEXT) || null;
 }
 
 // Public, no session, rate limited where it's mounted. The storefront
@@ -25,7 +30,7 @@ function shortText(value: unknown): string | null | typeof INVALID {
 // is taken here; Calendly collects that. The lead is source "concierge",
 // tagged "concierge" and with where it came from, so it reads as its own
 // kind of lead on the board. Nothing here waits on anything slow.
-router.post("/", async (req, res) => {
+router.post("/", botCheck("concierge"), async (req, res) => {
   const body = (req.body ?? {}) as Record<string, unknown>;
   if (!isOneOf(ENTRY_POINTS, body.source)) {
     return res.status(400).json({ error: `source is required and must be one of ${ENTRY_POINTS.join(", ")}` });

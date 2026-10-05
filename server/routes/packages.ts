@@ -3,7 +3,8 @@ import { Router } from "express";
 import { getDefaultAccount } from "../account.js";
 import { prisma } from "../db.js";
 import { ALL_OCCASIONS } from "../../src/lib/occasions.js";
-import { INVALID, isOneOf, normalizeText } from "../validate.js";
+import { aiGate } from "../ai.js";
+import { INVALID, isOneOf, normalizePhotoUrl, normalizeText } from "../validate.js";
 
 const PACKAGE_STATUSES = ["Draft", "Published"] as const;
 const MAX_ITEMS = 50;
@@ -112,6 +113,8 @@ router.post("/", async (req, res) => {
   if (typeof body.photoUrl === "string" && body.photoUrl.length > MAX_PHOTO_URL_LENGTH) {
     return res.status(400).json({ error: "photoUrl is too large" });
   }
+  const cleanPhoto = normalizePhotoUrl(body.photoUrl);
+  if (cleanPhoto === INVALID) return res.status(400).json({ error: "photoUrl must be an https link or an uploaded png, jpeg, gif or webp image" });
 
   const account = await getDefaultAccount();
   const items = await resolveItems(account.id, body.items ?? []);
@@ -130,7 +133,7 @@ router.post("/", async (req, res) => {
       status: "Draft",
       keywords,
       occasions,
-      photoUrl: normalizeText(body.photoUrl),
+      photoUrl: cleanPhoto,
       items: { create: items.map((entry) => ({ itemId: entry.itemId, quantity: entry.quantity })) },
     },
     include: WITH_ITEMS,
@@ -181,7 +184,9 @@ router.patch("/:id", async (req, res) => {
     if (typeof body.photoUrl === "string" && body.photoUrl.length > MAX_PHOTO_URL_LENGTH) {
       return res.status(400).json({ error: "photoUrl is too large" });
     }
-    data.photoUrl = normalizeText(body.photoUrl);
+    const cleanPhoto = normalizePhotoUrl(body.photoUrl);
+    if (cleanPhoto === INVALID) return res.status(400).json({ error: "photoUrl must be an https link or an uploaded png, jpeg, gif or webp image" });
+    data.photoUrl = cleanPhoto;
   }
 
   let items: ItemInput[] | null = null;
@@ -269,6 +274,9 @@ router.post("/suggest-keywords", async (req, res) => {
   const itemNames = stringList(body.itemNames ?? [], "itemNames", MAX_ITEMS, 200);
   if (typeof itemNames === "string") return res.status(400).json({ error: itemNames });
   const description = normalizeText(body.description);
+  // Staff use is counted for visibility on the shared AI budget, never limited.
+  const budget = await aiGate(req, res);
+  if (!budget.ok) return res.status(429).json({ error: budget.message });
 
   const anthropic = new Anthropic({ apiKey });
   const response = await anthropic.messages.create({

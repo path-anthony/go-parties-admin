@@ -16,7 +16,7 @@
     "db:migrate": "prisma migrate dev",
     "db:seed": "prisma db seed",
     "import:inventory": "tsx scripts/import-inventory.ts",
-    "test": "tsx --test server/tests/*.test.ts && tsx --tsconfig tsconfig.app.json --test src/*.test.tsx"
+    "test": "tsx --test --test-concurrency=1 --test-timeout=600000 server/tests/*.test.ts && tsx --tsconfig tsconfig.app.json --test src/*.test.tsx"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.124.0",
@@ -31,13 +31,13 @@
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
     "express-rate-limit": "^8.7.0",
+    "helmet": "^8.3.0",
     "lucide-react": "^1.43.0",
     "pdf-lib": "^1.17.1",
     "pg": "^8.23.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
-    "react-router-dom": "^7.18.4",
-    "xlsx": "^0.18.5"
+    "react-router-dom": "^7.18.4"
   },
   "devDependencies": {
     "@types/cookie-parser": "^1.4.10",
@@ -53,6 +53,7 @@
     "prisma": "^7.10.0",
     "tsx": "^4.23.13",
     "typescript": "~6.0.2",
-    "vite": "^8.2.2"
+    "vite": "^8.2.2",
+    "xlsx": "^0.18.5"
   }
 }

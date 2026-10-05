@@ -285,7 +285,14 @@ export type BookingInput = {
   // The contract, if one was sent.
   contract: { sentAt: Date | null; signed: boolean } | null;
   balanceWindowDays: number;
+  // Made on the storefront by a customer, still at Held, contract unsigned.
+  // Nobody at GO has engaged with it yet, so nothing scheduled is texted or
+  // emailed to it: a stranger's number typed into the form must not receive
+  // automated messages from us.
+  storefrontHeldUnsigned?: boolean;
 };
+
+export const STOREFRONT_HOLD_REASON = "Storefront hold: nothing is sent automatically while a storefront booking is Held and unsigned.";
 
 const NUDGE_AFTER_MS = 48 * 3_600_000;
 const BALANCE_EVERY_DAYS = 3;
@@ -297,10 +304,11 @@ export function planBooking(b: BookingInput, f: Facts): Plan {
   const eventStart = atEastern(b.eventDate, 0);
   const at10 = (offset: number) => atEastern(addDays(b.eventDate, offset), 10);
   const items: PlanItem[] = [];
+  const hold = b.storefrontHeldUnsigned === true && !cancelled && !completed ? STOREFRONT_HOLD_REASON : null;
 
   // Contract nudge: 48 hours after the signing link went out, if unsigned.
   if (b.contract?.sentAt) {
-    const stopped = cancelled ? "Booking cancelled" : b.contract.signed ? "Stopped: contract signed" : completed ? "Booking completed" : null;
+    const stopped = cancelled ? "Booking cancelled" : b.contract.signed ? "Stopped: contract signed" : completed ? "Booking completed" : hold;
     items.push(
       ...planSeries(
         {
@@ -333,7 +341,7 @@ export function planBooking(b: BookingInput, f: Facts): Plan {
   const mask = (ms: Milestone[]) => (completed ? ms.map((m) => (m.allowPastEvent ? m : { ...m, skip: "The booking is marked Completed." })) : ms);
   items.push(
     ...planSeries(
-      { id: "event", subject, milestones: mask(eventMilestones), recordStart: b.createdAt, contact: b.contact, paused: b.paused, stopped: cancelled ? "Booking cancelled" : null, waiting: eventWaiting, eventStart },
+      { id: "event", subject, milestones: mask(eventMilestones), recordStart: b.createdAt, contact: b.contact, paused: b.paused, stopped: cancelled ? "Booking cancelled" : hold, waiting: eventWaiting, eventStart },
       f,
     ),
   );
@@ -357,7 +365,7 @@ export function planBooking(b: BookingInput, f: Facts): Plan {
           ? "No total on this booking yet."
           : b.balancePref === "Auto-charge"
             ? "Balance is set to auto-charge."
-            : null;
+            : hold;
   items.push(
     ...planSeries(
       { id: "balance", subject, milestones: balMilestones, recordStart: b.createdAt, contact: b.contact, paused: b.paused, stopped: balStopped, waiting: b.retainerPaid ? null : "Starts once the retainer is paid.", eventStart },

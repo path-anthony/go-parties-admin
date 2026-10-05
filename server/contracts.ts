@@ -396,6 +396,33 @@ const token = () => randomBytes(32).toString("base64url");
 // the signing endpoints; STOREFRONT_URL says where that page lives. Without
 // it the link points straight at the API's JSON, which works for testing
 // and is not for customers.
+// How long after the event date a signing link keeps working. Signed PDF
+// links (/pdf/<downloadToken>) are separate and never expire.
+export const SIGNING_LINK_DAYS_AFTER_EVENT = 30;
+
+export type SigningWindow = "open" | "closed" | "expired";
+
+// Whether a contract can still be opened and signed. "closed": the booking
+// was cancelled, completed or released (or the design request dismissed), so
+// there is nothing left to sign. "expired": more than 30 days past the event.
+// A signed contract's PDF link is not affected by either.
+export async function signingWindow(agreement: { bookingId: string | null; designRequestId: string | null }, now = new Date()): Promise<SigningWindow> {
+  let status: string | null = null;
+  let eventDate: Date | null = null;
+  if (agreement.bookingId) {
+    const b = await prisma.booking.findUnique({ where: { id: agreement.bookingId }, select: { status: true, eventDate: true } });
+    status = b?.status ?? null;
+    eventDate = b?.eventDate ?? null;
+    if (status === "Cancelled" || status === "Completed" || status === "Released") return "closed";
+  } else if (agreement.designRequestId) {
+    const r = await prisma.designRequest.findUnique({ where: { id: agreement.designRequestId }, select: { status: true, eventDate: true } });
+    eventDate = r?.eventDate ?? null;
+    if (r?.status === "Dismissed") return "closed";
+  }
+  if (eventDate && now.getTime() > eventDate.getTime() + (SIGNING_LINK_DAYS_AFTER_EVENT + 1) * 86_400_000) return "expired";
+  return "open";
+}
+
 export function signingLink(signingToken: string): string {
   const base = process.env.STOREFRONT_URL?.replace(/\/$/, "");
   if (base) return `${base}/sign/${signingToken}`;
@@ -476,6 +503,12 @@ export type SignInput = {
 export async function signContract(signingToken: string, input: SignInput) {
   const agreement = await prisma.agreement.findUnique({ where: { signingToken } });
   if (!agreement) throw new ContractError(404, "not-found", "This signing link isn't valid.");
+  // A cancelled, completed or released booking cannot be signed, and a link
+  // stops working 30 days after the event. Both answer as an invalid link,
+  // which the storefront already says plainly.
+  if (agreement.contractStatus !== "Signed" && (await signingWindow(agreement)) !== "open") {
+    throw new ContractError(404, "not-found", "This signing link isn't valid.");
+  }
 
   const content = await buildContractContent(agreement.id);
   if (input.contentHash && input.contentHash !== content.contentHash) {

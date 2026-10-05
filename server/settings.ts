@@ -24,6 +24,10 @@ export async function getSettings(accountId: string) {
       balanceReminderWindowDays: true,
       authorizedSignerName: true,
       authorizedSignerTitle: true,
+      aiDailyCap: true,
+      directBookingDailyCap: true,
+      requireBotCheck: true,
+      holdReleaseDays: true,
     },
   });
   return {
@@ -39,6 +43,10 @@ export async function getSettings(accountId: string) {
     balanceReminderWindowDays: account.balanceReminderWindowDays,
     authorizedSignerName: account.authorizedSignerName,
     authorizedSignerTitle: account.authorizedSignerTitle,
+    aiDailyCap: account.aiDailyCap,
+    directBookingDailyCap: account.directBookingDailyCap,
+    requireBotCheck: account.requireBotCheck,
+    holdReleaseDays: account.holdReleaseDays,
   };
 }
 

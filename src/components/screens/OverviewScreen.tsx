@@ -3,7 +3,7 @@ import { getBookings, getDesignRequests, getMessageSummary, getGigs, getLeadStat
 import { formatEventDay } from "../../lib/gigs";
 import { FOLLOW_UP_DAYS, PROPOSAL_FOLLOW_UP_DAYS, daysSinceUpdate, findStage, needsFollowUp, useNavigate } from "../../lib/navigation";
 import type { Booking, DesignRequest, MessageSummary, Gig, Lead } from "../../lib/types";
-import { displayStatus } from "../../lib/bookingStatus";
+import { displayStatus, isInactiveStage } from "../../lib/bookingStatus";
 import { AgreementChip, BalanceLabel } from "../AgreementChip";
 import { BookingStatusTag } from "../BookingStatusTag";
 import { RushTag } from "../RushTag";
@@ -75,9 +75,9 @@ export function OverviewScreen() {
 
   const upcoming = (needsCrew ?? []).filter((g) => g.eventDate.slice(0, 10) >= today());
   // Rush bookings still to come, soonest first (the list is already by date).
-  const rushBookings = (bookings ?? []).filter((b) => b.rush && b.status !== "Cancelled" && b.eventDate.slice(0, 10) >= today());
+  const rushBookings = (bookings ?? []).filter((b) => b.rush && !isInactiveStage(b.status) && b.eventDate.slice(0, 10) >= today());
   // Upcoming bookings by what they read as, so Held ones can't hide.
-  const liveUpcoming = (bookings ?? []).filter((b) => b.status !== "Cancelled" && b.status !== "Completed" && b.eventDate.slice(0, 10) >= today());
+  const liveUpcoming = (bookings ?? []).filter((b) => !isInactiveStage(b.status) && b.status !== "Completed" && b.eventDate.slice(0, 10) >= today());
   const byStatus = (status: string) => liveUpcoming.filter((b) => displayStatus(b) === status).length;
   const nearest = (upcoming.length > 0 ? upcoming : (needsCrew ?? [])).slice(0, NEAREST_GIGS);
 
@@ -265,7 +265,7 @@ export function OverviewScreen() {
                         <span className="kpi-list-when">{formatEventDay(g.eventDate)}</span>
                         <span className="crew-card-customer">
                           {g.booking.customerName} <BookingStatusTag booking={g.booking} /> <AgreementChip agreement={g.booking.agreement} />
-                          <RushTag rush={g.booking.rush} cancelled={g.booking.status === "Cancelled"} />
+                          <RushTag rush={g.booking.rush} cancelled={isInactiveStage(g.booking.status)} />
                         </span>
                         <span className="muted">needs a {g.skill}</span>
                       </button>
