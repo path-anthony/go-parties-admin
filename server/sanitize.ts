@@ -25,8 +25,11 @@ export function stripControlKeepNewlines(value: string): string {
   return value.replace(CONTROL_KEEP_NEWLINE, " ");
 }
 
+// Lookalike characters (full-width letters, "one dot leader" for a period)
+// are folded to their plain forms first, so a link written with them is still
+// seen as a link.
 export function stripUrls(text: string): string {
-  return text.replace(SCHEME_URL, " ").replace(WWW_URL, " ").replace(BARE_DOMAIN, " ");
+  return text.normalize("NFKC").replace(SCHEME_URL, " ").replace(WWW_URL, " ").replace(BARE_DOMAIN, " ");
 }
 
 // One line of customer-supplied text, safe to put in a message.

@@ -8,7 +8,11 @@ import { getSettings } from "./settings.js";
 // and formStartedAt, when the form (or cart) was started in milliseconds. A
 // filled honeypot, or a form that was "finished" under 3 seconds after it was
 // started, is a script. Missing fields are allowed until the account turns on
-// "Require bot check fields" in Settings.
+// "Require bot check fields" in Settings. Required means the hidden field must
+// arrive (empty): that is what proves the request came from the current
+// storefront form. The start time is checked whenever it is sent, but the
+// storefront leaves it out when it has none (a concierge tap with no cart),
+// so it is never demanded.
 
 export const MIN_FORM_MS = 3000;
 export const BOT_MESSAGE = "Something went wrong. Please try again in a moment, or call or text us.";
@@ -21,7 +25,7 @@ export function checkBotFields(body: Record<string, unknown>, opts: { required: 
   const started = body.formStartedAt;
   const hasHp = hp !== undefined && hp !== null;
   const hasStart = started !== undefined && started !== null;
-  if (opts.required && (!hasHp || !hasStart)) return { ok: false, why: "fields-required" };
+  if (opts.required && !hasHp) return { ok: false, why: "fields-required" };
   if (hasHp && !(typeof hp === "string" && hp === "")) return { ok: false, why: "honeypot" };
   if (hasStart && opts.minAgeApplies !== false) {
     const ms = typeof started === "number" ? started : typeof started === "string" && started.trim() !== "" ? Number(started) : NaN;

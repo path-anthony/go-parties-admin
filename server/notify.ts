@@ -1,6 +1,7 @@
 import { getDefaultAccount } from "./account.js";
 import { redact, safeErr } from "./log.js";
-import { ContractError, issueContract, type signContract } from "./contracts.js";
+import { afterContractSend, contractSendAction, reallySent, sendFailureReason, type ContractSendAction, type ContractSendKind } from "./contractSend.js";
+import { ContractError, markContractSent, prepareContract, type signContract } from "./contracts.js";
 import { prisma } from "./db.js";
 import type { SendResult } from "./messaging.js";
 import { sendTemplatedMessage, type ChannelOutcome } from "./sendTemplated.js";
@@ -36,28 +37,74 @@ const STAGE_TRIGGER: Partial<Record<DisplayStatus, string>> = {
   Cancelled: "booking_cancelled",
 };
 
-// Sends the customer their signing link. Used when a design request becomes
-// a booking, when the stage is set to Contract Sent, and by the manual
-// "Send contract link" button. A hand-pressed send always goes (it gets its
-// own key); an automatic one goes once per booking. If the link can't be
-// made (no policy text yet) the reason is logged as a skipped send.
-export async function sendContractLinkSms(target: { bookingId?: string; designRequestId?: string }, purpose: string): Promise<SendResult | null> {
-  return guard("contract link", async () => {
-    const subject = target.bookingId
-      ? await prisma.booking.findUnique({ where: { id: target.bookingId }, select: { phone: true, email: true } })
-      : await prisma.designRequest.findUnique({ where: { id: target.designRequestId as string }, select: { phone: true, email: true } });
-    if (!subject) return null;
+export type ContractSendResult = {
+  // The text outcome, for the log line the button shows.
+  result: SendResult | null;
+  action: ContractSendAction;
+  // A link is out with the customer (it went now, or it had already gone).
+  linkIsOut: boolean;
+  // The booking was moved from Held to Contract Sent by this send.
+  stageMoved: boolean;
+  // The contract is already signed, so there was no link to send.
+  signed: boolean;
+  // Why nothing went, when nothing did.
+  reason: string | null;
+};
+
+// Sends the customer their signing link, and keeps everything that depends on
+// "the contract was sent" in step with whether it really was (the rules are in
+// server/contractSend.ts). Used by the "Send contract link" button, by the
+// stage being set to Contract Sent, and when a design request becomes a
+// booking. A hand-pressed send always goes (it gets its own key); the others
+// go once per booking. If the link can't be made (no policy text yet) the
+// reason is logged as a skipped send.
+export async function sendContract(target: { bookingId?: string; designRequestId?: string }, kind: ContractSendKind): Promise<ContractSendResult> {
+  const nothing: ContractSendResult = { result: null, action: "nothing", linkIsOut: false, stageMoved: false, signed: false, reason: "the message could not be prepared" };
+  const done = await guard("contract link", async (): Promise<ContractSendResult> => {
+    const booking = target.bookingId ? await prisma.booking.findUnique({ where: { id: target.bookingId }, select: { phone: true, email: true, status: true, leadId: true } }) : null;
+    const subject = booking ?? (target.designRequestId ? await prisma.designRequest.findUnique({ where: { id: target.designRequestId }, select: { phone: true, email: true } }) : null);
+    if (!subject) return { ...nothing, reason: "not found" };
     const recordId = target.bookingId ?? `req:${target.designRequestId}`;
-    const manual = purpose.startsWith("manual");
-    const unique = manual ? `:manual:${Date.now()}` : "";
+    const purpose = kind === "manual" ? "manual-contract-link" : kind === "stage" ? "stage-update" : "design-request-converted";
+    const unique = kind === "manual" ? `:manual:${Date.now()}` : "";
     const ctx = { bookingId: target.bookingId ?? null, designRequestId: target.designRequestId ?? null };
     const recipient = { phone: subject.phone, email: subject.email };
+    const bookingStage = booking?.status ?? null;
     try {
-      const issued = await issueContract(target);
-      if (issued.signed) {
-        return asSendResult(await sendTemplatedMessage("contract_signed", { ...ctx, extra: { contractPdfLink: issued.link } }, recipient, `contract_signed:${recordId}${unique || ":again"}`, { purpose }));
+      const prepared = await prepareContract(target);
+      // Ground truth for "already sent": a contract link that was really handed over.
+      const earlier = await prisma.messageLog.findFirst({
+        where: {
+          status: "sent",
+          ...(target.bookingId ? { bookingId: target.bookingId } : { designRequestId: target.designRequestId }),
+          // Sends from before triggers were recorded have no trigger key; a
+          // signing link in the text is what marks them.
+          OR: [{ triggerKey: "contract_sent" }, { triggerKey: null, body: { contains: "/sign/" } }],
+        },
+        orderBy: { createdAt: "asc" },
+        select: { createdAt: true, sentAt: true },
+      });
+      const action = contractSendAction(kind, { signed: prepared.signed, linkAlreadySent: earlier !== null });
+      if (action === "send-signed-copy") {
+        const outcomes = await sendTemplatedMessage("contract_signed", { ...ctx, extra: { contractPdfLink: prepared.link } }, recipient, `contract_signed:${recordId}${unique}`, { purpose });
+        return { result: asSendResult(outcomes), action, linkIsOut: false, stageMoved: false, signed: true, reason: reallySent(outcomes) ? null : sendFailureReason(outcomes) };
       }
-      return asSendResult(await sendTemplatedMessage("contract_sent", { ...ctx, extra: { contractLink: issued.link } }, recipient, `contract_sent:${recordId}${unique}`, { purpose }));
+      const outcomes = action === "send-link" ? await sendTemplatedMessage("contract_sent", { ...ctx, extra: { contractLink: prepared.link } }, recipient, `contract_sent:${recordId}${unique}`, { purpose }) : [];
+      const sent = reallySent(outcomes);
+      const after = afterContractSend({ action, sent, linkAlreadySent: earlier !== null, bookingStage });
+      let stageMoved = false;
+      if (after.markSent) {
+        await markContractSent(prepared.agreementId, earlier ? (earlier.sentAt ?? earlier.createdAt) : new Date());
+      }
+      if (after.moveStage && target.bookingId) {
+        const moved = await prisma.booking.updateMany({ where: { id: target.bookingId, status: "Held" }, data: { status: "Contract Sent" } });
+        stageMoved = moved.count > 0;
+        if (stageMoved && booking?.leadId) {
+          await prisma.leadActivity.create({ data: { leadId: booking.leadId, text: "Contract link sent to the customer. Stage moved to Contract Sent." } });
+        }
+      }
+      const reason = action === "send-link" && !sent ? sendFailureReason(outcomes) : action === "nothing" && prepared.signed ? "the contract is already signed" : null;
+      return { result: asSendResult(outcomes), action, linkIsOut: after.markSent, stageMoved, signed: prepared.signed, reason };
     } catch (err) {
       if (err instanceof ContractError) {
         console.warn(`[notify] contract link not sent: ${redact(err.message)}`);
@@ -77,27 +124,37 @@ export async function sendContractLinkSms(target: { bookingId?: string; designRe
             journey: "client",
           },
         });
-        return { logId: row.id, status: "skipped-no-policy", error: err.message };
+        return { result: { logId: row.id, status: "skipped-no-policy", error: err.message }, action: "send-link", linkIsOut: false, stageMoved: false, signed: false, reason: err.message };
       }
       throw err;
     }
   });
+  return done ?? nothing;
 }
 
 // Staff changed the stage (or ticked the retainer): tell the customer, if
-// the status they'd read actually changed to one worth announcing.
+// the status they'd read actually changed to one worth announcing. A move to
+// Contract Sent is not handled here: it sends the contract link, and the
+// booking route does that itself before it saves the stage (sendContract).
 export async function notifyStageChange(bookingId: string, before: DisplayStatus, after: DisplayStatus): Promise<void> {
-  if (before === after) return;
+  if (before === after || after === "Contract Sent") return;
   await guard(`stage change to ${after}`, async () => {
-    if (after === "Contract Sent") {
-      await sendContractLinkSms({ bookingId }, "stage-update");
-      return;
-    }
     const trigger = STAGE_TRIGGER[after];
     if (!trigger) return;
     const b = await prisma.booking.findUnique({ where: { id: bookingId }, select: { phone: true, email: true } });
     if (!b) return;
     await sendTemplatedMessage(trigger, { bookingId }, { phone: b.phone, email: b.email }, `${trigger}:${bookingId}`, { purpose: "stage-update" });
+  });
+}
+
+// A design request just landed from the storefront: tell the customer a
+// person will be in touch. Text, and email when there is an address. Once per
+// request.
+export async function sendDesignRequestAck(designRequestId: string): Promise<void> {
+  await guard("design request acknowledgement", async () => {
+    const r = await prisma.designRequest.findUnique({ where: { id: designRequestId }, select: { phone: true, email: true } });
+    if (!r) return;
+    await sendTemplatedMessage("design_request_received", { designRequestId }, { phone: r.phone, email: r.email }, `design_request_received:${designRequestId}`, { purpose: "design-request-received" });
   });
 }
 

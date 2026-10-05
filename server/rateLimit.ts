@@ -47,6 +47,18 @@ export const availabilityLimiter = rateLimit({
   message: { error: "Too many requests. Try again in a minute." },
 });
 
+// The admin login's real lockout is in the database (server/loginLimit.ts: 5
+// failures in 15 minutes, survives deploys). This is only a cheap first line
+// so one address cannot make the database do that work hundreds of times a
+// minute. It counts every attempt, right or wrong.
+export const adminLoginBurstLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many login attempts from this connection. Try again in 15 minutes." },
+});
+
 // Customer login is a public password endpoint, so it's the strictest cap
 // here: 5 failed attempts per 15 minutes per IP. Successful logins don't
 // count, so a customer who gets it right on the third try isn't punished.

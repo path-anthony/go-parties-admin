@@ -99,7 +99,8 @@ export const customerWriteGuard: RequestHandler = (req: Request, res: Response, 
 //  - images: this origin, data: (uploaded photos are stored inline), blob:,
 //    and https (item photos can be https links)
 //  - connect: this origin only (the admin calls its own API)
-//  - nothing may frame the admin, no plugins, forms post to self
+//  - nothing may frame the admin, the admin frames nothing, no plugins,
+//    forms post to self (PDFs are served without a CSP; see routes/contracts.ts)
 export const securityHeaders = helmet({
   contentSecurityPolicy: {
     useDefaults: false,
@@ -110,8 +111,8 @@ export const securityHeaders = helmet({
       "font-src": ["'self'", "https://fonts.gstatic.com", "data:"],
       "img-src": ["'self'", "data:", "blob:", "https:"],
       "connect-src": ["'self'"],
-      "frame-src": ["'self'"],
-      "object-src": ["'self'"],
+      "frame-src": ["'none'"],
+      "object-src": ["'none'"],
       "frame-ancestors": ["'none'"],
       "base-uri": ["'self'"],
       "form-action": ["'self'"],

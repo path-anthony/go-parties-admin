@@ -5,13 +5,13 @@ import { currentCustomer } from "../customerAuth.js";
 import { botCheck } from "../botCheck.js";
 import { createDirectBooking, MAX_UNITS_PER_BOOKING } from "../directBooking.js";
 import { prettyPhone } from "../messageContext.js";
-import { safeInline } from "../sanitize.js";
+import { safeInline, stripControl } from "../sanitize.js";
 import { getSettings } from "../settings.js";
-import { bumpDaily, usedToday } from "../usage.js";
+import { refundDaily, takeDaily } from "../usage.js";
 import { prisma } from "../db.js";
 import { BALANCE_PREFERENCES } from "../../src/lib/bookingStatus.js";
 import { canonicalOccasion } from "../../src/lib/occasions.js";
-import { INVALID, normalizeDate, normalizeText, splitContact, todayEastern } from "../validate.js";
+import { INVALID, looksLikeEmail, normalizeDate, normalizeText, splitContact, todayEastern } from "../validate.js";
 
 const MAX_ADDRESS_LENGTH = 300;
 const MAX_NAME_LENGTH = 100;
@@ -26,17 +26,32 @@ const router = Router();
 // a storefront build that still sends one field keeps working until it
 // collects both. Sending phone or email means both must be present. A
 // signed-in customer can leave all of it out and their account fills it.
+//
+// Whatever arrives is capped and stripped of control characters before it is
+// stored: these values are shown to staff and used as the recipient of texts
+// and emails. On the public form (strict) they also have to look like a phone
+// number and an email address, so a booking can't be made with junk in them.
+const MAX_PHONE_LENGTH = 40;
+const MAX_EMAIL_LENGTH = 200;
+
 function resolveContact(
   body: Record<string, unknown>,
   fallback: { phone: string; email: string } | null,
+  strict = false,
 ): { phone: string | null; email: string | null } | string {
   if ("phone" in body || "email" in body) {
-    const phone = normalizeText(body.phone);
-    const email = normalizeText(body.email);
+    if ((typeof body.phone === "string" && body.phone.length > 200) || (typeof body.email === "string" && body.email.length > 400)) return "phone or email is too long";
+    const phone = stripControl(normalizeText(body.phone), MAX_PHONE_LENGTH) || null;
+    const email = stripControl(normalizeText(body.email), MAX_EMAIL_LENGTH) || null;
     if (!phone || !email) return "phone and email are both required";
+    if (strict) {
+      const digits = phone.replace(/\D/g, "").length;
+      if (digits < 7 || digits > 15) return "phone must be a phone number";
+      if (!looksLikeEmail(email)) return "email must be an email address";
+    }
     return { phone, email };
   }
-  const contact = normalizeText(body.contact);
+  const contact = stripControl(normalizeText(body.contact), MAX_EMAIL_LENGTH) || null;
   if (contact) return splitContact(contact);
   if (fallback) return fallback;
   return "phone and email are required";
@@ -122,7 +137,7 @@ router.post("/", botCheck("direct-booking"), async (req, res) => {
       error: customer ? "customerName is required the first time; it's saved to your account after that" : "customerName is required",
     });
   }
-  const contact = resolveContact(body, customer ? { phone: customer.phone, email: customer.email } : null);
+  const contact = resolveContact(body, customer ? { phone: customer.phone, email: customer.email } : null, true);
   if (typeof contact === "string") {
     return res.status(400).json({ error: contact });
   }
@@ -170,11 +185,12 @@ router.post("/", botCheck("direct-booking"), async (req, res) => {
   }
 
   // Site-wide cap on storefront bookings per day. Staff bookings are not
-  // counted or limited. Checked here, counted only when a booking (or a
-  // design request) was actually made.
+  // counted or limited. A slot is taken here in one atomic step (so a burst
+  // of requests cannot all slip under the cap) and given back below if no
+  // booking or design request came of it.
   const account = await getDefaultAccount();
   const settings = await getSettings(account.id);
-  if ((await usedToday(account.id, "direct_booking")) >= settings.directBookingDailyCap) {
+  if (!(await takeDaily(account.id, "direct_booking", settings.directBookingDailyCap))) {
     const phone = prettyPhone(settings.rushContactPhone ?? process.env.TWILIO_PHONE_NUMBER);
     console.warn("[bookings] storefront daily cap reached");
     return res.status(429).json({
@@ -183,23 +199,31 @@ router.post("/", botCheck("direct-booking"), async (req, res) => {
     });
   }
 
-  const result = await createDirectBooking({
-    staff: false,
-    occasion,
-    balancePaymentPreference,
-    agreed: body.agreedToPolicy === true,
-    name,
-    contact,
-    customer: customer ? { id: customer.id, name: customer.name } : null,
-    itemIds,
-    date,
-    dateText,
-    eventTime: cleanTime,
-    address: cleanAddress,
-    selections,
-    packageId,
-  });
-  if (result.status === 201 || result.status === 202) await bumpDaily(account.id, "direct_booking");
+  let result: Awaited<ReturnType<typeof createDirectBooking>>;
+  try {
+    result = await createDirectBooking({
+      staff: false,
+      occasion,
+      balancePaymentPreference,
+      agreed: body.agreedToPolicy === true,
+      name,
+      contact,
+      customer: customer ? { id: customer.id, name: customer.name } : null,
+      itemIds,
+      date,
+      dateText,
+      eventTime: cleanTime,
+      address: cleanAddress,
+      selections,
+      packageId,
+      // Kept with the agreement: who ticked the box, as far as the request shows.
+      request: { ip: req.ip, userAgent: req.get("user-agent") },
+    });
+  } catch (err) {
+    await refundDaily(account.id, "direct_booking").catch(() => undefined);
+    throw err;
+  }
+  if (result.status !== 201 && result.status !== 202) await refundDaily(account.id, "direct_booking");
   res.status(result.status).json(result.body);
 });
 
@@ -263,7 +287,7 @@ staffBookingRouter.post("/", async (req, res) => {
   const balancePaymentPreference = resolveBalancePreference(body);
   if (balancePaymentPreference === INVALID) return res.status(400).json({ error: `balancePaymentPreference must be one of ${BALANCE_PREFERENCES.join(", ")}` });
   if (body.agreed !== true) {
-    return res.status(400).json({ error: "Confirm that the customer agreed to the cancellation and deposit policy.", reason: "agreement-required" });
+    return res.status(400).json({ error: "Confirm that the customer agreed to the cancellation and retainer policy.", reason: "agreement-required" });
   }
   let designRequestId: string | null = null;
   if (body.designRequestId !== undefined && body.designRequestId !== null && body.designRequestId !== "") {

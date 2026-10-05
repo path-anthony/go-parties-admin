@@ -121,7 +121,7 @@ export const NAV: NavItem[] = [
 // Addresses that used to be, or could have been, bookmarked or linked, and
 // where they live now. The admin had no addresses of its own before this
 // (it was one page at "/"), so these cover the screens as they were named
-// and the Settings tabs from Block 1.
+// and the old Settings tabs.
 export const LEGACY_REDIRECTS: [from: string, to: string][] = [
   ["/", "/overview"],
   ["/settings/general", "/settings/business-rules"],

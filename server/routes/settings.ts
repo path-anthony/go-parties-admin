@@ -96,7 +96,7 @@ router.patch("/", async (req, res) => {
   if ("depositPercentage" in body) {
     const pct = body.depositPercentage;
     if (typeof pct !== "number" || !Number.isFinite(pct) || pct < 0 || pct > 100) {
-      return res.status(400).json({ error: "depositPercentage must be a number from 0 to 100" });
+      return res.status(400).json({ error: "The retainer percentage must be a number from 0 to 100" });
     }
     data.depositPercentage = Math.round(pct * 100) / 100;
   }

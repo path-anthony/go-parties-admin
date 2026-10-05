@@ -13,11 +13,14 @@ const EMAIL = /[^\s,;<>()]+@[^\s,;<>()]+\.[^\s,;<>()]+/g;
 const PHONE = /\+?\d[\d\s().-]{7,}\d/g;
 
 export function redact(text: string): string {
+  // Order matters: whole tokens go first. If phone numbers went first, a run of
+  // digits inside a token would be cut out and the rest of the token left
+  // behind in two readable pieces.
   return text
     .replace(TOKEN_PATH, "/$1/[token]")
+    .replace(LONG_TOKEN, "[token]")
     .replace(EMAIL, "[email]")
-    .replace(PHONE, (m) => `[phone ...${m.replace(/\D/g, "").slice(-2)}]`)
-    .replace(LONG_TOKEN, "[token]");
+    .replace(PHONE, (m) => `[phone ...${m.replace(/\D/g, "").slice(-2)}]`);
 }
 
 // "+18605550101" -> "***0101"
@@ -36,8 +39,12 @@ export function maskEmail(email: string | null | undefined): string {
 export function safeErr(err: unknown): string {
   if (!(err instanceof Error)) return "unknown error";
   const code = (err as { code?: unknown }).code;
-  const firstLine = err.message.split("\n").find((l) => l.trim() !== "" && !l.includes("invocation")) ?? err.message;
-  return `${err.name}${typeof code === "string" ? ` ${code}` : ""}: ${redact(firstLine).slice(0, 240)}`;
+  // Most errors say what happened on their first line. Database client errors
+  // open with the calling code and a source excerpt and put the cause last, so
+  // for those the last line is the one worth keeping.
+  const lines = err.message.split("\n").map((l) => l.trim()).filter(Boolean);
+  const line = (err.message.includes("invocation") ? lines[lines.length - 1] : lines[0]) ?? "";
+  return `${err.name}${typeof code === "string" ? ` ${code}` : ""}: ${redact(line).slice(0, 240)}`;
 }
 
 // A keyed hash of an IP address, so it can be counted without being kept.

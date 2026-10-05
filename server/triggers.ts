@@ -10,10 +10,13 @@
 // exclamation points of our own, no em dashes, none of the banned words.
 // The company name is a token because its spelling includes a "!".
 //
-// wired: whether anything in the app fires this trigger today. Triggers
-// that are not wired are registered so they can be written and switched
-// on or off now; the scheduler (Block 2), the cart and hold capture, and
-// bidding (Block 3) are what will fire them.
+// wired: whether anything in the app fires this trigger today. Most do: stage
+// changes and contract events fire as they happen, the hourly scheduler
+// (server/automation) fires the timed ones, and crew bidding fires its own.
+// The few that are not wired are registered so their wording can be written
+// and switched on or off ahead of time; each says in unwiredReason, in plain
+// English, what is missing today. That sentence is shown to staff in
+// Messages > Templates, so keep it true.
 
 export type Journey = "lead" | "client" | "crew";
 export type SendClass = "transactional" | "reminder" | "nurture";
@@ -58,7 +61,7 @@ const lead: TriggerDef[] = [
     emailSubject: "We got your request",
     emailBody: "Hi {{customerFirstName}},\n\nWe got your request and a person will reach out soon. Need us sooner? Call or text {{companyPhone}}." + SIGN,
     wired: false,
-    unwiredReason: "Waiting on the scheduler and lead rules in Block 2.",
+    unwiredReason: "Nothing sends this today. Website leads get their first reply from the website's own automation, and Ask GO and concierge leads don't collect a phone number to text.",
   },
   {
     key: "lead_cart_abandoned_1h",
@@ -72,7 +75,7 @@ const lead: TriggerDef[] = [
     emailSubject: "Your cart is still saved",
     emailBody: "Hi {{customerFirstName}},\n\nYour {{eventType}} cart is still saved. Pick it back up: {{cartLink}}" + SIGN,
     wired: false,
-    unwiredReason: "The storefront does not save carts on the server yet, so there is nothing to detect.",
+    unwiredReason: "Needs the storefront to save a cart with the customer's phone number. Today a cart lives only in the customer's browser, so there is nothing to follow up on.",
   },
   {
     key: "lead_cart_abandoned_24h",
@@ -86,7 +89,7 @@ const lead: TriggerDef[] = [
     emailSubject: "Is {{eventDate}} still your date?",
     emailBody: "Hi {{customerFirstName}},\n\nDates fill up. Check that {{eventDate}} is still open and finish your cart: {{cartLink}}" + SIGN,
     wired: false,
-    unwiredReason: "The storefront does not save carts on the server yet, so there is nothing to detect.",
+    unwiredReason: "Needs the storefront to save a cart with the customer's phone number. Today a cart lives only in the customer's browser, so there is nothing to follow up on.",
   },
   {
     key: "lead_hold_expiring",
@@ -100,7 +103,7 @@ const lead: TriggerDef[] = [
     emailSubject: "Your hold on {{eventDate}} ends soon",
     emailBody: "Hi {{customerFirstName}},\n\nYour hold on {{eventDate}} ends {{holdExpiresAt}}. Sign to keep it: {{contractLink}}" + SIGN,
     wired: false,
-    unwiredReason: "Holds do not expire in this app yet, so there is no expiry time to send.",
+    unwiredReason: "No warning goes out before a hold is released. Unpaid storefront holds can be released after a set number of days (Settings, Business rules), but scheduled messages are not sent to a storefront booking that is still Held and unsigned.",
   },
   {
     key: "lead_nurture_day3",
@@ -140,17 +143,31 @@ const lead: TriggerDef[] = [
     emailSubject: "Your call is on the calendar",
     emailBody: "Hi {{customerFirstName}},\n\nYour call is on the calendar. Need to change it? Text {{companyPhone}}." + SIGN,
     wired: false,
-    unwiredReason: "Concierge requests carry no name or phone (Calendly collects them), so there is no one to text yet.",
+    unwiredReason: "Needs the customer's phone number, which a concierge request doesn't collect: Calendly takes the name and contact details, not this app.",
   },
 ];
 
 const client: TriggerDef[] = [
   {
+    key: "design_request_received",
+    journey: "client",
+    sendClass: "transactional",
+    label: "Design request received",
+    when: "Right after a customer's storefront order is routed to Design requests (over the review amount, or an occasion that needs review).",
+    stopsWhen: "It sends once per request.",
+    tokens: ["customerFirstName", "companyName", "companyPhone"],
+    sms: "Hi {{customerFirstName}}, this is {{companyName}}. Big events get a personal look. We'll reach out within one business day. Questions? Call or text {{companyPhone}}.",
+    emailSubject: "We got your request",
+    emailBody: "Hi {{customerFirstName}},\n\nBig events get a personal look. We'll reach out within one business day.\n\nQuestions? Call or text {{companyPhone}}." + SIGN,
+    wired: true,
+    emailDefaultOn: true,
+  },
+  {
     key: "contract_sent",
     journey: "client",
     sendClass: "transactional",
     label: "Contract ready to sign",
-    when: "When the contract is sent: a request is turned into a booking, staff set the stage to Contract Sent, or staff press Send contract link.",
+    when: "When the contract is sent: a request is turned into a booking, staff set the stage to Contract Sent, or staff press Send contract link. Sending it moves a Held booking to Contract Sent.",
     stopsWhen: "It sends once per booking, unless staff send it again by hand.",
     tokens: ["customerFirstName", "companyName", "eventDate", "contractLink"],
     sms: "Hi {{customerFirstName}}, your {{companyName}} contract for {{eventDate}} is ready to review and sign: {{contractLink}}",

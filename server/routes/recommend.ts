@@ -78,6 +78,12 @@ export function parseMessages(value: unknown): ParsedMessages {
   if (!Array.isArray(value) || value.length === 0 || !value.every(isValidMessage)) {
     return { ok: false, reason: "bad-messages", error: "messages is required and must be a non-empty array of {role, content}" };
   }
+  // The customer speaks first and last. A request that ends on an "assistant"
+  // turn is not a question; answering it would spend budget on a reply to
+  // words the caller put in the assistant's mouth.
+  if (value[0].role !== "user" || value[value.length - 1].role !== "user") {
+    return { ok: false, reason: "bad-messages", error: "the conversation must start and end with a user message" };
+  }
   if (value.length > MAX_MESSAGES) {
     return { ok: false, reason: "too-many-messages", error: `A conversation can have at most ${MAX_MESSAGES} messages.` };
   }

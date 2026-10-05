@@ -23,10 +23,13 @@ function isSameOrigin(origin: string, requestHost: string | undefined): boolean 
 // same-origin fetch POST like /api/auth/login). That case is always
 // allowed, unconditionally, before anything else is checked.
 //
-// Localhost is always allowed too (dev convenience — the real access
-// boundary is the session cookie, not CORS). Add *other* deployed origins
+// Localhost is allowed too, outside production only (a dev convenience).
+// Add *other* deployed origins
 // (a separate customer-facing app on a different domain) via
 // ALLOWED_ORIGINS instead of touching this file.
 export function isOriginAllowed(origin: string, requestHost: string | undefined): boolean {
-  return isSameOrigin(origin, requestHost) || LOCALHOST_ORIGIN.test(origin) || extraAllowedOrigins().includes(origin);
+  if (isSameOrigin(origin, requestHost) || extraAllowedOrigins().includes(origin)) return true;
+  // In production the allowlist is the allowlist: a page served from someone's
+  // own machine does not get credentialed access to customer routes.
+  return process.env.NODE_ENV !== "production" && LOCALHOST_ORIGIN.test(origin);
 }

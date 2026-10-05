@@ -15,7 +15,7 @@ import { BOOKING_GIGS_SELECT, NoCrewFree } from "../gigs.js";
 import { prisma } from "../db.js";
 import { BALANCE_PREFERENCES, BOOKING_STAGES, displayStatus } from "../../src/lib/bookingStatus.js";
 import { AGREEMENT_SELECT } from "../agreements.js";
-import { notifyStageChange } from "../notify.js";
+import { notifyStageChange, sendContract } from "../notify.js";
 import { rushFor } from "../settings.js";
 import { INVALID, normalizeDate, normalizeText } from "../validate.js";
 
@@ -284,6 +284,19 @@ router.patch("/:id", async (req, res) => {
     ops.push(prisma.bookingUnit.deleteMany({ where: { bookingId: id } }));
     if (unitIds.length > 0) {
       ops.push(prisma.bookingUnit.createMany({ data: unitIds.map((unitId) => ({ bookingId: id, unitId, eventDate: nextDate })) }));
+    }
+  }
+
+  // Setting the stage to Contract Sent sends the customer their signing link,
+  // here, before the stage is saved, so the stage never says a contract went
+  // out when it did not. If the link can't go (no phone or email, the number
+  // opted out, no policy text), the stage is left where it was and the reason
+  // is shown. A contract that is already signed, or whose link already went,
+  // is not sent again.
+  if (data.status === "Contract Sent" && existing.status !== "Contract Sent") {
+    const sent = await sendContract({ bookingId: id }, "stage");
+    if (!sent.signed && !sent.linkIsOut) {
+      return res.status(409).json({ error: `The contract link could not be sent, so the stage was not changed: ${sent.reason ?? "unknown reason"}.`, reason: "contract-not-sent" });
     }
   }
 

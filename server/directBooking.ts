@@ -4,11 +4,13 @@ import { NoFreeUnits } from "./bookingOps.js";
 import { prisma } from "./db.js";
 import { NoCrewFree, createGigs, needsCrew } from "./gigs.js";
 import { displayStatus, legacyCustomerStatus } from "../src/lib/bookingStatus.js";
-import { sendContractLinkSms } from "./notify.js";
+import { sendContract, sendDesignRequestAck } from "./notify.js";
 import { currentPolicy } from "./policy.js";
 import { reviewReasons } from "./review.js";
 import { getSettings, rushFor } from "./settings.js";
 import { getDefaultAccount } from "./account.js";
+import { ipHash } from "./log.js";
+import { stripControl } from "./sanitize.js";
 
 export const MAX_UNITS_PER_BOOKING = 50;
 
@@ -60,7 +62,20 @@ export type DirectBookingInput = {
   // skips the review routing (it has been reviewed), and the request is
   // marked Converted in the same transaction that makes the booking.
   designRequestId?: string | null;
+  // The public request's origin, for the agreement record. Storefront only.
+  request?: { ip: string | null | undefined; userAgent: string | null | undefined };
 };
+
+// What is kept with a storefront agreement besides the policy version and
+// the time: a keyed hash of the address and the user agent. Nothing for
+// staff, who confirm on the customer's behalf from their own machine.
+export function agreementEvidence(input: Pick<DirectBookingInput, "staff" | "request">): { agreedIpHash: string | null; agreedUserAgent: string | null } {
+  if (input.staff || !input.request) return { agreedIpHash: null, agreedUserAgent: null };
+  return {
+    agreedIpHash: input.request.ip ? ipHash(input.request.ip) : null,
+    agreedUserAgent: input.request.userAgent ? stripControl(input.request.userAgent, 300) || null : null,
+  };
+}
 
 // The design request was already converted, dismissed, or never existed.
 class DesignRequestUnavailable extends Error {}
@@ -140,6 +155,16 @@ export async function createDirectBooking(input: DirectBookingInput): Promise<{ 
   // Staff can confirm a different price on the phone; nobody else can.
   const total = totalOverride === undefined ? computedTotal : totalOverride;
 
+  // Agreement. Staff confirm it on the customer's behalf. A storefront
+  // submission carries the ticked box; when the account requires it, one
+  // without it is refused, whether it would become a booking or a design
+  // request.
+  const checkboxChecked = input.agreed === true;
+  if (!staff && !checkboxChecked && settings.requireAgreementCheckbox) {
+    return out(400, { error: "Please agree to the cancellation and retainer policy to continue.", reason: "agreement-required" });
+  }
+  const evidence = agreementEvidence(input);
+
   // Review routing. A cart over the threshold, or one for an occasion on
   // the review list, is not held: it becomes a design request for staff, and
   // nothing is locked. A request being converted by staff has already been
@@ -156,7 +181,8 @@ export async function createDirectBooking(input: DirectBookingInput): Promise<{ 
       reviewOccasions: settings.reviewOccasions,
     });
     if (reasons.length > 0) {
-      const request = await prisma.designRequest.create({
+      const request = await prisma.$transaction(async (tx) => {
+        const created = await tx.designRequest.create({
         data: {
           accountId: account.id,
           reasons,
@@ -191,7 +217,21 @@ export async function createDirectBooking(input: DirectBookingInput): Promise<{ 
             computedTotal,
           },
         },
+        });
+        // A storefront customer ticked (or did not tick) the policy box on
+        // their way here. That is recorded against the request, with the
+        // policy version they saw, exactly as it is for a booking. Requests
+        // staff enter carry none: the booking made from it records theirs.
+        if (!staff) {
+          await tx.agreement.create({
+            data: { accountId: account.id, customerId: customer?.id ?? null, designRequestId: created.id, policyVersionId: policy.id, checkboxChecked, ...evidence },
+          });
+        }
+        return created;
       });
+      // Tell the customer a person will be in touch. Storefront requests only:
+      // when staff enter one they are already talking to the customer.
+      if (!staff) void sendDesignRequestAck(request.id);
       return out(202, {
         reviewRequired: true,
         designRequestId: request.id,
@@ -203,15 +243,6 @@ export async function createDirectBooking(input: DirectBookingInput): Promise<{ 
         message: "This one goes to our team first. Nothing is held yet; we'll be in touch to put it together with you.",
       });
     }
-  }
-
-  // Agreement. Staff confirm it on the customer's behalf. A storefront
-  // booking should carry the ticked box; until the storefront sends it, it
-  // is recorded as unchecked, which is what happened, unless the account
-  // has switched the requirement on.
-  const checkboxChecked = input.agreed === true;
-  if (!staff && !checkboxChecked && settings.requireAgreementCheckbox) {
-    return out(400, { error: "Please agree to the cancellation and deposit policy to continue.", reason: "agreement-required" });
   }
 
   // An item is promisable through its units, through the crew for its
@@ -343,6 +374,7 @@ export async function createDirectBooking(input: DirectBookingInput): Promise<{ 
           bookingId: booking.id,
           policyVersionId: policy.id,
           checkboxChecked,
+          ...evidence,
         },
       });
       // Converting a design request: claim it under a row lock so two
@@ -359,7 +391,7 @@ export async function createDirectBooking(input: DirectBookingInput): Promise<{ 
     // A design request that became a booking: text the customer their
     // contract link. After the booking is safely committed, and never in
     // the way of its response.
-    if (designRequestId) void sendContractLinkSms({ bookingId: result.booking.id }, "design-request-converted");
+    if (designRequestId) void sendContract({ bookingId: result.booking.id }, "conversion");
 
     // One entry per unit held and one per gig, so an item wanted twice
     // appears twice. A gig has no unit; its entry says so with null.
@@ -381,7 +413,9 @@ export async function createDirectBooking(input: DirectBookingInput): Promise<{ 
     ];
     return out(201, {
       bookingId: result.booking.id,
-      leadId: result.lead.id,
+      // Internal records (the CRM lead, the crew gigs) are for staff. The
+      // storefront reads neither, so the public reply does not carry them.
+      ...(staff ? { leadId: result.lead.id } : {}),
       customerId: result.booking.customerId,
       eventDate: dateText,
       eventTime: result.booking.eventTime,
@@ -416,7 +450,7 @@ export async function createDirectBooking(input: DirectBookingInput): Promise<{ 
       item: { id: bookedItems[0].id, name: bookedItems[0].name },
       unit: bookedItems[0].unit,
       items: bookedItems,
-      gigs: result.gigs,
+      ...(staff ? { gigs: result.gigs } : {}),
     });
   } catch (err) {
     if (err instanceof DesignRequestUnavailable) {

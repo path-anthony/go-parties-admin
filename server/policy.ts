@@ -1,6 +1,6 @@
 import { prisma } from "./db.js";
 
-// The cancellation and deposit policy text, versioned. A save never edits
+// The cancellation and retainer policy text, versioned. A save never edits
 // a row; it adds the next version, so an Agreement can always point at the
 // exact text the customer saw. Version 1 is created empty the first time
 // anything asks, so there is always a current version to point at.

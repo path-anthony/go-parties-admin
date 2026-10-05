@@ -7,12 +7,15 @@ import type { MessageLogRow, MessageTarget } from "../lib/types";
 // is doing: send the customer their contract link, or send a reminder
 // staff type. For a crew member only the reminder applies (there is no
 // crew contract). Every press is logged.
-export function SendMessageControls({ target, contract = true, label }: { target: MessageTarget; contract?: boolean; label?: string }) {
+// onContractSent: called after a contract link really went and moved the
+// booking to Contract Sent, so the screen around it can show the new stage.
+export function SendMessageControls({ target, contract = true, label, onContractSent }: { target: MessageTarget; contract?: boolean; label?: string; onContractSent?: () => void }) {
   const [typing, setTyping] = useState(false);
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<MessageLogRow | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [moved, setMoved] = useState(false);
 
   async function run(kind: "contract-link" | "custom") {
     setBusy(true);
@@ -21,6 +24,10 @@ export function SendMessageControls({ target, contract = true, label }: { target
     try {
       const row = await sendMessage(target, kind, kind === "custom" ? text : undefined);
       setResult(row);
+      if (kind === "contract-link" && row.stageMoved) {
+        setMoved(true);
+        onContractSent?.();
+      }
       if (kind === "custom" && row.status !== "failed") {
         setText("");
         setTyping(false);
@@ -64,6 +71,11 @@ export function SendMessageControls({ target, contract = true, label }: { target
       {result && (
         <p className={result.status === "failed" ? "form-error" : "muted"} role="status">
           {describeSend(result)}
+        </p>
+      )}
+      {moved && (
+        <p className="muted" role="status">
+          The stage is now Contract Sent. A reminder goes out in 48 hours if it is still unsigned.
         </p>
       )}
       {error && <p className="form-error">{error}</p>}

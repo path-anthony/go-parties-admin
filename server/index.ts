@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 import cookieParser from "cookie-parser";
 import express, { type ErrorRequestHandler } from "express";
 import { requireAuth } from "./auth.js";
-import { safeErr } from "./log.js";
+import { redact, safeErr } from "./log.js";
 import { markAdmin } from "./ai.js";
 import { corsPolicy, customerWriteGuard, securityHeaders } from "./security.js";
 import { conciergeLeadLimiter, directBookingLimiter, externalLeadLimiter, recommendLimiter } from "./rateLimit.js";
@@ -91,6 +91,8 @@ app.use("/api/customer", express.json({ limit: "20kb" }));
 app.use("/api/contracts", express.json({ limit: "20kb" }));
 app.use("/api/bids", express.json({ limit: "20kb" }));
 app.use("/api/webhooks/n8n", express.json({ limit: "100kb" }));
+app.use("/api/automations", express.json({ limit: "10kb" }));
+app.use("/api/auth", express.json({ limit: "10kb" }));
 app.use("/api/leads/external", express.json({ limit: "50kb" }));
 // Item photos are stored as compressed data URLs in photoUrl (see
 // src/lib/photo.ts), so a PATCH can carry a few hundred KB. The default
@@ -171,7 +173,7 @@ if (existsSync(DIST_DIR)) {
   });
 }
 
-const handleError: ErrorRequestHandler = (err, _req, res, _next) => {
+const handleError: ErrorRequestHandler = (err, req, res, _next) => {
   if (err instanceof Error && err.message === "Not allowed by CORS") {
     return res.status(403).json({ error: "Not allowed by CORS" });
   }
@@ -180,7 +182,7 @@ const handleError: ErrorRequestHandler = (err, _req, res, _next) => {
   if (type === "entity.parse.failed") return res.status(400).json({ error: "That request could not be read." });
   // The error's kind and a short redacted line, never the object: database
   // errors can carry query values, and bodies carry customer text.
-  console.error("[error]", safeErr(err));
+  console.error(`[error] ${req.method} ${redact(req.path)}:`, safeErr(err));
   res.status(500).json({ error: "Internal server error" });
 };
 app.use(handleError);

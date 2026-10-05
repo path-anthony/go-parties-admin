@@ -7,7 +7,7 @@ import type { Channel, SendClass } from "./triggers.js";
 //   nurture:       texts only 9 AM to 8 PM, and nothing at all on Sunday
 //                  (text or email).
 // Emails are never held for quiet hours. A message that is not allowed now
-// is logged as deferred and not sent; the scheduler (Block 2) tries again.
+// is logged as deferred and not sent; the hourly scheduler tries again.
 
 export const QUIET_START_HOUR = 9;
 export const QUIET_END_HOUR = 20; // exclusive: 8:00 PM is already too late

@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { getDefaultAccount } from "../account.js";
-import { ContractError, buildContractContent, buildContractPdf, issueContract, pdfLink, signContract, signingWindow } from "../contracts.js";
+import { ContractError, buildContractContent, buildContractPdf, pdfLink, prepareContract, signContract, signingWindow } from "../contracts.js";
 import { prisma } from "../db.js";
 import { notifyContractSigned } from "../notify.js";
 import { availabilityLimiter, contractSignLimiter } from "../rateLimit.js";
@@ -135,12 +135,12 @@ publicContractsRouter.post("/:token/sign", contractSignLimiter, async (req, res)
 export const adminContractsRouter = Router();
 
 // Makes a contract ready for a booking or design request and returns its
-// signing link. Idempotent. (Sending it to the customer is
-// POST /api/messages/send.)
+// signing link. Idempotent. This does not send anything and does not mark the
+// contract Sent; sending it to the customer is POST /api/messages/send.
 adminContractsRouter.post("/issue", async (req, res) => {
   const { bookingId, designRequestId } = req.body ?? {};
   try {
-    const issued = await issueContract({
+    const issued = await prepareContract({
       bookingId: typeof bookingId === "string" ? bookingId : null,
       designRequestId: typeof designRequestId === "string" ? designRequestId : null,
     });
@@ -150,13 +150,15 @@ adminContractsRouter.post("/issue", async (req, res) => {
   }
 });
 
-// The unsigned contract as a PDF, for staff to look over. Not stored.
+// The unsigned contract as a PDF, for staff to look over. Not stored. Looking
+// is not sending: this never marks the contract Sent and never starts the
+// 48-hour reminder clock.
 adminContractsRouter.get("/preview/:bookingId.pdf", async (req, res) => {
   const account = await getDefaultAccount();
   const booking = await prisma.booking.findFirst({ where: { id: String(req.params.bookingId), accountId: account.id }, select: { id: true } });
   if (!booking) return res.status(404).json({ error: "booking not found" });
   try {
-    const issued = await issueContract({ bookingId: booking.id });
+    const issued = await prepareContract({ bookingId: booking.id });
     const content = await buildContractContent(issued.agreementId);
     const pdf = await buildContractPdf(content);
     res.setHeader("Content-Type", "application/pdf");

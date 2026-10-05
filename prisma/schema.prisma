@@ -648,6 +648,12 @@ model Agreement {
   policyVersionId    String    @map("policy_version_id")
   checkboxChecked    Boolean   @map("checkbox_checked")
   agreedAt           DateTime  @default(now()) @map("agreed_at")
+  // Where a storefront agreement came from, kept as evidence of who ticked
+  // the box: a keyed hash of the address (never the address itself, the same
+  // hash the login limiter uses) and the browser's user agent. Null for
+  // agreements staff recorded and for ones made before these were kept.
+  agreedIpHash       String?   @map("agreed_ip_hash")
+  agreedUserAgent    String?   @map("agreed_user_agent")
   contractProvider   String?   @map("contract_provider")
   contractExternalId String?   @map("contract_external_id")
   contractStatus     String?   @map("contract_status")

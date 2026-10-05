@@ -16,7 +16,7 @@ import { SIGNING_LINK_DAYS_AFTER_EVENT, signContract, signingWindow, ContractErr
 import { neutralizeCell } from "../csv.js";
 import { prisma } from "../db.js";
 import { findExpiredHolds } from "../holds.js";
-import { isLockedOut, recordFailure } from "../loginLimit.js";
+import { attemptLogin, isLockedOut } from "../loginLimit.js";
 import { maskEmail, maskPhone, redact, safeErr } from "../log.js";
 import { releaseBooking } from "../bookingOps.js";
 import { categoryNeedsReview, reviewReasons } from "../review.js";
@@ -88,7 +88,12 @@ test("honeypot and timing", () => {
   assert.equal((checkBotFields({ hpField: "", formStartedAt: now - 1000 }, { required: false, now }) as { why: string }).why, "too-fast");
   assert.equal((checkBotFields({ formStartedAt: now + 5000 }, { required: false, now }) as { why: string }).why, "too-fast");
   assert.equal((checkBotFields({ formStartedAt: "soon" }, { required: false, now }) as { why: string }).why, "bad-timestamp");
-  assert.equal((checkBotFields({ hpField: "" }, { required: true, now }) as { why: string }).why, "fields-required");
+  // Required means the hidden field must arrive. The start time is checked when
+  // sent but never demanded: the storefront leaves it out when it has none.
+  assert.deepEqual(checkBotFields({ hpField: "" }, { required: true, now }), { ok: true });
+  assert.equal((checkBotFields({ formStartedAt: now - 5000 }, { required: true, now }) as { why: string }).why, "fields-required");
+  assert.equal((checkBotFields({}, { required: true, now }) as { why: string }).why, "fields-required");
+  assert.equal((checkBotFields({ hpField: "", formStartedAt: now - 100 }, { required: true, now }) as { why: string }).why, "too-fast");
   assert.deepEqual(checkBotFields({ formStartedAt: now - 10 }, { required: false, now, minAgeApplies: false }), { ok: true });
   assert.deepEqual(checkBotFields({ hpField: null, formStartedAt: null }, { required: false, now }), { ok: true });
 });
@@ -125,7 +130,8 @@ test("the public write routes refuse a filled honeypot or an instant form with t
 // ---- item 1: AI caps -------------------------------------------------------
 
 test("a conversation is capped at 10 messages of 500 characters", async () => {
-  const ok = Array.from({ length: MAX_MESSAGES }, (_, i) => ({ role: i % 2 === 0 ? "user" : "assistant", content: "x".repeat(MAX_MESSAGE_CHARS) }));
+  // Ten messages, the most allowed: alternating, with the customer speaking last.
+  const ok = Array.from({ length: MAX_MESSAGES }, (_, i) => ({ role: i % 2 === 0 || i === MAX_MESSAGES - 1 ? "user" : "assistant", content: "x".repeat(MAX_MESSAGE_CHARS) }));
   assert.equal(parseMessages(ok).ok, true);
   const tooMany = parseMessages([...ok, { role: "user", content: "one more" }]);
   assert.deepEqual(tooMany.ok === false && tooMany.reason, "too-many-messages");
@@ -293,19 +299,38 @@ test("the customer booking is built field by field", () => {
   assert.equal(out.total, 100);
 });
 
-test("the admin login lockout is stored in the database", async () => {
+test("the admin login lockout is stored in the database and holds under a burst", async () => {
   const scope = `test:${Date.now()}`;
   created.loginScopes.push(scope);
   const ip = "203.0.113.9";
+  const wrong = () => false;
   assert.equal(await isLockedOut(scope, ip), false);
-  for (let i = 0; i < 4; i++) await recordFailure(scope, ip);
+  for (let i = 0; i < 4; i++) assert.equal(await attemptLogin(scope, ip, wrong), "failed");
   assert.equal(await isLockedOut(scope, ip), false);
-  await recordFailure(scope, ip);
+  assert.equal(await attemptLogin(scope, ip, wrong), "failed");
   assert.equal(await isLockedOut(scope, ip), true, "five failures lock out, and it is read back from the table, not from memory");
+  assert.equal(await attemptLogin(scope, ip, () => true), "locked", "even the right password is refused while locked out");
   assert.equal(await isLockedOut(scope, "203.0.113.10"), false, "other addresses are unaffected");
+  assert.equal(await attemptLogin(scope, "203.0.113.10", () => true), "ok");
   assert.equal(await isLockedOut(scope, ip, new Date(Date.now() + 16 * 60_000)), false, "the window is 15 minutes");
   const row = await prisma.loginFailure.findFirst({ where: { scope } });
   assert.ok(row && !row.ipHash.includes("203"), "the address itself is never stored");
+  // Twenty guesses fired at the same instant: never more than five are
+  // compared, however the timing falls, and every one that was compared is on
+  // record. (Checking first and recording after would let all 20 in.)
+  const burstIp = "203.0.113.77";
+  let checked = 0;
+  const results = await Promise.all(Array.from({ length: 20 }, () => attemptLogin(scope, burstIp, () => (checked++, false))));
+  const failed = results.filter((r) => r === "failed").length;
+  assert.ok(failed <= 5, `${failed} wrong guesses were compared`);
+  assert.equal(checked, failed);
+  assert.equal(failed + results.filter((r) => r === "locked").length, 20);
+  assert.equal(await prisma.loginFailure.count({ where: { scope, ipHash: { not: row.ipHash } } }), failed, "refused attempts leave nothing behind");
+  // One at a time, the limit is exact: five compared, the sixth refused.
+  const slowIp = "203.0.113.78";
+  const serial: string[] = [];
+  for (let i = 0; i < 7; i++) serial.push(await attemptLogin(scope, slowIp, wrong));
+  assert.deepEqual(serial, ["failed", "failed", "failed", "failed", "failed", "locked", "locked"]);
 });
 
 // ---- item 6 and 3: contracts and holds -------------------------------------

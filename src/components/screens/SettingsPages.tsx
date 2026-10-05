@@ -28,7 +28,7 @@ function Page({ title, intro, children }: { title: string; intro?: string; child
 
 export function BusinessRulesPage() {
   return (
-    <Page title="Business rules" intro="How short-notice bookings and big or special bookings are handled, and the deposit share.">
+    <Page title="Business rules" intro="How short-notice bookings and big or special bookings are handled, and the retainer share.">
       <section className="panel">
         <h2>Rush orders</h2>
         <p className="muted settings-help">
@@ -39,10 +39,10 @@ export function BusinessRulesPage() {
       </section>
 
       <section className="panel">
-        <h2>Review and deposit</h2>
+        <h2>Review and retainer</h2>
         <p className="muted settings-help">
-          Which bookings go to Design Requests for staff to look at before anything is held, and the deposit share. The
-          storefront reads all of it.
+          Which bookings go to Design Requests for staff to look at before anything is held, and the retainer share. The
+          storefront shows the retainer share and the cancellation window; the review rules are applied on the server.
         </p>
         <ReviewSettings />
       </section>
@@ -63,12 +63,12 @@ export function PoliciesPage() {
   return (
     <Page title="Policies and contracts" intro="What customers agree to, and who signs for GO.">
       <section className="panel">
-        <h2>Cancellation and deposit policy</h2>
+        <h2>Cancellation and retainer policy</h2>
         <p className="muted settings-help">
           The text customers agree to, and the policy section of every contract. Each save is a new version, and every agreement
           records the version the customer saw. Merge fields fill in from the booking when a contract is made:{" "}
           <code>{"{{customer_name}} {{event_date}} {{event_time}} {{event_address}} {{total}} {{deposit_percentage}} {{deposit_amount}} {{balance_amount}} {{cancellation_window_days}}"}</code>
-          . camelCase spellings work too (<code>{"{{depositPercentage}}"}</code>, which fills in a bare number, so write the % yourself). Anything else in double braces is left as typed.
+          . camelCase spellings work too (<code>{"{{depositPercentage}}"}</code>, which fills in a bare number, so write the % yourself). The merge fields keep "deposit" in their names so text already written keeps working; they fill in the retainer. Anything else in double braces is left as typed.
         </p>
         <PolicyEditor />
       </section>

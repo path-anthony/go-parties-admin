@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { X } from "lucide-react";
-import { addBookingUnit, getPolicy, removeBookingGig, removeBookingUnit, setBookingAddons, updateBooking } from "../lib/api";
+import { addBookingUnit, getBookings, getPolicy, removeBookingGig, removeBookingUnit, setBookingAddons, updateBooking } from "../lib/api";
 import { BALANCE_PREFERENCES, type BalancePreference, isInactiveStage } from "../lib/bookingStatus";
 import { deltaLabel, describeAddon } from "../lib/addons";
 import { leadTitle } from "../lib/leads";
@@ -281,10 +281,23 @@ export function BookingModal({
               />
               Balance paid
             </label>
-            <SendMessageControls target={{ bookingId: booking.id }} label="Text the customer" />
+            <SendMessageControls
+              target={{ bookingId: booking.id }}
+              label="Text the customer"
+              onContractSent={() => {
+                // The send moved the stage; show it here and in the row behind.
+                void getBookings()
+                  .then((all) => {
+                    const fresh = all.find((b) => b.id === booking.id);
+                    if (fresh) onUpdated(fresh);
+                  })
+                  .catch(() => undefined);
+              }}
+            />
             <span className="muted field-help">
-              Stage changes text the customer automatically. These buttons work whether or not automation is on, and every one is
-              logged under Messages.
+              Stage changes text the customer automatically. Send contract link texts the signing link and moves a Held booking
+              to Contract Sent; setting the stage to Contract Sent does the same thing. Looking at the contract preview sends
+              nothing. A signed contract is never sent again by a stage change. Every send is logged under Messages.
             </span>
           </div>
           <RecordMessages bookingId={booking.id} />

@@ -155,7 +155,7 @@ export async function buildContractContent(agreementId: string): Promise<Contrac
   const agreement = await prisma.agreement.findUniqueOrThrow({ where: { id: agreementId }, select: { id: true, accountId: true, bookingId: true, designRequestId: true } });
   const [subject, settings, policy] = await Promise.all([loadSubject(agreement), getSettings(agreement.accountId), currentPolicy(agreement.accountId)]);
   if (policy.text.trim() === "") {
-    throw new ContractError(409, "no-policy", "The cancellation and deposit policy has not been written yet. Add it in Settings first.");
+    throw new ContractError(409, "no-policy", "The cancellation and retainer policy has not been written yet. Add it in Settings first.");
   }
 
   const dateText = subject.eventDate.toISOString().slice(0, 10);
@@ -200,13 +200,13 @@ export async function buildContractContent(agreementId: string): Promise<Contrac
       heading: "Price and payment",
       body: [
         `Total: ${values.total}`,
-        `Deposit (${values.deposit_percentage}%): ${values.deposit_amount}`,
+        `Retainer (${values.deposit_percentage}%): ${values.deposit_amount}`,
         `Balance: ${values.balance_amount}`,
         `Balance payment: ${subject.balancePaymentPreference}`,
       ].join("\n"),
     },
     {
-      heading: "Cancellation and deposit policy",
+      heading: "Cancellation and retainer policy",
       body: mergeFields(policy.text, values),
     },
   ];
@@ -442,11 +442,14 @@ export const pdfLink = (downloadToken: string, req?: Parameters<typeof apiBase>[
 
 // ---- issuing and signing -----------------------------------------------
 
-// Makes the contract available to the customer: finds the agreement for a
-// booking or design request (creating one for a booking that predates
-// agreements), gives it an unguessable signing token, and marks the
-// contract Sent. Idempotent: issuing again returns the same link.
-export async function issueContract(target: { bookingId?: string | null; designRequestId?: string | null }): Promise<{
+// Gets a contract ready: finds the agreement for a booking or design request
+// (creating one for a booking that predates agreements) and gives it an
+// unguessable signing token, so there is a link. It does NOT mark the contract
+// Sent and does not start the reminder clock: preparing a link, or previewing
+// the PDF, is not sending. markContractSent does that, and only a real send
+// calls it (server/notify.ts, sendContract). Idempotent: preparing again
+// returns the same link.
+export async function prepareContract(target: { bookingId?: string | null; designRequestId?: string | null }): Promise<{
   agreementId: string;
   signingToken: string;
   link: string;
@@ -455,7 +458,7 @@ export async function issueContract(target: { bookingId?: string | null; designR
   const account = await getDefaultAccount();
   const policy = await currentPolicy(account.id);
   if (policy.text.trim() === "") {
-    throw new ContractError(409, "no-policy", "The cancellation and deposit policy has not been written yet. Add it in Settings first.");
+    throw new ContractError(409, "no-policy", "The cancellation and retainer policy has not been written yet. Add it in Settings first.");
   }
   let agreement = target.bookingId
     ? await prisma.agreement.findUnique({ where: { bookingId: target.bookingId } })
@@ -479,10 +482,18 @@ export async function issueContract(target: { bookingId?: string | null; designR
     return { agreementId: agreement.id, signingToken: agreement.signingToken ?? "", link: agreement.contractUrl ?? "", signed: true };
   }
   const signingToken = agreement.signingToken ?? token();
-  if (!agreement.signingToken || agreement.contractStatus !== "Sent" || agreement.contractProvider !== CONTRACT_PROVIDER) {
-    await prisma.agreement.update({ where: { id: agreement.id }, data: { signingToken, contractProvider: CONTRACT_PROVIDER, contractStatus: "Sent", ...(agreement.contractSentAt ? {} : { contractSentAt: new Date() }) } });
+  if (!agreement.signingToken || agreement.contractProvider !== CONTRACT_PROVIDER) {
+    await prisma.agreement.update({ where: { id: agreement.id }, data: { signingToken, contractProvider: CONTRACT_PROVIDER } });
   }
   return { agreementId: agreement.id, signingToken, link: signingLink(signingToken), signed: false };
+}
+
+// The link really went to the customer: the contract is Sent, and the
+// 48-hour unsigned reminder counts from the first time that happened. A
+// signed contract is left alone.
+export async function markContractSent(agreementId: string, sentAt: Date = new Date()): Promise<void> {
+  await prisma.agreement.updateMany({ where: { id: agreementId, OR: [{ contractStatus: null }, { contractStatus: { not: "Signed" } }] }, data: { contractStatus: "Sent" } });
+  await prisma.agreement.updateMany({ where: { id: agreementId, contractSentAt: null, contractStatus: "Sent" }, data: { contractSentAt: sentAt } });
 }
 
 export type SignInput = {

@@ -441,7 +441,7 @@ export type Booking = {
   retainerPaid: boolean;
   occasion: string | null;
   balancePaymentPreference: BalancePreference;
-  // The balance (total less the deposit) has been paid; ticked by hand.
+  // The balance (total less the retainer) has been paid; ticked by hand.
   balancePaid: boolean;
   // Null on bookings made before agreements existed.
   agreement: AgreementInfo | null;
@@ -469,7 +469,7 @@ export type BookingPatch = {
   balancePaymentPreference?: BalancePreference;
 };
 
-// Account-wide settings: rush notice, review routing, deposit.
+// Account-wide settings: rush notice, review routing, retainer.
 export type AccountSettings = {
   minBookingNoticeHours: number;
   // Null until a real number is set.
@@ -551,10 +551,13 @@ export type DesignRequest = {
 };
 
 // One line of the send log: a text or email the system tried to send.
+// stageMoved is only on the reply to "Send contract link": the send moved the
+// booking from Held to Contract Sent.
 // status is our attempt (sent, failed, skipped-*); confirmation is what n8n
 // reported afterwards (delivered or failed), if it has.
 export type MessageLogRow = {
   id: string;
+  stageMoved?: boolean;
   triggerKey: string | null;
   idempotencyKey: string | null;
   journey: "lead" | "client" | "crew" | null;

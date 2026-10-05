@@ -192,7 +192,7 @@ export function NewBookingModal({
     e.preventDefault();
     setError(null);
     if (cartItems.length === 0) return setError("Add at least one item.");
-    if (!agreed) return setError("Confirm that the customer agreed to the cancellation and deposit policy.");
+    if (!agreed) return setError("Confirm that the customer agreed to the cancellation and retainer policy.");
     const missing = cartItems.flatMap((item) =>
       item.addonGroups.filter((g) => g.required && g.addons.length > 0 && !pickOf(item, g.id)).map((g) => `${item.name}: ${g.name}`),
     );
@@ -477,7 +477,7 @@ export function NewBookingModal({
             <span className="detail-field-label">5. Agreement</span>
             <label className="checkbox-label">
               <input type="checkbox" checked={agreed} onChange={(e) => setAgreed(e.target.checked)} aria-label="Customer agreed to the policy" />
-              The customer has agreed to the cancellation and deposit policy.
+              The customer has agreed to the cancellation and retainer policy.
             </label>
             <span className="muted field-help">
               Read it to them, or send it, before ticking. The agreement is recorded against the policy version that is current now.

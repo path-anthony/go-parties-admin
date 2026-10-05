@@ -10,6 +10,29 @@ const usd = (n: number) => n.toLocaleString("en-US", { style: "currency", curren
 const STATUSES = ["Open", "Converted", "Dismissed"] as const;
 const REASON_TEXT = { threshold: "Over the review threshold", occasion: "Occasion needs review" } as const;
 
+// Staff notes on one request: what was said on the call, what to quote, who
+// is handling it. Saved with the button; nothing is sent to the customer.
+function RequestNotes({ value, disabled, onSave }: { value: string | null; disabled: boolean; onSave: (notes: string | null) => void }) {
+  const [text, setText] = useState(value ?? "");
+  const dirty = text.trim() !== (value ?? "").trim();
+  return (
+    <label className="detail-field request-notes">
+      <span className="detail-field-label">Staff notes (not shown to the customer)</span>
+      <textarea rows={2} maxLength={2000} value={text} disabled={disabled} onChange={(e) => setText(e.target.value)} placeholder="What was discussed, what to quote, who is handling it" />
+      {dirty && (
+        <span className="form-actions">
+          <button type="button" className="btn-secondary" disabled={disabled} onClick={() => onSave(text.trim() === "" ? null : text.trim())}>
+            Save notes
+          </button>
+          <button type="button" className="link-button" disabled={disabled} onClick={() => setText(value ?? "")}>
+            Undo
+          </button>
+        </span>
+      )}
+    </label>
+  );
+}
+
 // The review queue: carts that were routed here instead of being held,
 // because the total is over the threshold or the occasion is on the
 // review list. Nothing on them is locked. Converting one opens New
@@ -75,7 +98,8 @@ export function DesignRequestsScreen() {
         <h2>Design requests</h2>
         <p className="muted">
           Carts that need a person before anything is held: over the review threshold, or for an occasion on the review list.
-          Nothing is locked on a request. Both rules are in Settings.
+          Nothing is locked on a request. Both rules are in Settings. A customer who sends one from the storefront is texted
+          that a person will reach out within one business day (the wording is under Messages, Templates).
         </p>
       </div>
 
@@ -133,7 +157,7 @@ export function DesignRequestsScreen() {
             </ul>
             {r.cart.package && <div className="muted">Package: {r.cart.package.name}, {usd(r.cart.package.price)}</div>}
             {r.address && <div className="muted">At {r.address}</div>}
-            {r.notes && <div className="muted">Note: {r.notes}</div>}
+            <RequestNotes key={`${r.id}:${r.notes ?? ""}`} value={r.notes} disabled={busyId === r.id} onSave={(notes) => change(r.id, { notes })} />
             <div className="form-actions">
               {r.status === "Open" && (
                 <>

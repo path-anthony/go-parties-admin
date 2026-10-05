@@ -21,6 +21,12 @@ export async function takeDaily(accountId: string, key: UsageKey, cap: number, n
   return rows.length > 0;
 }
 
+// Gives one unit back (a booking that was refused after its slot was taken).
+export async function refundDaily(accountId: string, key: UsageKey, now = new Date()): Promise<void> {
+  const day = todayEastern(now);
+  await prisma.$executeRaw`UPDATE usage_counters SET count = count - 1 WHERE account_id = ${accountId} AND key = ${key} AND day = ${day} AND count > 0`;
+}
+
 // Counts a use that is not limited (admin AI calls), for visibility only.
 export async function bumpDaily(accountId: string, key: UsageKey, now = new Date()): Promise<void> {
   const day = todayEastern(now);

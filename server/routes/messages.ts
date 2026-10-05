@@ -2,7 +2,7 @@ import { Router } from "express";
 import { getDefaultAccount } from "../account.js";
 import { prisma } from "../db.js";
 import { sendSms } from "../messaging.js";
-import { sendContractLinkSms } from "../notify.js";
+import { sendContract } from "../notify.js";
 
 const router = Router();
 const MAX_BODY = 1000;
@@ -101,10 +101,15 @@ router.post("/send", async (req, res) => {
     return res.status(400).json({ error: "target needs one of bookingId, designRequestId, leadId, crewMemberId" });
   }
 
-  const result =
-    kind === "contract-link"
-      ? await sendContractLinkSms(bookingId ? { bookingId } : { designRequestId: designRequestId as string }, "manual-contract-link")
-      : await sendSms({ to: phone, body: text, purpose: "manual-message", link: { bookingId, designRequestId }, meta: { triggerKey: "manual_message", journey: t.leadId && !bookingId ? "lead" : "client", leadId: typeof t.leadId === "string" ? t.leadId : null } });
+  if (kind === "contract-link") {
+    const sent = await sendContract(bookingId ? { bookingId } : { designRequestId: designRequestId as string }, "manual");
+    if (!sent.result) return res.status(500).json({ error: sent.reason ?? "The message could not be prepared." });
+    const row = await prisma.messageLog.findUnique({ where: { id: sent.result.logId } });
+    // stageMoved tells the screen to reload the booking: a real send on a Held
+    // booking has just made it Contract Sent.
+    return res.json({ ...row, stageMoved: sent.stageMoved });
+  }
+  const result = await sendSms({ to: phone, body: text, purpose: "manual-message", link: { bookingId, designRequestId }, meta: { triggerKey: "manual_message", journey: t.leadId && !bookingId ? "lead" : "client", leadId: typeof t.leadId === "string" ? t.leadId : null } });
   if (!result) return res.status(500).json({ error: "The message could not be prepared." });
   res.json(await prisma.messageLog.findUnique({ where: { id: result.logId } }));
 });

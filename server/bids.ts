@@ -3,6 +3,7 @@ import { getDefaultAccount } from "./account.js";
 import { addDays, atEastern } from "./automation/time.js";
 import { prisma } from "./db.js";
 import { safeErr } from "./log.js";
+import { safeInline } from "./sanitize.js";
 import { toE164 } from "./messaging.js";
 import { sendTemplatedMessage } from "./sendTemplated.js";
 import { getSettings } from "./settings.js";
@@ -203,7 +204,7 @@ export async function askQuestion(token: string, text: unknown, now = new Date()
     const staff = await prisma.account.findUniqueOrThrow({ where: { id: account.id }, select: { staffNotifyPhone: true, staffNotifyEmail: true } });
     await sendTemplatedMessage(
       "staff_crew_question",
-      { gigId: first.gigId, crewMemberId: first.crewMemberId, extra: { questionText: t, adminLink: `${adminBase()}/crew/gigs?gig=${first.gigId}` } },
+      { gigId: first.gigId, crewMemberId: first.crewMemberId, extra: { questionText: safeInline(t, MAX_QUESTION), adminLink: `${adminBase()}/crew/gigs?gig=${first.gigId}` } },
       { phone: staff.staffNotifyPhone, email: staff.staffNotifyEmail },
       `staff_crew_question:${q.id}`,
       { purpose: "crew-question" },

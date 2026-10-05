@@ -4,7 +4,7 @@ import type { PolicyVersionInfo } from "../lib/types";
 
 const when = (iso: string) => new Date(iso).toLocaleString("en-US", { dateStyle: "medium", timeStyle: "short", timeZone: "America/New_York" });
 
-// The cancellation and deposit policy customers agree to. Saving never
+// The cancellation and retainer policy customers agree to. Saving never
 // overwrites: it adds the next version, and every earlier one stays below
 // with how many agreements point at it, so what a customer saw can always
 // be looked up.
@@ -58,8 +58,8 @@ export function PolicyEditor() {
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
           disabled={!versions || busy}
-          placeholder="Write the cancellation and deposit policy customers will see and agree to."
-          aria-label="Cancellation and deposit policy text"
+          placeholder="Write the cancellation and retainer policy customers will see and agree to."
+          aria-label="Cancellation and retainer policy text"
         />
       </label>
       <div className="form-actions">

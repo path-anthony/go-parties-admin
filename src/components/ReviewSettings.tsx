@@ -2,7 +2,7 @@ import { type FormEvent, useEffect, useState } from "react";
 import { getSettings, updateSettings } from "../lib/api";
 import { OCCASION_GROUPS } from "../lib/occasions";
 
-// Review routing and the deposit. A cart over the threshold, or one for an
+// Review routing and the retainer. A cart over the threshold, or one for an
 // occasion that is ticked here, goes to the Design Requests queue instead
 // of becoming a Held booking. Ticking a group (Wedding) covers everything
 // in it; a single sub-occasion can be ticked on its own.
@@ -75,7 +75,7 @@ export function ReviewSettings() {
           <span className="muted field-help">A booking with a total over this amount goes to Design Requests. Exactly this amount does not.</span>
         </label>
         <label>
-          Deposit percentage (%)
+          Retainer percentage (%)
           <input type="number" min={0} max={100} step="0.01" value={deposit} onChange={(e) => setDeposit(e.target.value)} disabled={!ready || busy} required />
           <span className="muted field-help">One value for every booking for now. Recorded only; nothing is charged yet.</span>
         </label>
