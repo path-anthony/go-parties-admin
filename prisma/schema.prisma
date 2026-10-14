@@ -63,6 +63,26 @@ model Account {
   // storefront booking that arrives without it is still recorded, with the
   // checkbox marked unchecked; on, it is refused.
   requireAgreementCheckbox  Boolean  @default(false) @map("require_agreement_checkbox")
+  // The GO contract (format go-v2). Company details as they print on it, the
+  // business numbers its text binds to (the retainer share and the
+  // cancellation window above are reused), and the rollout switch.
+  contractCompanyName           String  @default("Go Event Group") @map("contract_company_name")
+  contractAddressLine           String  @default("767 New Britain Ave, Farmington, Connecticut 06032") @map("contract_address_line")
+  contractPhone                 String  @default("413.391.4635 (GO!DJ)") @map("contract_phone")
+  contractEmail                 String  @default("info@thegoeventgroup.com") @map("contract_email")
+  contractWebsite               String  @default("www.thegoeventgroup.com") @map("contract_website")
+  contractFooterLine            String  @default("Go Event Group | 767 New Britain Ave, Farmington, CT 06032 | 413.391.4635 | info@thegoeventgroup.com | thegoeventgroup.com") @map("contract_footer_line")
+  // An uploaded logo as a data URL; null means the built-in placeholder.
+  contractLogo                  String? @map("contract_logo")
+  balanceDueDays                Int     @default(30) @map("balance_due_days")
+  rescheduleFeePercent          Decimal @default(20) @map("reschedule_fee_percent") @db.Decimal(5, 2)
+  outsidePlannerChargePercent   Decimal @default(20) @map("outside_planner_charge_percent") @db.Decimal(5, 2)
+  returnedCheckFee              Decimal @default(50) @map("returned_check_fee") @db.Decimal(10, 2)
+  // Days after sending by which the contract should be signed and the
+  // retainer paid; the date printed in the header.
+  signAndPayWindowDays          Int     @default(7) @map("sign_and_pay_window_days")
+  // When on, a contract prepared for the first time is the GO contract.
+  useGoContract                 Boolean @default(false) @map("use_go_contract")
 
   items             Item[]
   leads             Lead[]
@@ -83,6 +103,8 @@ model Account {
   smsOptOuts        SmsOptOut[]
   automationRuns    AutomationRun[]
   usageCounters     UsageCounter[]
+  contractTerms     ContractTermsVersion[]
+  serviceRows       ContractServiceRow[]
 
   @@map("accounts")
 }
@@ -342,6 +364,32 @@ model Booking {
   automationPaused         Boolean   @default(false) @map("automation_paused")
   // When the reminder check last messaged the customer about the balance.
   lastBalanceReminderAt    DateTime? @map("last_balance_reminder_at")
+  // What the GO contract prints beyond the booking itself. All optional;
+  // the contract can't be sent until venue, on-site contact, guest count and
+  // the from/to times are in.
+  guestOfHonor             String?   @map("guest_of_honor")
+  ageRange                 String?   @map("age_range")
+  expectedGuests           Int?      @map("expected_guests")
+  timeFrom                 String?   @map("time_from")
+  timeTo                   String?   @map("time_to")
+  venueName                String?   @map("venue_name")
+  venuePhone               String?   @map("venue_phone")
+  onsiteContactName        String?   @map("onsite_contact_name")
+  onsiteContactPhone       String?   @map("onsite_contact_phone")
+  planner                  String?
+  mailingAddress           String?   @map("mailing_address")
+  city                     String?
+  state                    String?
+  zip                      String?
+  phoneHome                String?   @map("phone_home")
+  phoneWork                String?   @map("phone_work")
+  phoneCell                String?   @map("phone_cell")
+  specialRequests          String?   @map("special_requests")
+  discountPercent          Decimal?  @map("discount_percent") @db.Decimal(5, 2)
+  discountAmount           Decimal?  @map("discount_amount") @db.Decimal(10, 2)
+  discountDescription      String?   @map("discount_description")
+  // Staff overrides per service row: { [rowId]: { checked, details, feeCents } }.
+  contractServices         Json?     @map("contract_services")
   // Set when the booking was made from a logged-in customer account; null
   // for admin-entered and anonymous storefront bookings. Deleting the
   // account keeps the booking.
@@ -654,6 +702,14 @@ model Agreement {
   // agreements staff recorded and for ones made before these were kept.
   agreedIpHash       String?   @map("agreed_ip_hash")
   agreedUserAgent    String?   @map("agreed_user_agent")
+  // The contract's format: null is the original sections layout, "go-v2" the
+  // GO contract. Decided the first time a link is prepared, never changed.
+  format             String?
+  // For go-v2: the terms version pinned when the link was prepared, and GO's
+  // signature as applied at the moment the contract was sent.
+  termsVersionId     String?   @map("terms_version_id")
+  goSignerName       String?   @map("go_signer_name")
+  goSignedAt         DateTime? @map("go_signed_at")
   contractProvider   String?   @map("contract_provider")
   contractExternalId String?   @map("contract_external_id")
   contractStatus     String?   @map("contract_status")
@@ -671,6 +727,7 @@ model Agreement {
   booking          Booking?          @relation(fields: [bookingId], references: [id], onDelete: Cascade)
   designRequest    DesignRequest?    @relation(fields: [designRequestId], references: [id], onDelete: Cascade)
   policyVersion    PolicyVersion     @relation(fields: [policyVersionId], references: [id])
+  termsVersion     ContractTermsVersion? @relation(fields: [termsVersionId], references: [id])
   contractDocument ContractDocument?
 
   @@index([policyVersionId])
@@ -735,6 +792,11 @@ model ContractDocument {
   signerIp          String?  @map("signer_ip")
   signerUserAgent   String?  @map("signer_user_agent")
   signedAt          DateTime @map("signed_at")
+  // go-v2 only: the second signer, and the whole signed document as served
+  // (all three signatures in it), so what was signed never has to be rebuilt.
+  additionalSignerName String? @map("additional_signer_name")
+  format            String?
+  documentJson      Json?    @map("document_json")
   createdAt         DateTime @default(now()) @map("created_at")
 
   account       Account       @relation(fields: [accountId], references: [id])
@@ -885,3 +947,43 @@ model LoginFailure {
   @@index([scope, ipHash, failedAt])
   @@map("login_failures")
 }
+
+// The GO contract's wording, versioned like the policy text: a save adds the
+// next version and an agreement pins the one it was prepared with. content is
+// the template (header lines, clauses, notes, acceptance text) with the
+// business numbers as tokens; see server/contract/goTemplate.ts.
+model ContractTermsVersion {
+  id        String   @id @default(cuid())
+  accountId String   @map("account_id")
+  version   Int
+  content   Json
+  createdAt DateTime @default(now()) @map("created_at")
+
+  account    Account     @relation(fields: [accountId], references: [id])
+  agreements Agreement[]
+
+  @@unique([accountId, version])
+  @@map("contract_terms_versions")
+}
+
+// One row of the contract's SERVICES SELECTED table, in its column and
+// order, and what it gathers from a booking: catalog categories, words an
+// item's name may contain, and specific items.
+model ContractServiceRow {
+  id             String   @id @default(cuid())
+  accountId      String   @map("account_id")
+  column         String
+  position       Int
+  label          String
+  isGroupHeading Boolean  @default(false) @map("is_group_heading")
+  categories     String[] @default([])
+  itemWords      String[] @default([]) @map("item_words")
+  itemIds        String[] @default([]) @map("item_ids")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  account Account @relation(fields: [accountId], references: [id])
+
+  @@index([accountId, column, position])
+  @@map("contract_service_rows")
+}
+

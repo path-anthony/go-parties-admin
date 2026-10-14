@@ -1,5 +1,10 @@
 import type {
   BidsSummaryRow,
+  ContractStatusInfo,
+  GoTermsContent,
+  ServiceRow,
+  ServiceRowInput,
+  TermsVersionInfo,
   RunResult,
   Timeline,
   UpcomingView,
@@ -376,7 +381,7 @@ export function getSettings(): Promise<AccountSettings> {
   return fetch("/api/settings").then(asJson<AccountSettings>);
 }
 
-export function updateSettings(patch: Partial<AccountSettings>): Promise<AccountSettings> {
+export function updateSettings(patch: Partial<AccountSettings> & { contractLogo?: string | null }): Promise<AccountSettings> {
   return fetch("/api/settings", jsonRequest("PATCH", patch)).then(asJson<AccountSettings>);
 }
 
@@ -495,4 +500,25 @@ export function runAutomationCheck(dryRun: boolean): Promise<RunResult> {
 
 export function setSmsOptOut(phone: string, optedOut: boolean): Promise<{ optedOut: boolean }> {
   return fetch("/api/automation/opt-out", jsonRequest(optedOut ? "POST" : "DELETE", { phone })).then(asJson<{ optedOut: boolean }>);
+}
+
+// The GO contract's wording (versioned) and its service rows.
+export function getContractTerms(): Promise<{ current: TermsVersionInfo; versions: TermsVersionInfo[] }> {
+  return fetch("/api/settings/contract-terms").then(asJson<{ current: TermsVersionInfo; versions: TermsVersionInfo[] }>);
+}
+
+export function saveContractTerms(content: GoTermsContent): Promise<{ created: boolean; version: TermsVersionInfo }> {
+  return fetch("/api/settings/contract-terms", jsonRequest("POST", { content })).then(asJson<{ created: boolean; version: TermsVersionInfo }>);
+}
+
+export function getServiceRows(): Promise<{ rows: ServiceRow[] }> {
+  return fetch("/api/settings/contract-services").then(asJson<{ rows: ServiceRow[] }>);
+}
+
+export function saveServiceRows(rows: ServiceRowInput[]): Promise<{ rows: ServiceRow[] }> {
+  return fetch("/api/settings/contract-services", jsonRequest("PUT", { rows })).then(asJson<{ rows: ServiceRow[] }>);
+}
+
+export function getContractStatus(bookingId: string): Promise<ContractStatusInfo> {
+  return fetch(`/api/contract-admin/status/${bookingId}`).then(asJson<ContractStatusInfo>);
 }

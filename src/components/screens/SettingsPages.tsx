@@ -9,6 +9,9 @@ import { PolicyEditor } from "../PolicyEditor";
 import { ReviewSettings } from "../ReviewSettings";
 import { RushSettings } from "../RushSettings";
 import { SafetySettings } from "../SafetySettings";
+import { ContractSettingsForm } from "../ContractSettingsForm";
+import { ContractTermsEditor } from "../ContractTermsEditor";
+import { ServiceRowsEditor } from "../ServiceRowsEditor";
 
 // Settings is a group in the sidebar; each of these is one of its pages,
 // with its own address. The panels are the same ones that used to be
@@ -233,6 +236,39 @@ export function IntegrationsPage() {
           </section>
         </>
       )}
+    </Page>
+  );
+}
+
+export function ContractTermsPage() {
+  return (
+    <Page title="Contract terms" intro="The GO contract's wording, word for word, with the business numbers filled in from Settings. Each save is a new version; a contract keeps the version it was sent with.">
+      <section className="panel">
+        <ContractTermsEditor />
+      </section>
+    </Page>
+  );
+}
+
+export function ContractSettingsPage() {
+  return (
+    <Page title="Contract settings" intro="How the GO contract is headed and footed, the numbers its wording uses, the logo, who signs for GO, and whether new contracts use it.">
+      <section className="panel">
+        <h2>Contract settings</h2>
+        <ContractSettingsForm />
+      </section>
+      <section className="panel">
+        <h2>Contract signature for GO</h2>
+        <p className="muted settings-help">
+          Who signs for GO. On the GO contract this name is applied the moment the contract is sent, with that date, so the customer sees GO's signature in place. On the
+          original layout it is applied when the customer signs.
+        </p>
+        <GoSignerSettings />
+      </section>
+      <section className="panel">
+        <h2>Services table rows</h2>
+        <ServiceRowsEditor />
+      </section>
     </Page>
   );
 }

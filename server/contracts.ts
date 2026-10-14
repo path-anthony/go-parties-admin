@@ -5,6 +5,11 @@ import { prisma } from "./db.js";
 import { currentPolicy } from "./policy.js";
 import { getSettings } from "./settings.js";
 import { mergeFields } from "./tokens.js";
+import { buildGoDocument, contractLogo } from "./contract/goLoad.js";
+import { renderGoText, type GoDocument, type GoSignature } from "./contract/goDocument.js";
+import { buildGoPdf } from "./contract/goPdf.js";
+import { currentTerms } from "./contract/goTerms.js";
+import { apiBase, pdfLink, signingLink } from "./contract/links.js";
 
 export { mergeFields };
 
@@ -423,22 +428,7 @@ export async function signingWindow(agreement: { bookingId: string | null; desig
   return "open";
 }
 
-export function signingLink(signingToken: string): string {
-  const base = process.env.STOREFRONT_URL?.replace(/\/$/, "");
-  if (base) return `${base}/sign/${signingToken}`;
-  console.warn("[contracts] STOREFRONT_URL is not set; the signing link points at the API instead of a page");
-  return `${apiBase()}/api/contracts/${signingToken}`;
-}
-
-export function apiBase(req?: { protocol: string; get(name: string): string | undefined }): string {
-  const fromEnv = process.env.PUBLIC_API_URL?.replace(/\/$/, "");
-  if (fromEnv) return fromEnv;
-  if (process.env.RAILWAY_PUBLIC_DOMAIN) return `https://${process.env.RAILWAY_PUBLIC_DOMAIN}`;
-  if (req) return `${req.protocol}://${req.get("host")}`;
-  return "";
-}
-
-export const pdfLink = (downloadToken: string, req?: Parameters<typeof apiBase>[0]) => `${apiBase(req)}/api/contracts/pdf/${downloadToken}`;
+export { apiBase, pdfLink, signingLink };
 
 // ---- issuing and signing -----------------------------------------------
 
@@ -449,17 +439,17 @@ export const pdfLink = (downloadToken: string, req?: Parameters<typeof apiBase>[
 // the PDF, is not sending. markContractSent does that, and only a real send
 // calls it (server/notify.ts, sendContract). Idempotent: preparing again
 // returns the same link.
+export type ContractFormat = "sections" | "go-v2";
+
 export async function prepareContract(target: { bookingId?: string | null; designRequestId?: string | null }): Promise<{
   agreementId: string;
   signingToken: string;
   link: string;
   signed: boolean;
+  format: ContractFormat;
 }> {
   const account = await getDefaultAccount();
   const policy = await currentPolicy(account.id);
-  if (policy.text.trim() === "") {
-    throw new ContractError(409, "no-policy", "The cancellation and retainer policy has not been written yet. Add it in Settings first.");
-  }
   let agreement = target.bookingId
     ? await prisma.agreement.findUnique({ where: { bookingId: target.bookingId } })
     : target.designRequestId
@@ -478,26 +468,51 @@ export async function prepareContract(target: { bookingId?: string | null; desig
       throw new ContractError(400, "no-target", "bookingId or designRequestId is required");
     }
   }
+  // The format is decided the first time a link is prepared and never
+  // changed: the GO contract when the rollout switch is on and this is a
+  // booking, otherwise the original sections layout. An agreement that
+  // already has a link keeps whatever it was prepared with.
+  let format: ContractFormat = agreement.format === "go-v2" ? "go-v2" : "sections";
+  let termsVersionId = agreement.termsVersionId;
+  if (!agreement.signingToken && agreement.format === null && agreement.bookingId) {
+    const { useGoContract } = await getSettings(account.id);
+    if (useGoContract) {
+      format = "go-v2";
+      termsVersionId = (await currentTerms(account.id)).id;
+    }
+  }
+  if (format === "sections" && policy.text.trim() === "") {
+    throw new ContractError(409, "no-policy", "The cancellation and retainer policy has not been written yet. Add it in Settings first.");
+  }
   if (agreement.contractStatus === "Signed") {
-    return { agreementId: agreement.id, signingToken: agreement.signingToken ?? "", link: agreement.contractUrl ?? "", signed: true };
+    return { agreementId: agreement.id, signingToken: agreement.signingToken ?? "", link: agreement.contractUrl ?? "", signed: true, format };
   }
   const signingToken = agreement.signingToken ?? token();
-  if (!agreement.signingToken || agreement.contractProvider !== CONTRACT_PROVIDER) {
-    await prisma.agreement.update({ where: { id: agreement.id }, data: { signingToken, contractProvider: CONTRACT_PROVIDER } });
+  if (!agreement.signingToken || agreement.contractProvider !== CONTRACT_PROVIDER || (format === "go-v2" && agreement.format !== "go-v2")) {
+    await prisma.agreement.update({ where: { id: agreement.id }, data: { signingToken, contractProvider: CONTRACT_PROVIDER, ...(format === "go-v2" ? { format: "go-v2", termsVersionId } : {}) } });
   }
-  return { agreementId: agreement.id, signingToken, link: signingLink(signingToken), signed: false };
+  return { agreementId: agreement.id, signingToken, link: signingLink(signingToken), signed: false, format };
 }
 
 // The link really went to the customer: the contract is Sent, and the
 // 48-hour unsigned reminder counts from the first time that happened. A
 // signed contract is left alone.
+// For the GO contract, this is also the moment GO signs: the representative's
+// printed name and the send date go on the agreement, so the customer sees
+// GO's signature already in place, and the hash they sign covers it.
 export async function markContractSent(agreementId: string, sentAt: Date = new Date()): Promise<void> {
   await prisma.agreement.updateMany({ where: { id: agreementId, OR: [{ contractStatus: null }, { contractStatus: { not: "Signed" } }] }, data: { contractStatus: "Sent" } });
   await prisma.agreement.updateMany({ where: { id: agreementId, contractSentAt: null, contractStatus: "Sent" }, data: { contractSentAt: sentAt } });
+  const a = await prisma.agreement.findUnique({ where: { id: agreementId }, select: { accountId: true, format: true, goSignedAt: true } });
+  if (a?.format === "go-v2" && !a.goSignedAt) {
+    const signer = await loadGoSigner(a.accountId);
+    if (signer) await prisma.agreement.updateMany({ where: { id: agreementId, goSignedAt: null }, data: { goSignerName: signer.name, goSignedAt: sentAt } });
+  }
 }
 
 export type SignInput = {
   fullName: string;
+  additionalSignerName?: string | null;
   consentToElectronicSignature: boolean;
   agreeToTerms: boolean;
   contentHash?: string;
@@ -520,6 +535,8 @@ export async function signContract(signingToken: string, input: SignInput) {
   if (agreement.contractStatus !== "Signed" && (await signingWindow(agreement)) !== "open") {
     throw new ContractError(404, "not-found", "This signing link isn't valid.");
   }
+
+  if (agreement.format === "go-v2") return signGoContract(agreement, input);
 
   const content = await buildContractContent(agreement.id);
   if (input.contentHash && input.contentHash !== content.contentHash) {
@@ -569,4 +586,79 @@ export async function signContract(signingToken: string, input: SignInput) {
   });
 
   return { content, documentId: result.doc.id, pdfUrl: result.link, signedAt, sha256, stageMoved: result.stageMoved };
+}
+
+export type SignedGo = {
+  format: "go-v2";
+  content: { subject: { bookingId: string | null; designRequestId: string | null }; customerPhone: string | null; customerEmail: string | null; contentHash: string };
+  document: GoDocument;
+  documentId: string;
+  pdfUrl: string;
+  signedAt: Date;
+  sha256: string;
+  stageMoved: boolean;
+};
+
+// Signs the GO contract. The customer was shown the document with GO's
+// signature and no client lines; that is what contentHash fingerprints. Their
+// typed name (and an optional second signer) become the client lines, the
+// signed document is kept whole, and the PDF is made from it.
+async function signGoContract(agreement: { id: string; accountId: string; bookingId: string | null; designRequestId: string | null }, input: SignInput): Promise<SignedGo> {
+  const shown = await buildGoDocument(agreement.id);
+  if (input.contentHash && input.contentHash !== shown.contentHash) {
+    throw new ContractError(409, "contract-changed", "The contract changed since you opened it. Please read it again before signing.");
+  }
+  const signedAt = new Date();
+  const client: GoSignature = { printedName: input.fullName, signedAt: signedAt.toISOString() };
+  const additional: GoSignature | null = input.additionalSignerName ? { printedName: input.additionalSignerName, signedAt: signedAt.toISOString() } : null;
+  const signed = await buildGoDocument(agreement.id, { client, additional });
+  const logo = await contractLogo(agreement.accountId);
+  const pdf = await buildGoPdf({ doc: signed.document, logo: { bytes: logo.bytes, type: logo.type }, audit: { signedAt, ip: input.ip, contentHash: shown.contentHash } });
+  const downloadToken = token();
+  const sha256 = createHash("sha256").update(pdf).digest("hex");
+  const b = agreement.bookingId ? await prisma.booking.findUnique({ where: { id: agreement.bookingId }, select: { phone: true, email: true } }) : null;
+  const policy = await currentPolicy(agreement.accountId);
+
+  const result = await prisma.$transaction(async (tx) => {
+    const locked = await tx.$queryRaw<{ contract_status: string | null }[]>`SELECT contract_status FROM agreements WHERE id = ${agreement.id} FOR UPDATE`;
+    if (locked[0]?.contract_status === "Signed") throw new ContractError(409, "already-signed", "This contract was already signed.");
+    const doc = await tx.contractDocument.create({
+      data: {
+        accountId: agreement.accountId,
+        agreementId: agreement.id,
+        policyVersionId: policy.id,
+        downloadToken,
+        text: renderGoText(signed.document),
+        pdf: Buffer.from(pdf),
+        sha256,
+        signedName: input.fullName,
+        additionalSignerName: input.additionalSignerName ?? null,
+        format: "go-v2",
+        documentJson: signed.document,
+        consentElectronic: true,
+        agreedToTerms: true,
+        signerIp: input.ip,
+        signerUserAgent: input.userAgent?.slice(0, 300) ?? null,
+        signedAt,
+      },
+    });
+    const link = pdfLink(downloadToken, input.baseRequest);
+    await tx.agreement.update({ where: { id: agreement.id }, data: { contractProvider: CONTRACT_PROVIDER, contractExternalId: doc.id, contractStatus: "Signed", contractUrl: link } });
+    let stageMoved = false;
+    if (agreement.bookingId) {
+      const moved = await tx.booking.updateMany({ where: { id: agreement.bookingId, status: { in: ["Held", "Contract Sent"] } }, data: { status: "Signed" } });
+      stageMoved = moved.count > 0;
+    }
+    return { doc, link, stageMoved };
+  });
+  return {
+    format: "go-v2",
+    content: { subject: { bookingId: agreement.bookingId, designRequestId: agreement.designRequestId }, customerPhone: b?.phone ?? null, customerEmail: b?.email ?? null, contentHash: shown.contentHash },
+    document: signed.document,
+    documentId: result.doc.id,
+    pdfUrl: result.link,
+    signedAt,
+    sha256,
+    stageMoved: result.stageMoved,
+  };
 }

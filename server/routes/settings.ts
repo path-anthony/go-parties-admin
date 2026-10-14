@@ -5,7 +5,8 @@ import { MAX_POLICY_LENGTH, currentPolicy, listPolicyVersions, publicPolicy, sav
 import { availabilityLimiter } from "../rateLimit.js";
 import { MAX_NOTICE_HOURS, MAX_PHONE_LENGTH, getSettings } from "../settings.js";
 import { canonicalOccasion } from "../../src/lib/occasions.js";
-import { normalizeText } from "../validate.js";
+import { listTermsVersions, saveServiceRows, saveTerms, serviceRows, validateServiceRows, validateTerms } from "../contract/goTerms.js";
+import { INVALID, normalizePhotoUrl, normalizeText } from "../validate.js";
 
 const MAX_THRESHOLD = 10_000_000;
 const MAX_CANCELLATION_DAYS = 365;
@@ -58,6 +59,19 @@ router.patch("/", async (req, res) => {
     directBookingDailyCap?: number;
     requireBotCheck?: boolean;
     holdReleaseDays?: number;
+    contractCompanyName?: string;
+    contractAddressLine?: string;
+    contractPhone?: string;
+    contractEmail?: string;
+    contractWebsite?: string;
+    contractFooterLine?: string;
+    contractLogo?: string | null;
+    balanceDueDays?: number;
+    rescheduleFeePercent?: number;
+    outsidePlannerChargePercent?: number;
+    returnedCheckFee?: number;
+    signAndPayWindowDays?: number;
+    useGoContract?: boolean;
   } = {};
 
   if ("minBookingNoticeHours" in body) {
@@ -144,6 +158,43 @@ router.patch("/", async (req, res) => {
       data[field] = n;
     }
   }
+  // The GO contract's company details: text as it should print. Required,
+  // so a blank never reaches a contract.
+  for (const [field, max] of [["contractCompanyName", 120], ["contractAddressLine", 200], ["contractPhone", 60], ["contractEmail", 120], ["contractWebsite", 120], ["contractFooterLine", 300]] as const) {
+    if (field in body) {
+      const v = typeof body[field] === "string" ? normalizeText(body[field]) : null;
+      if (!v || v.length > max) return res.status(400).json({ error: `${field} is required, up to ${max} characters` });
+      data[field] = v;
+    }
+  }
+  if ("contractLogo" in body) {
+    if (body.contractLogo === null) data.contractLogo = null;
+    else {
+      const logo = normalizePhotoUrl(body.contractLogo);
+      if (logo === INVALID || logo === null || !logo.startsWith("data:image/") || logo.length > 2_000_000) {
+        return res.status(400).json({ error: "The logo must be an uploaded png, jpeg, gif or webp image" });
+      }
+      data.contractLogo = logo;
+    }
+  }
+  for (const [field, max] of [["balanceDueDays", 365], ["signAndPayWindowDays", 365]] as const) {
+    if (field in body) {
+      const n = body[field];
+      if (typeof n !== "number" || !Number.isInteger(n) || n < 0 || n > max) return res.status(400).json({ error: `${field} must be a whole number of days from 0 to ${max}` });
+      data[field] = n;
+    }
+  }
+  for (const [field, max] of [["rescheduleFeePercent", 100], ["outsidePlannerChargePercent", 100], ["returnedCheckFee", 100000]] as const) {
+    if (field in body) {
+      const n = body[field];
+      if (typeof n !== "number" || !Number.isFinite(n) || n < 0 || n > max) return res.status(400).json({ error: `${field} must be a number from 0 to ${max}` });
+      data[field] = Math.round(n * 100) / 100;
+    }
+  }
+  if ("useGoContract" in body) {
+    if (typeof body.useGoContract !== "boolean") return res.status(400).json({ error: "useGoContract must be true or false" });
+    data.useGoContract = body.useGoContract;
+  }
   if ("requireBotCheck" in body) {
     if (typeof body.requireBotCheck !== "boolean") return res.status(400).json({ error: "requireBotCheck must be true or false" });
     data.requireBotCheck = body.requireBotCheck;
@@ -190,6 +241,43 @@ router.post("/policy", async (req, res) => {
     }
     throw err;
   }
+});
+
+// ---- the GO contract's wording and service rows ----------------------------------
+
+// Every version, newest first, with how many agreements pin each.
+router.get("/contract-terms", async (_req, res) => {
+  const account = await getDefaultAccount();
+  const versions = await listTermsVersions(account.id);
+  res.json({ current: versions[0], versions });
+});
+
+// Saving adds a version; it never edits or removes an earlier one.
+router.post("/contract-terms", async (req, res) => {
+  const content = validateTerms((req.body ?? {}).content);
+  if (typeof content === "string") return res.status(400).json({ error: content });
+  const account = await getDefaultAccount();
+  try {
+    const { created, version } = await saveTerms(account.id, content);
+    res.status(created ? 201 : 200).json({ created, version });
+  } catch (err) {
+    if ((err as { code?: unknown }).code === "P2002") return res.status(409).json({ error: "The terms were just saved by someone else. Reload and try again." });
+    throw err;
+  }
+});
+
+router.get("/contract-services", async (_req, res) => {
+  const account = await getDefaultAccount();
+  res.json({ rows: await serviceRows(account.id) });
+});
+
+// Replaces the list. Rows keep their ids when sent back, so bookings' per-row
+// overrides stay attached.
+router.put("/contract-services", async (req, res) => {
+  const rows = validateServiceRows((req.body ?? {}).rows);
+  if (typeof rows === "string") return res.status(400).json({ error: rows });
+  const account = await getDefaultAccount();
+  res.json({ rows: await saveServiceRows(account.id, rows) });
 });
 
 export default router;

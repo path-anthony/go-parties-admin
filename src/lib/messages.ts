@@ -25,6 +25,8 @@ export function describeSend(row: MessageLogRow): string {
       return "Not sent: this number replied STOP or was marked opted out. Email is not affected.";
     case "failed_final":
       return `Gave up after 3 tries: ${row.error ?? "unknown error"}.`;
+    case "skipped-not-ready":
+      return `Not sent: ${row.error ?? "the contract details are not complete"}`;
     case "skipped-no-webhook":
       return "Not sent: the email webhook isn't set up. It is in the log as skipped.";
     default:
@@ -50,6 +52,7 @@ export function statusLabel(status: string): string {
       "skipped-not-configured": "Not sent: Twilio not set up",
       "skipped-no-webhook": "Not sent: no email webhook",
       "skipped-no-policy": "Not sent: no policy text",
+      "skipped-not-ready": "Not sent: contract details missing",
       skipped_opted_out: "Not sent: opted out",
       failed_final: "Failed, gave up",
     } as Record<string, string>

@@ -18,6 +18,7 @@ import {
 } from "../lib/types";
 import { EditableCell } from "./EditableCell";
 import { AutomationTimeline } from "./AutomationTimeline";
+import { ContractDetails } from "./ContractDetails";
 import { RecordMessages } from "./RecordMessages";
 import { SendMessageControls } from "./SendMessageControls";
 import { AgreementChip } from "./AgreementChip";
@@ -300,6 +301,7 @@ export function BookingModal({
               nothing. A signed contract is never sent again by a stage change. Every send is logged under Messages.
             </span>
           </div>
+          <ContractDetails booking={booking} onSave={save} />
           <RecordMessages bookingId={booking.id} />
           <AutomationTimeline kind="booking" id={booking.id} />
           <label className="detail-field">

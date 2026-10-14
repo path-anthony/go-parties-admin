@@ -11,7 +11,7 @@ import { MessageTemplatesPage, MessagesUpcomingPage, SentLogPage } from "./compo
 import { OverviewScreen } from "./components/screens/OverviewScreen";
 import { PackagesScreen } from "./components/screens/PackagesScreen";
 import { SchedulingScreen } from "./components/screens/SchedulingScreen";
-import { BusinessRulesPage, IntegrationsPage, LeadPipelinePage, NotificationsPage, PoliciesPage } from "./components/screens/SettingsPages";
+import { BusinessRulesPage, ContractSettingsPage, ContractTermsPage, IntegrationsPage, LeadPipelinePage, NotificationsPage, PoliciesPage } from "./components/screens/SettingsPages";
 import { SkillsPage } from "./components/screens/SkillsPage";
 import type { ScreenKey, ScreenParams } from "./lib/navigation";
 
@@ -111,6 +111,8 @@ export const NAV: NavItem[] = [
     pages: [
       { label: "Business rules", path: "/settings/business-rules", element: <BusinessRulesPage /> },
       { label: "Policies and contracts", path: "/settings/policies", element: <PoliciesPage /> },
+      { label: "Contract terms", path: "/settings/contract-terms", element: <ContractTermsPage /> },
+      { label: "Contract settings", path: "/settings/contract-settings", element: <ContractSettingsPage /> },
       { label: "Lead pipeline", path: "/settings/lead-pipeline", element: <LeadPipelinePage /> },
       { label: "Notifications", path: "/settings/notifications", element: <NotificationsPage /> },
       { label: "Integrations", path: "/settings/integrations", element: <IntegrationsPage /> },

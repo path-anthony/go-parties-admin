@@ -445,6 +445,29 @@ export type Booking = {
   balancePaid: boolean;
   // Null on bookings made before agreements existed.
   agreement: AgreementInfo | null;
+  // The GO contract's details. All optional; see ContractDetailsPatch.
+  guestOfHonor: string | null;
+  ageRange: string | null;
+  expectedGuests: number | null;
+  timeFrom: string | null;
+  timeTo: string | null;
+  venueName: string | null;
+  venuePhone: string | null;
+  onsiteContactName: string | null;
+  onsiteContactPhone: string | null;
+  planner: string | null;
+  mailingAddress: string | null;
+  city: string | null;
+  state: string | null;
+  zip: string | null;
+  phoneHome: string | null;
+  phoneWork: string | null;
+  phoneCell: string | null;
+  specialRequests: string | null;
+  discountPercent: string | null; // serialized Decimal
+  discountAmount: string | null; // serialized Decimal
+  discountDescription: string | null;
+  contractServices: Record<string, ServiceRowOverride> | null;
   customerId: string | null; // set when booked from a customer account
   total: string | null; // what the customer was quoted, add-ons included
   addons: BookingAddon[];
@@ -467,6 +490,52 @@ export type BookingPatch = {
   retainerPaid?: boolean;
   balancePaid?: boolean;
   balancePaymentPreference?: BalancePreference;
+  guestOfHonor?: string | null;
+  ageRange?: string | null;
+  expectedGuests?: number | null;
+  timeFrom?: string | null;
+  timeTo?: string | null;
+  venueName?: string | null;
+  venuePhone?: string | null;
+  onsiteContactName?: string | null;
+  onsiteContactPhone?: string | null;
+  planner?: string | null;
+  mailingAddress?: string | null;
+  city?: string | null;
+  state?: string | null;
+  zip?: string | null;
+  phoneHome?: string | null;
+  phoneWork?: string | null;
+  phoneCell?: string | null;
+  specialRequests?: string | null;
+  discountPercent?: number | null;
+  discountAmount?: number | null;
+  discountDescription?: string | null;
+  contractServices?: Record<string, ServiceRowOverride> | null;
+};
+
+// Staff overrides for one row of the contract's services table.
+export type ServiceRowOverride = { checked?: boolean | null; details?: string | null; feeCents?: number | null };
+
+export type ServiceRow = { id: string; column: "left" | "right"; position: number; label: string; isGroupHeading: boolean; categories: string[]; itemWords: string[]; itemIds: string[] };
+export type ServiceRowInput = Omit<ServiceRow, "id" | "position"> & { id?: string };
+
+export type GoClause = { title: string; body: string };
+export type GoTermsContent = {
+  header: { title: string; confirmByLine: string; nonRefundableLine: string };
+  terms: { heading: string; pageHeader: string; pageSubheader: string; clauses: GoClause[] };
+  servicesNote: string;
+  paymentNote: string;
+  acceptance: { heading: string; text: string; esignLabel: string; confirmLine: string; nonRefundableLine: string };
+};
+export type TermsVersionInfo = { id: string; version: number; content: GoTermsContent; createdAt: string; agreements: number };
+
+export type ContractStatusInfo = {
+  format: "sections" | "go-v2";
+  decided: boolean;
+  readiness: string | null;
+  goSigner: { printedName: string; signedAt: string | null } | null;
+  goSignerConfigured: boolean;
 };
 
 // Account-wide settings: rush notice, review routing, retainer.
@@ -488,6 +557,19 @@ export type AccountSettings = {
   directBookingDailyCap: number;
   requireBotCheck: boolean;
   holdReleaseDays: number;
+  contractCompanyName: string;
+  contractAddressLine: string;
+  contractPhone: string;
+  contractEmail: string;
+  contractWebsite: string;
+  contractFooterLine: string;
+  contractLogoSet: boolean;
+  balanceDueDays: number;
+  rescheduleFeePercent: number;
+  outsidePlannerChargePercent: number;
+  returnedCheckFee: number;
+  signAndPayWindowDays: number;
+  useGoContract: boolean;
 };
 
 export type PolicyVersionInfo = { id: string; version: number; text: string; createdAt: string; agreements: number };

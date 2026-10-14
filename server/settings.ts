@@ -28,6 +28,19 @@ export async function getSettings(accountId: string) {
       directBookingDailyCap: true,
       requireBotCheck: true,
       holdReleaseDays: true,
+      contractCompanyName: true,
+      contractAddressLine: true,
+      contractPhone: true,
+      contractEmail: true,
+      contractWebsite: true,
+      contractFooterLine: true,
+      contractLogo: true,
+      balanceDueDays: true,
+      rescheduleFeePercent: true,
+      outsidePlannerChargePercent: true,
+      returnedCheckFee: true,
+      signAndPayWindowDays: true,
+      useGoContract: true,
     },
   });
   return {
@@ -47,6 +60,20 @@ export async function getSettings(accountId: string) {
     directBookingDailyCap: account.directBookingDailyCap,
     requireBotCheck: account.requireBotCheck,
     holdReleaseDays: account.holdReleaseDays,
+    contractCompanyName: account.contractCompanyName,
+    contractAddressLine: account.contractAddressLine,
+    contractPhone: account.contractPhone,
+    contractEmail: account.contractEmail,
+    contractWebsite: account.contractWebsite,
+    contractFooterLine: account.contractFooterLine,
+    // Whether a logo was uploaded; the bytes stay out of the settings reply.
+    contractLogoSet: account.contractLogo !== null,
+    balanceDueDays: account.balanceDueDays,
+    rescheduleFeePercent: Number(account.rescheduleFeePercent),
+    outsidePlannerChargePercent: Number(account.outsidePlannerChargePercent),
+    returnedCheckFee: Number(account.returnedCheckFee),
+    signAndPayWindowDays: account.signAndPayWindowDays,
+    useGoContract: account.useGoContract,
   };
 }
 

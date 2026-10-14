@@ -2,6 +2,7 @@ import { getDefaultAccount } from "./account.js";
 import { redact, safeErr } from "./log.js";
 import { afterContractSend, contractSendAction, reallySent, sendFailureReason, type ContractSendAction, type ContractSendKind } from "./contractSend.js";
 import { ContractError, markContractSent, prepareContract, type signContract } from "./contracts.js";
+import { goReadinessFor } from "./contract/goLoad.js";
 import { prisma } from "./db.js";
 import type { SendResult } from "./messaging.js";
 import { sendTemplatedMessage, type ChannelOutcome } from "./sendTemplated.js";
@@ -72,6 +73,29 @@ export async function sendContract(target: { bookingId?: string; designRequestId
     const bookingStage = booking?.status ?? null;
     try {
       const prepared = await prepareContract(target);
+      // The GO contract prints the venue, the on-site contact, the guest count
+      // and the times; it does not go out without them. Nothing is marked.
+      if (prepared.format === "go-v2" && target.bookingId && !prepared.signed) {
+        const notReady = await goReadinessFor(target.bookingId);
+        if (notReady) {
+          const account = await getDefaultAccount();
+          const row = await prisma.messageLog.create({
+            data: {
+              accountId: account.id,
+              channel: "sms",
+              purpose,
+              recipient: subject.phone ?? "(none)",
+              body: "(not composed)",
+              status: "skipped-not-ready",
+              error: notReady,
+              bookingId: ctx.bookingId,
+              triggerKey: "contract_sent",
+              journey: "client",
+            },
+          });
+          return { result: { logId: row.id, status: "skipped-not-ready", error: notReady }, action: "send-link", linkIsOut: false, stageMoved: false, signed: false, reason: notReady };
+        }
+      }
       // Ground truth for "already sent": a contract link that was really handed over.
       const earlier = await prisma.messageLog.findFirst({
         where: {

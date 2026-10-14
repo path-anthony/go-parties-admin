@@ -13,6 +13,7 @@ import {
 } from "../bookingOps.js";
 import { BOOKING_GIGS_SELECT, NoCrewFree } from "../gigs.js";
 import { prisma } from "../db.js";
+import { Prisma } from "../../src/generated/prisma/client.js";
 import { BALANCE_PREFERENCES, BOOKING_STAGES, displayStatus } from "../../src/lib/bookingStatus.js";
 import { AGREEMENT_SELECT } from "../agreements.js";
 import { notifyStageChange, sendContract } from "../notify.js";
@@ -144,7 +145,79 @@ router.patch("/:id", async (req, res) => {
     balancePaid?: boolean;
     rush?: boolean;
     balancePaymentPreference?: string;
+    guestOfHonor?: string | null;
+    ageRange?: string | null;
+    expectedGuests?: number | null;
+    timeFrom?: string | null;
+    timeTo?: string | null;
+    venueName?: string | null;
+    venuePhone?: string | null;
+    onsiteContactName?: string | null;
+    onsiteContactPhone?: string | null;
+    planner?: string | null;
+    mailingAddress?: string | null;
+    city?: string | null;
+    state?: string | null;
+    zip?: string | null;
+    phoneHome?: string | null;
+    phoneWork?: string | null;
+    phoneCell?: string | null;
+    specialRequests?: string | null;
+    discountPercent?: number | null;
+    discountAmount?: number | null;
+    discountDescription?: string | null;
+    contractServices?: Record<string, { checked?: boolean | null; details?: string | null; feeCents?: number | null }> | typeof Prisma.DbNull;
   } = {};
+
+  // The contract details: free text, each optional and clearable.
+  for (const [field, max] of [
+    ["guestOfHonor", 120], ["ageRange", 60], ["timeFrom", 40], ["timeTo", 40], ["venueName", 160], ["venuePhone", 40], ["onsiteContactName", 120], ["onsiteContactPhone", 40],
+    ["planner", 160], ["mailingAddress", 200], ["city", 80], ["state", 40], ["zip", 20], ["phoneHome", 40], ["phoneWork", 40], ["phoneCell", 40], ["specialRequests", 1000], ["discountDescription", 160],
+  ] as const) {
+    if (field in body) {
+      const v = optionalText(body[field], max);
+      if (v === INVALID) return res.status(400).json({ error: `${field} must be text up to ${max} characters` });
+      data[field] = v;
+    }
+  }
+  if ("expectedGuests" in body) {
+    const n = body.expectedGuests;
+    if (n !== null && (typeof n !== "number" || !Number.isInteger(n) || n < 0 || n > 100000)) return res.status(400).json({ error: "expectedGuests must be a whole number, or blank" });
+    data.expectedGuests = n;
+  }
+  if ("discountPercent" in body) {
+    const n = body.discountPercent;
+    if (n !== null && (typeof n !== "number" || !Number.isFinite(n) || n < 0 || n > 100)) return res.status(400).json({ error: "discountPercent must be a number from 0 to 100, or blank" });
+    data.discountPercent = n === null ? null : Math.round(n * 100) / 100;
+  }
+  if ("discountAmount" in body) {
+    const n = body.discountAmount;
+    if (n !== null && (typeof n !== "number" || !Number.isFinite(n) || n < 0 || n > 10_000_000)) return res.status(400).json({ error: "discountAmount must be a dollar amount, or blank" });
+    data.discountAmount = n === null ? null : Math.round(n * 100) / 100;
+  }
+  if ("contractServices" in body) {
+    const v = body.contractServices;
+    if (v !== null && (typeof v !== "object" || Array.isArray(v))) return res.status(400).json({ error: "contractServices must be an object of row overrides, or null" });
+    if (v !== null) {
+      const clean: Record<string, { checked?: boolean | null; details?: string | null; feeCents?: number | null }> = {};
+      for (const [rowId, raw] of Object.entries(v as Record<string, unknown>)) {
+        if (typeof rowId !== "string" || rowId.length > 60 || !raw || typeof raw !== "object") return res.status(400).json({ error: "contractServices has a bad row" });
+        const o = raw as Record<string, unknown>;
+        const entry: { checked?: boolean | null; details?: string | null; feeCents?: number | null } = {};
+        if ("checked" in o && o.checked !== null && typeof o.checked !== "boolean") return res.status(400).json({ error: "checked must be true, false or null" });
+        if ("checked" in o) entry.checked = o.checked as boolean | null;
+        if ("details" in o) {
+          const d = optionalText(o.details, 200);
+          if (d === INVALID) return res.status(400).json({ error: "details must be text up to 200 characters" });
+          entry.details = d;
+        }
+        if ("feeCents" in o && o.feeCents !== null && (typeof o.feeCents !== "number" || !Number.isInteger(o.feeCents) || o.feeCents < 0 || o.feeCents > 1_000_000_000)) return res.status(400).json({ error: "feeCents must be whole cents, or null" });
+        if ("feeCents" in o) entry.feeCents = o.feeCents as number | null;
+        if (Object.keys(entry).length > 0) clean[rowId] = entry;
+      }
+      data.contractServices = clean;
+    } else data.contractServices = Prisma.DbNull;
+  }
 
   if ("retainerPaid" in body) {
     if (typeof body.retainerPaid !== "boolean") {

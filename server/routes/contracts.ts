@@ -1,6 +1,9 @@
 import { Router } from "express";
 import { getDefaultAccount } from "../account.js";
 import { ContractError, buildContractContent, buildContractPdf, pdfLink, prepareContract, signContract, signingWindow } from "../contracts.js";
+import { buildGoDocument, contractLogo, goReadinessFor } from "../contract/goLoad.js";
+import { buildGoPdf } from "../contract/goPdf.js";
+import { getSettings } from "../settings.js";
 import { prisma } from "../db.js";
 import { notifyContractSigned } from "../notify.js";
 import { availabilityLimiter, contractSignLimiter } from "../rateLimit.js";
@@ -33,8 +36,23 @@ publicContractsRouter.get("/pdf/:downloadToken", availabilityLimiter, async (req
   res.send(Buffer.from(doc.pdf));
 });
 
+// The company logo on the GO contract: the uploaded one or the built-in
+// placeholder. Public, since the contract page shows it. Defined before
+// "/:token" so "logo.png" is never read as a token.
+publicContractsRouter.get("/logo.png", availabilityLimiter, async (_req, res) => {
+  const account = await getDefaultAccount();
+  const logo = await contractLogo(account.id);
+  res.setHeader("Content-Type", logo.type);
+  res.setHeader("Cache-Control", "public, max-age=3600");
+  res.setHeader("ETag", `"${logo.etag}"`);
+  res.send(logo.bytes);
+});
+
 // The contract, ready to render: real values merged into the text and the
-// live policy. contentHash identifies exactly this text; send it back when
+// live policy. For the GO contract (format go-v2) the reply carries the whole
+// document in the locked shape the storefront renders, built field by field
+// in server/contract/goDocument.ts. Agreements on the original layout answer
+// exactly as before. contentHash identifies exactly this text; send it back when
 // signing so the customer can only sign what they were shown.
 publicContractsRouter.get("/:token", availabilityLimiter, async (req, res) => {
   try {
@@ -48,7 +66,7 @@ publicContractsRouter.get("/:token", availabilityLimiter, async (req, res) => {
 
     if (agreement.contractDocument) {
       const doc = agreement.contractDocument;
-      return res.json({
+      const base = {
         status: "Signed",
         signed: true,
         title: "Event Services Agreement",
@@ -56,6 +74,36 @@ publicContractsRouter.get("/:token", availabilityLimiter, async (req, res) => {
         signedName: doc.signedName,
         signedAt: doc.signedAt.toISOString(),
         pdfUrl: agreement.contractUrl ?? pdfLink(doc.downloadToken, req),
+      };
+      // The signed GO document is served as it was signed, all three
+      // signature lines in it, never rebuilt.
+      if (doc.format === "go-v2" && doc.documentJson) return res.json({ ...base, format: "go-v2", document: doc.documentJson });
+      return res.json(base);
+    }
+
+    if (agreement.format === "go-v2") {
+      const go = await buildGoDocument(agreement.id);
+      const d = go.document;
+      const cents = (v: number | "-" | null) => (typeof v === "number" ? v / 100 : null);
+      return res.json({
+        status: "Sent",
+        signed: false,
+        format: "go-v2",
+        title: d.terms.pageHeader ?? "Service Contract and Retainer Agreement",
+        customerName: d.client.nameOrg,
+        eventDate: d.event.date,
+        eventTime: d.event.timeFromTo,
+        address: d.event.venueAddress,
+        total: cents(d.payment.total),
+        depositPercentage: d.payment.retainerPercent,
+        depositAmount: cents(d.payment.retainerAmount),
+        balanceAmount: cents(d.payment.balance),
+        sections: [],
+        text: "",
+        contentHash: go.contentHash,
+        consentText: d.acceptance.esignLabel ?? CONSENT_TEXT,
+        termsText: TERMS_TEXT,
+        document: d,
       });
     }
 
@@ -96,11 +144,24 @@ publicContractsRouter.post("/:token/sign", contractSignLimiter, async (req, res)
   if (fullName.length < 3 || fullName.length > 120 || !fullName.includes(" ")) {
     return res.status(400).json({ error: "Type your full name, first and last.", reason: "name-required" });
   }
-  if (body.consentToElectronicSignature !== true) {
+  // The GO contract has one checkbox: consenting to sign electronically is
+  // agreeing to the terms (its text says so). The original layout asks twice.
+  const agreementFormat = (await prisma.agreement.findUnique({ where: { signingToken: String(req.params.token) }, select: { format: true } }))?.format ?? null;
+  const isGo = agreementFormat === "go-v2";
+  const consented = body.consentToElectronicSignature === true || (isGo && body.esignConsent === true);
+  const agreed = body.agreeToTerms === true || (isGo && body.esignConsent === true);
+  if (!consented) {
     return res.status(400).json({ error: "You need to consent to sign electronically to continue.", reason: "consent-required" });
   }
-  if (body.agreeToTerms !== true) {
+  if (!agreed) {
     return res.status(400).json({ error: "You need to agree to the contract terms to continue.", reason: "terms-required" });
+  }
+  let additionalSignerName: string | null = null;
+  if (body.additionalSignerName !== undefined && body.additionalSignerName !== null && body.additionalSignerName !== "") {
+    if (typeof body.additionalSignerName !== "string" || body.additionalSignerName.trim().length > 120) {
+      return res.status(400).json({ error: "The additional signer's name can be up to 120 characters.", reason: "name-required" });
+    }
+    additionalSignerName = body.additionalSignerName.trim().replace(/\s+/g, " ") || null;
   }
   if (body.contentHash !== undefined && typeof body.contentHash !== "string") {
     return res.status(400).json({ error: "contentHash must be text" });
@@ -108,6 +169,7 @@ publicContractsRouter.post("/:token/sign", contractSignLimiter, async (req, res)
   try {
     const signed = await signContract(String(req.params.token), {
       fullName,
+      additionalSignerName,
       consentToElectronicSignature: true,
       agreeToTerms: true,
       contentHash: body.contentHash as string | undefined,
@@ -124,6 +186,8 @@ publicContractsRouter.post("/:token/sign", contractSignLimiter, async (req, res)
       signedName: fullName,
       documentId: signed.documentId,
       pdfUrl: signed.pdfUrl,
+      // The GO contract comes back whole, all three signature lines in it.
+      ...("format" in signed && signed.format === "go-v2" ? { format: "go-v2", document: signed.document } : {}),
     });
   } catch (err) {
     fail(res, err);
@@ -150,6 +214,20 @@ adminContractsRouter.post("/issue", async (req, res) => {
   }
 });
 
+// Which contract a booking gets, and whether it is ready to send: the
+// booking popup shows this next to the send button.
+adminContractsRouter.get("/status/:bookingId", async (req, res) => {
+  const account = await getDefaultAccount();
+  const booking = await prisma.booking.findFirst({ where: { id: String(req.params.bookingId), accountId: account.id }, select: { id: true, agreement: { select: { format: true, signingToken: true, contractStatus: true, goSignerName: true, goSignedAt: true } } } });
+  if (!booking) return res.status(404).json({ error: "booking not found" });
+  const settings = await getSettings(account.id);
+  const a = booking.agreement;
+  // Decided already, or what the first send would decide.
+  const format = a?.format === "go-v2" ? "go-v2" : a?.signingToken || a?.format ? "sections" : settings.useGoContract ? "go-v2" : "sections";
+  const readiness = format === "go-v2" ? await goReadinessFor(booking.id) : null;
+  res.json({ format, decided: !!a?.signingToken, readiness, goSigner: a?.goSignerName ? { printedName: a.goSignerName, signedAt: a.goSignedAt?.toISOString() ?? null } : null, goSignerConfigured: !!settings.authorizedSignerName && !!settings.authorizedSignerTitle });
+});
+
 // The unsigned contract as a PDF, for staff to look over. Not stored. Looking
 // is not sending: this never marks the contract Sent and never starts the
 // 48-hour reminder clock.
@@ -159,8 +237,15 @@ adminContractsRouter.get("/preview/:bookingId.pdf", async (req, res) => {
   if (!booking) return res.status(404).json({ error: "booking not found" });
   try {
     const issued = await prepareContract({ bookingId: booking.id });
-    const content = await buildContractContent(issued.agreementId);
-    const pdf = await buildContractPdf(content);
+    let pdf: Uint8Array;
+    if (issued.format === "go-v2") {
+      const go = await buildGoDocument(issued.agreementId);
+      const logo = await contractLogo(account.id);
+      pdf = await buildGoPdf({ doc: go.document, logo: { bytes: logo.bytes, type: logo.type } });
+    } else {
+      const content = await buildContractContent(issued.agreementId);
+      pdf = await buildContractPdf(content);
+    }
     res.setHeader("Content-Type", "application/pdf");
   res.removeHeader("Content-Security-Policy");
     res.setHeader("Content-Disposition", 'inline; filename="contract-preview.pdf"');

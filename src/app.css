@@ -2776,3 +2776,35 @@ a.nav-item {
 .bids-fields { display: flex; flex-wrap: wrap; gap: 8px 12px; }
 .bids-row { display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: center; }
 .bids-questions { flex-basis: 100%; margin: 0; padding-left: 16px; font-size: 13px; }
+
+/* GO contract settings and details */
+.terms-editor { display: grid; grid-template-columns: minmax(0, 1fr) minmax(280px, 0.8fr); gap: 20px; }
+.terms-form h3 { margin: 16px 0 6px; font-size: 14px; }
+.terms-form label { display: block; margin-bottom: 8px; font-size: 12px; font-weight: 600; }
+.terms-form textarea, .terms-form input { width: 100%; margin-top: 3px; font-weight: 400; }
+.clause-list { padding-left: 0; list-style: none; }
+.clause-row { margin-bottom: 10px; }
+.clause-head { display: flex; gap: 6px; align-items: center; margin-bottom: 4px; }
+.clause-head input { flex: 1; }
+.terms-preview { background: #fff; border: 1px solid #777; padding: 12px; font-size: 11.5px; line-height: 1.45; color: #000; align-self: start; position: sticky; top: 12px; max-height: calc(100vh - 40px); overflow: auto; }
+.go-bar { background: #000; color: #FEA002; padding: 6px 8px; margin: 8px 0; font-weight: 800; text-transform: uppercase; font-size: 11px; }
+.go-bar div { font-weight: 600; font-size: 9px; margin-top: 2px; }
+.go-bar-section { font-size: 11px; }
+.go-note { font-size: 10px; margin: 6px 0; }
+.go-clauses { padding-left: 16px; margin: 6px 0; }
+.go-clauses li { margin-bottom: 6px; }
+.go-center { text-align: center; font-size: 10.5px; margin-top: 10px; }
+.logo-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.contract-logo-preview { width: 64px; height: 64px; border-radius: 50%; object-fit: cover; border: 1px solid #ddd; }
+.service-col-editor { margin-top: 12px; }
+.service-row-editor { border: 1px solid #e5e5e5; border-radius: 6px; padding: 8px; margin: 6px 0; }
+.service-row-head { display: flex; gap: 8px; align-items: center; }
+.service-row-head input[type="text"], .service-row-head > input { flex: 1; }
+.service-row-maps { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; margin-top: 6px; font-size: 12px; }
+.service-row-maps select { width: 100%; }
+.service-overrides { margin-top: 10px; }
+.service-override-row { display: grid; grid-template-columns: 1.3fr 1.6fr 0.8fr auto; gap: 8px; align-items: center; }
+@media (max-width: 900px) {
+  .terms-editor, .service-row-maps, .service-override-row { grid-template-columns: 1fr; }
+  .terms-preview { position: static; max-height: none; }
+}
