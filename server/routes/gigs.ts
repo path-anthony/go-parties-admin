@@ -2,6 +2,7 @@ import { AGREEMENT_SELECT } from "../agreements.js";
 import { BidError, acceptOffer, extendDeadline, inviteBids, notifyAccepted, offerState, prefillFromBooking, rangeFlag } from "../bids.js";
 import { buildMessageValues } from "../messageContext.js";
 import { queueGoogleSync } from "../google/sync.js";
+import { actorFields } from "../actor.js";
 import { renderChannel } from "../sendTemplated.js";
 import { getEffectiveTemplates } from "../templates.js";
 import { mustGetTrigger } from "../triggers.js";
@@ -62,7 +63,7 @@ async function gigWithCandidates(id: string) {
 }
 
 async function logActivity(leadId: string | null, text: string) {
-  if (leadId) await prisma.leadActivity.create({ data: { leadId, text } });
+  if (leadId) await prisma.leadActivity.create({ data: { leadId, text, ...actorFields() } });
 }
 
 router.get("/", async (req, res) => {

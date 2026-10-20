@@ -2808,3 +2808,24 @@ a.nav-item {
   .terms-editor, .service-row-maps, .service-override-row { grid-template-columns: 1fr; }
   .terms-preview { position: static; max-height: none; }
 }
+
+/* Block U: account menu, team page, read-only settings for Staff */
+.account-menu { margin-left: auto; position: relative; }
+.account-menu .admin-logout { margin-left: 0; }
+.account-menu-list {
+  position: absolute; right: 0; top: calc(100% + 6px); z-index: 30; min-width: 220px;
+  background: #fff; border: 1px solid #e4e4e7; border-radius: 8px; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12); padding: 6px;
+}
+.account-menu-who { padding: 6px 10px 8px; font-size: 13px; border-bottom: 1px solid #f0f0f2; margin-bottom: 4px; display: flex; flex-direction: column; gap: 2px; }
+.account-menu-list button { display: flex; align-items: center; gap: 8px; width: 100%; text-align: left; background: none; border: 0; padding: 8px 10px; border-radius: 6px; font: inherit; font-size: 13px; cursor: pointer; }
+.account-menu-list button:hover { background: #f4f4f5; }
+.modal-narrow { max-width: 440px; }
+.two-step-setup { display: flex; flex-direction: column; align-items: center; gap: 6px; margin: 6px 0 10px; }
+.two-step-qr svg { width: 180px; height: 180px; }
+.backup-codes { columns: 2; list-style: none; padding: 0; margin: 8px 0; }
+.backup-codes li { padding: 2px 0; font-size: 14px; }
+.team-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+.login-link { margin-top: 10px; background: none; border: 0; color: #6b6b73; font: inherit; font-size: 13px; cursor: pointer; text-decoration: underline; text-align: center; display: block; width: 100%; }
+.readonly-fieldset { border: 0; padding: 0; margin: 0; min-width: 0; }
+.readonly-fieldset > * { opacity: 0.85; }
+.readonly-fieldset a.btn-primary, .readonly-fieldset a.btn-secondary { pointer-events: none; opacity: 0.6; }

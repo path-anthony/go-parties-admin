@@ -8,7 +8,9 @@ import { prisma } from "./db.js";
 // request, by the row: present, not expired, right kind. A correctly
 // signed cookie whose row is gone is worth nothing, which is what makes
 // logout real and lets a session be ended from the server side.
-export type SessionKind = "admin" | "customer";
+// "admin_pending" is a password that checked out while the authenticator
+// code is still due; no gated route accepts it.
+export type SessionKind = "admin" | "admin_pending" | "customer";
 
 // 256 bits from the OS. The signature on the cookie stops tampering in
 // transit; the randomness here is what stops guessing an id outright.
@@ -16,14 +18,14 @@ function newSessionId(): string {
   return randomBytes(32).toString("base64url");
 }
 
-export async function createSession(kind: SessionKind, maxAgeMs: number, customerId: string | null = null): Promise<string> {
+export async function createSession(kind: SessionKind, maxAgeMs: number, customerId: string | null = null, userId: string | null = null): Promise<string> {
   const account = await getDefaultAccount();
   const now = Date.now();
   // Housekeeping that costs nothing at login time: rows past their expiry
   // are already invalid, so drop them rather than let the table grow.
   await prisma.session.deleteMany({ where: { expiresAt: { lt: new Date(now) } } });
   const session = await prisma.session.create({
-    data: { id: newSessionId(), accountId: account.id, kind, customerId, expiresAt: new Date(now + maxAgeMs) },
+    data: { id: newSessionId(), accountId: account.id, kind, customerId, userId, expiresAt: new Date(now + maxAgeMs) },
   });
   return session.id;
 }
@@ -32,7 +34,7 @@ export async function createSession(kind: SessionKind, maxAgeMs: number, custome
 // never a session, has been revoked, has expired, or is the other kind.
 export async function findSession(id: unknown, kind: SessionKind) {
   if (typeof id !== "string" || id === "") return null;
-  const session = await prisma.session.findUnique({ where: { id }, include: { customer: true } });
+  const session = await prisma.session.findUnique({ where: { id }, include: { customer: true, user: true } });
   if (!session || session.kind !== kind) return null;
   if (session.expiresAt.getTime() <= Date.now()) {
     await prisma.session.delete({ where: { id } }).catch(() => undefined);

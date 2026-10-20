@@ -1,6 +1,7 @@
 import { AGREEMENT_SELECT } from "../agreements.js";
 import { Router } from "express";
 import { getDefaultAccount } from "../account.js";
+import { actorFields } from "../actor.js";
 import { prisma } from "../db.js";
 import { getDefaultStatus, statusExists } from "../leadStatuses.js";
 
@@ -236,7 +237,7 @@ router.post("/:id/activity", async (req, res) => {
     return res.status(404).json({ error: "lead not found" });
   }
 
-  const entry = await prisma.leadActivity.create({ data: { leadId: id, text } });
+  const entry = await prisma.leadActivity.create({ data: { leadId: id, text, ...actorFields() } });
   res.status(201).json(entry);
 });
 

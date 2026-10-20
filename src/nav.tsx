@@ -13,6 +13,7 @@ import { PackagesScreen } from "./components/screens/PackagesScreen";
 import { SchedulingScreen } from "./components/screens/SchedulingScreen";
 import { BusinessRulesPage, ContractSettingsPage, ContractTermsPage, IntegrationsPage, LeadPipelinePage, NotificationsPage, PoliciesPage } from "./components/screens/SettingsPages";
 import { SkillsPage } from "./components/screens/SkillsPage";
+import { TeamPage } from "./components/screens/TeamPage";
 import type { ScreenKey, ScreenParams } from "./lib/navigation";
 
 // THE navigation, in one place. The sidebar, the routes, the breadcrumb and
@@ -25,10 +26,11 @@ import type { ScreenKey, ScreenParams } from "./lib/navigation";
 //   - Every old address keeps working: add it to LEGACY_REDIRECTS.
 //
 // Room left for later, not built yet:
-//   Leads (groups), Crew & Gigs > Bids, Messages > Upcoming,
-//   Settings > Account and access.
+//   Leads (groups). (Settings > Team is the account and access page.)
 
-export type NavPage = { label: string; path: string; element: ReactElement };
+// ownerOnly: the page is listed and routed only for Owners (the server
+// refuses everyone else regardless).
+export type NavPage = { label: string; path: string; element: ReactElement; ownerOnly?: boolean };
 export type NavItem = {
   key: ScreenKey;
   label: string;
@@ -116,6 +118,7 @@ export const NAV: NavItem[] = [
       { label: "Lead pipeline", path: "/settings/lead-pipeline", element: <LeadPipelinePage /> },
       { label: "Notifications", path: "/settings/notifications", element: <NotificationsPage /> },
       { label: "Integrations", path: "/settings/integrations", element: <IntegrationsPage /> },
+      { label: "Team", path: "/settings/team", element: <TeamPage />, ownerOnly: true },
     ],
   },
 ];
@@ -149,6 +152,9 @@ export const LEGACY_TABS: Record<string, Record<string, string>> = {
 };
 
 export const allPagePaths = (): string[] => NAV.flatMap((n) => (n.pages ? n.pages.map((p) => p.path) : [n.path]));
+
+// The pages this person may see: Staff do not get the owner-only ones.
+export const visiblePages = (item: NavItem, isOwner: boolean): NavPage[] => (item.pages ?? []).filter((p) => isOwner || !p.ownerOnly);
 
 // A group's own address goes to its first page, or to the tab a legacy
 // link named.

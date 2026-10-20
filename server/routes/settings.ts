@@ -1,4 +1,7 @@
 import { Router } from "express";
+import { OWNER_ONLY_MESSAGE, requireOwner } from "../auth.js";
+import type { AdminUser } from "../../src/generated/prisma/client.js";
+import { audit } from "../users.js";
 import { getDefaultAccount } from "../account.js";
 import { prisma } from "../db.js";
 import { MAX_POLICY_LENGTH, currentPolicy, listPolicyVersions, publicPolicy, savePolicy } from "../policy.js";
@@ -40,8 +43,16 @@ router.get("/", async (_req, res) => {
   res.json(await getSettings(account.id));
 });
 
+// Which fields the Notifications page edits; Staff may change those.
+// Everything else here belongs to Business rules or Contract settings,
+// which only an Owner can change.
+const STAFF_FIELDS = new Set(["staffNotifyPhone", "staffNotifyEmail", "balanceReminderWindowDays"]);
+
 router.patch("/", async (req, res) => {
   const body = req.body ?? {};
+  const user = res.locals.user as AdminUser;
+  const ownerFields = Object.keys(body).filter((k) => !STAFF_FIELDS.has(k));
+  if (user.role !== "Owner" && ownerFields.length > 0) return res.status(403).json({ error: OWNER_ONLY_MESSAGE });
   const data: {
     minBookingNoticeHours?: number;
     rushContactPhone?: string | null;
@@ -211,6 +222,9 @@ router.patch("/", async (req, res) => {
 
   const account = await getDefaultAccount();
   await prisma.account.update({ where: { id: account.id }, data });
+  // Who changed which settings (values stay out of the audit line: the
+  // contract logo is a data URL and the phones are personal).
+  if (Object.keys(data).length > 0) await audit("settings changed", Object.keys(data).join(", "));
   res.json(await getSettings(account.id));
 });
 
@@ -226,7 +240,7 @@ router.get("/policy", async (_req, res) => {
 });
 
 // Saving adds a version; it never edits or removes an earlier one.
-router.post("/policy", async (req, res) => {
+router.post("/policy", requireOwner, async (req, res) => {
   const text = (req.body ?? {}).text;
   if (typeof text !== "string" || text.length > MAX_POLICY_LENGTH) {
     return res.status(400).json({ error: `text is required, up to ${MAX_POLICY_LENGTH} characters` });
@@ -234,6 +248,7 @@ router.post("/policy", async (req, res) => {
   const account = await getDefaultAccount();
   try {
     const { created, policy } = await savePolicy(account.id, text);
+    if (created) await audit("policy saved", `version ${policy.version}`);
     res.status(created ? 201 : 200).json({ created, version: { id: policy.id, version: policy.version, text: policy.text, createdAt: policy.createdAt } });
   } catch (err) {
     if ((err as { code?: unknown }).code === "P2002") {
@@ -253,12 +268,13 @@ router.get("/contract-terms", async (_req, res) => {
 });
 
 // Saving adds a version; it never edits or removes an earlier one.
-router.post("/contract-terms", async (req, res) => {
+router.post("/contract-terms", requireOwner, async (req, res) => {
   const content = validateTerms((req.body ?? {}).content);
   if (typeof content === "string") return res.status(400).json({ error: content });
   const account = await getDefaultAccount();
   try {
     const { created, version } = await saveTerms(account.id, content);
+    if (created) await audit("contract terms saved", `version ${version.version}`);
     res.status(created ? 201 : 200).json({ created, version });
   } catch (err) {
     if ((err as { code?: unknown }).code === "P2002") return res.status(409).json({ error: "The terms were just saved by someone else. Reload and try again." });
@@ -273,11 +289,13 @@ router.get("/contract-services", async (_req, res) => {
 
 // Replaces the list. Rows keep their ids when sent back, so bookings' per-row
 // overrides stay attached.
-router.put("/contract-services", async (req, res) => {
+router.put("/contract-services", requireOwner, async (req, res) => {
   const rows = validateServiceRows((req.body ?? {}).rows);
   if (typeof rows === "string") return res.status(400).json({ error: rows });
   const account = await getDefaultAccount();
-  res.json({ rows: await saveServiceRows(account.id, rows) });
+  const saved = await saveServiceRows(account.id, rows);
+  await audit("contract service rows saved", `${saved.length} rows`);
+  res.json({ rows: saved });
 });
 
 export default router;

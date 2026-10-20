@@ -102,7 +102,10 @@ export function MessageLogPanel() {
                       </div>
                     )}
                   </td>
-                  <td>{r.recipient}</td>
+                  <td>
+                    {r.recipient}
+                    {r.sentByName && <div className="muted">Sent by {r.sentByName}</div>}
+                  </td>
                   <td>
                     <span className={`msg-status ${statusClass(r.status)}`}>{statusLabel(r.status)}</span>
                   </td>

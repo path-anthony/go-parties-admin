@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link, Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
-import { LogOut, Menu } from "lucide-react";
-import { AUTH_EXPIRED_EVENT, logout } from "../lib/api";
+import { Menu } from "lucide-react";
+import { useIsOwner } from "../lib/me";
 import { NavigationContext, type ScreenKey, type ScreenParams } from "../lib/navigation";
-import { LEGACY_REDIRECTS, LEGACY_TABS, NAV, GroupRoot, breadcrumbFor, screenToPath } from "../nav";
+import { LEGACY_REDIRECTS, LEGACY_TABS, NAV, GroupRoot, breadcrumbFor, screenToPath, visiblePages } from "../nav";
+import { AccountMenu } from "./AccountMenu";
 import { AskGoPanel } from "./AskGoPanel";
 import { SideNav } from "./SideNav";
 
@@ -53,6 +54,7 @@ export function AdminShell() {
   // A visit counter keys the page, so being sent to the page you are already
   // on with new filters (an Overview card) reloads it fresh.
   const [visit, setVisit] = useState(0);
+  const isOwner = useIsOwner();
 
   const navigate = useCallback(
     (screen: ScreenKey, params?: ScreenParams) => {
@@ -94,18 +96,7 @@ export function AdminShell() {
                 </span>
               ))}
             </nav>
-            <button
-              type="button"
-              className="btn-secondary admin-logout"
-              onClick={() =>
-                logout()
-                  .catch(() => undefined)
-                  // The gate listens for this and shows the login screen.
-                  .finally(() => window.dispatchEvent(new Event(AUTH_EXPIRED_EVENT)))
-              }
-            >
-              <LogOut size={13} /> <span className="admin-logout-text">Log out</span>
-            </button>
+            <AccountMenu />
           </header>
           <div className="admin-content">
             <Routes>
@@ -113,7 +104,7 @@ export function AdminShell() {
                 item.pages
                   ? [
                       <Route key={item.path} path={item.path} element={<GroupRoot item={item} tabs={LEGACY_TABS[item.path]} />} />,
-                      ...item.pages.map((page) => <Route key={page.path} path={page.path} element={<div key={visit}>{page.element}</div>} />),
+                      ...visiblePages(item, isOwner).map((page) => <Route key={page.path} path={page.path} element={<div key={visit}>{page.element}</div>} />),
                     ]
                   : [<Route key={item.path} path={item.path} element={<div key={visit}>{item.element}</div>} />],
               )}

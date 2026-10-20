@@ -344,6 +344,8 @@ export type LeadActivity = {
   leadId: string;
   text: string;
   createdAt: string;
+  // The staff member behind the entry, when there was one.
+  userName?: string | null;
 };
 
 export const UNIT_STATUSES = ["Available", "Booked", "Maintenance"] as const;
@@ -662,6 +664,7 @@ export type MessageLogRow = {
   confirmationAt: string | null;
   confirmationDetail: string | null;
   createdAt: string;
+  sentByName?: string | null;
 };
 
 export type MessageSummary = {
@@ -748,3 +751,19 @@ export type GoogleCalendarInfo = {
   redirectUri: string;
   scopes: string[];
 };
+
+// Staff accounts (Block U).
+export type AdminRole = "Owner" | "Staff";
+export type AdminUser = {
+  id: string;
+  name: string;
+  email: string;
+  role: AdminRole;
+  active: boolean;
+  twoStep: boolean;
+  lastLoginAt: string | null;
+  createdAt: string;
+  invitePending: boolean;
+};
+export type TeamUser = AdminUser & { inviteExpiresAt: string | null };
+export type AuditRow = { id: string; userName: string; action: string; detail: string | null; createdAt: string };

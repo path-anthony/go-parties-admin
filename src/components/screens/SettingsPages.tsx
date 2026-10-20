@@ -13,26 +13,43 @@ import { ContractSettingsForm } from "../ContractSettingsForm";
 import { GoogleCalendarCard } from "../GoogleCalendarCard";
 import { ContractTermsEditor } from "../ContractTermsEditor";
 import { ServiceRowsEditor } from "../ServiceRowsEditor";
+import { useIsOwner } from "../../lib/me";
 
 // Settings is a group in the sidebar; each of these is one of its pages,
 // with its own address. The panels are the same ones that used to be
 // stacked on one long page, unchanged.
 
-function Page({ title, intro, children }: { title: string; intro?: string; children: React.ReactNode }) {
+// ownerOnly pages: Staff see everything but can change nothing. A disabled
+// fieldset switches off every control inside; the server refuses the
+// writes anyway (403, same sentence).
+function Page({ title, intro, ownerOnly, children }: { title: string; intro?: string; ownerOnly?: boolean; children: React.ReactNode }) {
+  const isOwner = useIsOwner();
+  const readOnly = !!ownerOnly && !isOwner;
   return (
     <div className="screen">
       <div className="screen-head">
         <h2>{title}</h2>
         {intro && <p className="muted">{intro}</p>}
+        {readOnly && (
+          <p className="stage-warning" role="note">
+            Only owners can change this.
+          </p>
+        )}
       </div>
-      {children}
+      {readOnly ? (
+        <fieldset className="readonly-fieldset" disabled>
+          {children}
+        </fieldset>
+      ) : (
+        children
+      )}
     </div>
   );
 }
 
 export function BusinessRulesPage() {
   return (
-    <Page title="Business rules" intro="How short-notice bookings and big or special bookings are handled, and the retainer share.">
+    <Page title="Business rules" ownerOnly intro="How short-notice bookings and big or special bookings are handled, and the retainer share.">
       <section className="panel">
         <h2>Rush orders</h2>
         <p className="muted settings-help">
@@ -65,7 +82,7 @@ export function BusinessRulesPage() {
 
 export function PoliciesPage() {
   return (
-    <Page title="Policies and contracts" intro="What customers agree to, and who signs for GO.">
+    <Page title="Policies and contracts" ownerOnly intro="What customers agree to, and who signs for GO.">
       <section className="panel">
         <h2>Cancellation and retainer policy</h2>
         <p className="muted settings-help">
@@ -170,7 +187,7 @@ export function IntegrationsPage() {
     l ? `${statusLabel(l.status)}, ${when(l.createdAt)} ET${l.confirmation === "delivered" ? ", delivered" : ""}` : none;
 
   return (
-    <Page title="Integrations" intro="What is connected. Text and email report only; Google Calendar is set up here.">
+    <Page title="Integrations" ownerOnly intro="What is connected. Text and email report only; Google Calendar is set up here.">
       {error && <p className="form-error">{error}</p>}
       {!status && !error && <p className="muted">Loading…</p>}
       {status && (
@@ -247,7 +264,7 @@ export function IntegrationsPage() {
 
 export function ContractTermsPage() {
   return (
-    <Page title="Contract terms" intro="The GO contract's wording, word for word, with the business numbers filled in from Settings. Each save is a new version; a contract keeps the version it was sent with.">
+    <Page title="Contract terms" ownerOnly intro="The GO contract's wording, word for word, with the business numbers filled in from Settings. Each save is a new version; a contract keeps the version it was sent with.">
       <section className="panel">
         <ContractTermsEditor />
       </section>
@@ -257,7 +274,7 @@ export function ContractTermsPage() {
 
 export function ContractSettingsPage() {
   return (
-    <Page title="Contract settings" intro="How the GO contract is headed and footed, the numbers its wording uses, the logo, who signs for GO, and whether new contracts use it.">
+    <Page title="Contract settings" ownerOnly intro="How the GO contract is headed and footed, the numbers its wording uses, the logo, who signs for GO, and whether new contracts use it.">
       <section className="panel">
         <h2>Contract settings</h2>
         <ContractSettingsForm />

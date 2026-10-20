@@ -1,4 +1,5 @@
 import { getDefaultAccount } from "./account.js";
+import { currentActor } from "./actor.js";
 import { prisma } from "./db.js";
 import { maskEmail, maskPhone, redact, safeErr } from "./log.js";
 import { isOptedOut, markOptedOut } from "./optOuts.js";
@@ -87,6 +88,9 @@ async function writeLog(data: {
       journey: data.meta?.journey ?? null,
       leadId: data.meta?.leadId ?? null,
       idempotencyKey: data.meta?.idempotencyKey ?? null,
+      // The staff member whose action this send is, when there is one.
+      sentById: currentActor()?.id ?? null,
+      sentByName: currentActor()?.name ?? null,
     },
   });
   return row.id;

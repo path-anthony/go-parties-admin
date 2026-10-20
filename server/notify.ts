@@ -3,6 +3,7 @@ import { redact, safeErr } from "./log.js";
 import { afterContractSend, contractSendAction, reallySent, sendFailureReason, type ContractSendAction, type ContractSendKind } from "./contractSend.js";
 import { ContractError, markContractSent, prepareContract, type signContract } from "./contracts.js";
 import { goReadinessFor } from "./contract/goLoad.js";
+import { actorFields } from "./actor.js";
 import { prisma } from "./db.js";
 import type { SendResult } from "./messaging.js";
 import { sendTemplatedMessage, type ChannelOutcome } from "./sendTemplated.js";
@@ -124,7 +125,7 @@ export async function sendContract(target: { bookingId?: string; designRequestId
         const moved = await prisma.booking.updateMany({ where: { id: target.bookingId, status: "Held" }, data: { status: "Contract Sent" } });
         stageMoved = moved.count > 0;
         if (stageMoved && booking?.leadId) {
-          await prisma.leadActivity.create({ data: { leadId: booking.leadId, text: "Contract link sent to the customer. Stage moved to Contract Sent." } });
+          await prisma.leadActivity.create({ data: { leadId: booking.leadId, text: "Contract link sent to the customer. Stage moved to Contract Sent.", ...actorFields() } });
         }
       }
       const reason = action === "send-link" && !sent ? sendFailureReason(outcomes) : action === "nothing" && prepared.signed ? "the contract is already signed" : null;

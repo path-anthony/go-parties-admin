@@ -1,6 +1,7 @@
 import { createHash, randomBytes } from "node:crypto";
 import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFPage } from "pdf-lib";
 import { getDefaultAccount } from "./account.js";
+import { currentActor } from "./actor.js";
 import { prisma } from "./db.js";
 import { currentPolicy } from "./policy.js";
 import { getSettings } from "./settings.js";
@@ -502,7 +503,8 @@ export async function prepareContract(target: { bookingId?: string | null; desig
 // GO's signature already in place, and the hash they sign covers it.
 export async function markContractSent(agreementId: string, sentAt: Date = new Date()): Promise<void> {
   await prisma.agreement.updateMany({ where: { id: agreementId, OR: [{ contractStatus: null }, { contractStatus: { not: "Signed" } }] }, data: { contractStatus: "Sent" } });
-  await prisma.agreement.updateMany({ where: { id: agreementId, contractSentAt: null, contractStatus: "Sent" }, data: { contractSentAt: sentAt } });
+  const by = currentActor();
+  await prisma.agreement.updateMany({ where: { id: agreementId, contractSentAt: null, contractStatus: "Sent" }, data: { contractSentAt: sentAt, contractSentById: by?.id ?? null, contractSentByName: by?.name ?? null } });
   const a = await prisma.agreement.findUnique({ where: { id: agreementId }, select: { accountId: true, format: true, goSignedAt: true } });
   if (a?.format === "go-v2" && !a.goSignedAt) {
     const signer = await loadGoSigner(a.accountId);

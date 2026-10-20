@@ -1,6 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { getDefaultAccount } from "./account.js";
 import { addDays, atEastern } from "./automation/time.js";
+import { currentActor } from "./actor.js";
 import { prisma } from "./db.js";
 import { safeErr } from "./log.js";
 import { safeInline } from "./sanitize.js";
@@ -238,7 +239,8 @@ export async function acceptOffer(gigId: string, offerId: string): Promise<Accep
       throw new BidError(409, "already-filled", `${gig.itemName} is already filled by ${gig.filledBy?.name ?? "someone else"}. Decline their offer first if ${offer.crewMember.name} should take it instead.`);
     }
     const losers = gig.offers.filter((o) => o.id !== offerId && o.status === "Sent");
-    await tx.gigOffer.update({ where: { id: offerId }, data: { status: "Accepted", token: offer.token ?? newToken() } });
+    const by = currentActor();
+    await tx.gigOffer.update({ where: { id: offerId }, data: { status: "Accepted", token: offer.token ?? newToken(), acceptedById: by?.id ?? null, acceptedByName: by?.name ?? null } });
     if (losers.length > 0) await tx.gigOffer.updateMany({ where: { id: { in: losers.map((l) => l.id) } }, data: { status: "Not Selected" } });
     await tx.gig.update({ where: { id: gigId }, data: { status: "Filled", filledById: offer.crewMemberId } });
     return { gigId, winner: { offerId, crewMemberId: offer.crewMemberId }, notSelected: losers.map((l) => ({ offerId: l.id, crewMemberId: l.crewMemberId })) };

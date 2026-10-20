@@ -4,7 +4,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import cookieParser from "cookie-parser";
 import express, { type ErrorRequestHandler } from "express";
-import { requireAuth } from "./auth.js";
+import { requireAuth, requireOwner } from "./auth.js";
 import { redact, safeErr } from "./log.js";
 import { markAdmin } from "./ai.js";
 import { corsPolicy, customerWriteGuard, securityHeaders } from "./security.js";
@@ -35,6 +35,7 @@ import packagesRouter from "./routes/packages.js";
 import publicItemsRouter from "./routes/publicItems.js";
 import publicPackagesRouter from "./routes/publicPackages.js";
 import settingsRouter, { publicSettingsRouter } from "./routes/settings.js";
+import teamRouter from "./routes/team.js";
 import skillsRouter from "./routes/skills.js";
 import recommendRouter from "./routes/recommend.js";
 import unitsRouter from "./routes/units.js";
@@ -43,9 +44,11 @@ import { requireWebhookSecret } from "./webhookAuth.js";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DIST_DIR = path.join(__dirname, "..", "dist");
 
+// Since Block U staff sign in with their own accounts (admin_users). The
+// shared ADMIN_PASSWORD is read once, to create the first Owner when the
+// table is empty, so it is a warning rather than a stop.
 if (!process.env.ADMIN_PASSWORD) {
-  console.error("ADMIN_PASSWORD is not set. Refusing to start: there would be no password to check a login against.");
-  process.exit(1);
+  console.warn("[startup] ADMIN_PASSWORD is not set. It is only needed to create the first Owner when no admin users exist yet.");
 }
 // Cookies are signed with their own secret, never the admin password: a
 // leaked password must not let anyone forge a customer's session, and
@@ -94,10 +97,15 @@ app.use("/api/webhooks/n8n", express.json({ limit: "100kb" }));
 app.use("/api/automations", express.json({ limit: "10kb" }));
 app.use("/api/auth", express.json({ limit: "10kb" }));
 app.use("/api/leads/external", express.json({ limit: "50kb" }));
-// Item photos are stored as compressed data URLs in photoUrl (see
-// src/lib/photo.ts), so a PATCH can carry a few hundred KB. The default
-// 100kb limit would reject them.
-app.use(express.json({ limit: "4mb" }));
+// Item photos, package photos and the contract logo are stored as
+// compressed data URLs (see src/lib/photo.ts), so those three routes can
+// carry a few hundred KB. Everything else on the admin side gets a small
+// body, parsed here before the session check so an oversized request is
+// refused with a 413 before any session work is done.
+app.use("/api/items", express.json({ limit: "4mb" }));
+app.use("/api/packages", express.json({ limit: "4mb" }));
+app.use("/api/settings", express.json({ limit: "2mb" }));
+app.use(express.json({ limit: "64kb" }));
 // One signing secret for both the admin and the customer cookie; what each
 // cookie carries is a session id checked against the sessions table on
 // every gated request (see server/sessions.ts).
@@ -147,6 +155,7 @@ app.use("/api/webhooks/n8n", externalLeadLimiter, requireWebhookSecret, n8nWebho
 app.use("/api/design-requests", requireAuth, designRequestsRouter);
 app.use("/api/settings", publicSettingsRouter);
 app.use("/api/settings", requireAuth, settingsRouter);
+app.use("/api/team", requireAuth, requireOwner, teamRouter);
 app.use("/api/gigs", requireAuth, gigsRouter);
 app.use("/api/packages", publicPackagesRouter);
 app.use("/api/packages", requireAuth, packagesRouter);
