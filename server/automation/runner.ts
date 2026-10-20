@@ -3,6 +3,7 @@ import { prisma } from "../db.js";
 import { safeErr } from "../log.js";
 import { sendTemplatedMessage } from "../sendTemplated.js";
 import { findExpiredHolds, releaseExpiredHolds, type HoldRelease } from "../holds.js";
+import { reconcileCalendar, type ReconcileResult } from "../google/sync.js";
 import { loadPlans, type Journey, type Planned } from "./loaders.js";
 import { channelWord, itemName, type PlanItem } from "./planner.js";
 import { humanWhen } from "./time.js";
@@ -41,6 +42,8 @@ export type RunResult = {
   needsAttention: number;
   // Unpaid storefront holds past the limit: released on a real run, listed on a dry run.
   holds: { days: number; released: HoldRelease[]; dryRun: boolean };
+  // Google Calendar reconciliation (real runs only; a dry run touches nothing).
+  calendar: ReconcileResult | null;
 };
 
 const empty = (): Counts => ({ records: 0, due: 0, sent: 0, failed: 0, blocked: 0, skipped: 0, other: 0 });
@@ -103,7 +106,17 @@ export async function runAutomation(opts: { dryRun: boolean; source: "n8n" | "ad
 
   const holds = opts.dryRun ? { ...(await findExpiredHolds(now)), dryRun: true } : { ...(await releaseExpiredHolds(now)), dryRun: false };
   const holdsOut = { days: holds.days, released: "holds" in holds ? holds.holds : holds.released, dryRun: holds.dryRun };
-  const result: RunResult = { dryRun: opts.dryRun, ranAt: now.toISOString(), durationMs: Date.now() - started, counts, lines, needsAttention: await countNeedsAttention(), holds: holdsOut };
+  // The calendar is repaired on every real pass; a failure there never stops
+  // the messages that were due.
+  let calendar: ReconcileResult | null = null;
+  if (!opts.dryRun) {
+    try {
+      calendar = await reconcileCalendar(now);
+    } catch (err) {
+      console.warn("[automation] calendar reconcile failed:", safeErr(err));
+    }
+  }
+  const result: RunResult = { dryRun: opts.dryRun, ranAt: now.toISOString(), durationMs: Date.now() - started, counts, lines, needsAttention: await countNeedsAttention(), holds: holdsOut, calendar };
   if (!opts.dryRun) {
     const account = await getDefaultAccount();
     await prisma.automationRun.create({
@@ -111,7 +124,7 @@ export async function runAutomation(opts: { dryRun: boolean; source: "n8n" | "ad
         accountId: account.id,
         source: opts.source,
         durationMs: result.durationMs,
-        summary: { counts: result.counts, lines: result.lines.length, needsAttention: result.needsAttention, holdsReleased: result.holds.released.length },
+        summary: { counts: result.counts, lines: result.lines.length, needsAttention: result.needsAttention, holdsReleased: result.holds.released.length, calendar: result.calendar ? { checked: result.calendar.checked, failed: result.calendar.failed } : null },
       },
     });
   }

@@ -17,6 +17,7 @@ import { Prisma } from "../../src/generated/prisma/client.js";
 import { BALANCE_PREFERENCES, BOOKING_STAGES, displayStatus } from "../../src/lib/bookingStatus.js";
 import { AGREEMENT_SELECT } from "../agreements.js";
 import { notifyStageChange, sendContract } from "../notify.js";
+import { queueGoogleSync } from "../google/sync.js";
 import { rushFor } from "../settings.js";
 import { INVALID, normalizeDate, normalizeText } from "../validate.js";
 
@@ -389,6 +390,8 @@ router.patch("/:id", async (req, res) => {
   // If the status the customer would read changed (a stage, or the
   // retainer tick), tell them. After the reply, and never in its way.
   void notifyStageChange(id, statusBefore, displayStatus(booking));
+  // The calendar follows every change, after the reply and never in its way.
+  queueGoogleSync(id);
 });
 
 async function findOwn(id: string) {
@@ -399,6 +402,7 @@ async function findOwn(id: string) {
 async function sendBooking(res: Response, id: string) {
   const booking = await prisma.booking.findUniqueOrThrow({ where: { id }, include: WITH_UNITS });
   res.json(serialize(booking));
+  queueGoogleSync(id);
 }
 
 // Adds one unit of an item for the booking's date. Which unit is decided

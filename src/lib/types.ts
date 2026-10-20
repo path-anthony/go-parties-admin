@@ -729,3 +729,22 @@ export type UpcomingView = { entries: UpcomingEntry[]; needsAttention: number; f
 export type RunCounts = { records: number; due: number; sent: number; failed: number; blocked: number; skipped: number; other: number };
 export type RunLine = { journey: string; kind: string; recordId: string; name: string; href: string; trigger: string; what: string; channel: string; dueAt: string; result: string; reason?: string };
 export type RunResult = { dryRun: boolean; ranAt: string; durationMs: number; counts: Record<"lead" | "client" | "crew" | "total", RunCounts>; lines: RunLine[]; needsAttention: number; holds: { days: number; dryRun: boolean; released: { bookingId: string; customerName: string; eventDate: string; heldDays: number }[] } };
+
+// Settings > Integrations > Google Calendar.
+export type GoogleCalendarInfo = {
+  connected: boolean;
+  email: string | null;
+  connectedAt: string | null;
+  calendarId: string | null;
+  invitesCalendarId: string | null;
+  sendInvites: boolean;
+  syncStage: "Confirmed" | "Signed";
+  needsReconnect: boolean;
+  lastSyncAt: string | null;
+  lastSyncResult: { ranAt: string; checked: number; created: number; updated: number; deleted: number; unchanged: number; failed: number; errors: string[] } | null;
+  configProblem: string | null;
+  calendars: { id: string; summary: string; primary: boolean }[];
+  calendarError: string | null;
+  redirectUri: string;
+  scopes: string[];
+};

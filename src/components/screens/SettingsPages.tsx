@@ -10,6 +10,7 @@ import { ReviewSettings } from "../ReviewSettings";
 import { RushSettings } from "../RushSettings";
 import { SafetySettings } from "../SafetySettings";
 import { ContractSettingsForm } from "../ContractSettingsForm";
+import { GoogleCalendarCard } from "../GoogleCalendarCard";
 import { ContractTermsEditor } from "../ContractTermsEditor";
 import { ServiceRowsEditor } from "../ServiceRowsEditor";
 
@@ -169,7 +170,7 @@ export function IntegrationsPage() {
     l ? `${statusLabel(l.status)}, ${when(l.createdAt)} ET${l.confirmation === "delivered" ? ", delivered" : ""}` : none;
 
   return (
-    <Page title="Integrations" intro="What is connected. This page only reports; nothing here can be changed.">
+    <Page title="Integrations" intro="What is connected. Text and email report only; Google Calendar is set up here.">
       {error && <p className="form-error">{error}</p>}
       {!status && !error && <p className="muted">Loading…</p>}
       {status && (
@@ -227,6 +228,10 @@ export function IntegrationsPage() {
                 <span>{status.automation.needsAttention} failed after 3 tries</span>
               </li>
             </ul>
+          </section>
+          <section className="panel">
+            <h2>Google Calendar</h2>
+            <GoogleCalendarCard />
           </section>
           <section className="panel">
             <h2>Storefront</h2>

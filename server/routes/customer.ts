@@ -20,6 +20,7 @@ import {
 } from "../customerAuth.js";
 import { prisma } from "../db.js";
 import { safeInline } from "../sanitize.js";
+import { queueGoogleSync } from "../google/sync.js";
 import { BOOKING_GIGS_SELECT, NoCrewFree } from "../gigs.js";
 import { customerActionLimiter, customerLoginLimiter, customerSignupLimiter } from "../rateLimit.js";
 import { INVALID, normalizeDate, normalizeText, todayEastern } from "../validate.js";
@@ -160,6 +161,7 @@ router.post("/bookings/:id/cancel", requireCustomer, customerActionLimiter, asyn
 
   const cancelled = await cancelBooking(booking.id, "Cancelled by the customer from their account.");
   res.json(serializeCustomerBooking(cancelled));
+  queueGoogleSync(booking.id);
 });
 
 router.post("/bookings/:id/reschedule", requireCustomer, customerActionLimiter, async (req, res) => {
@@ -206,6 +208,7 @@ router.post("/bookings/:id/reschedule", requireCustomer, customerActionLimiter, 
       return `Rescheduled to ${when} by the customer from their account.`;
     });
     res.json(serializeCustomerBooking(updated));
+    queueGoogleSync(booking.id);
   } catch (err) {
     if (err instanceof NoFreeUnit || err instanceof NoCrewFree || (err as { code?: unknown }).code === "P2002") {
       const itemName = err instanceof NoFreeUnit || err instanceof NoCrewFree ? err.itemName : "that item";

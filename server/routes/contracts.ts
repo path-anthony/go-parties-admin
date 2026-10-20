@@ -4,6 +4,7 @@ import { ContractError, buildContractContent, buildContractPdf, pdfLink, prepare
 import { buildGoDocument, contractLogo, goReadinessFor } from "../contract/goLoad.js";
 import { buildGoPdf } from "../contract/goPdf.js";
 import { getSettings } from "../settings.js";
+import { queueGoogleSync } from "../google/sync.js";
 import { prisma } from "../db.js";
 import { notifyContractSigned } from "../notify.js";
 import { availabilityLimiter, contractSignLimiter } from "../rateLimit.js";
@@ -180,6 +181,7 @@ publicContractsRouter.post("/:token/sign", contractSignLimiter, async (req, res)
     // Texts and emails are sent after the signature is safely stored, and
     // never held up or failed by it.
     void notifyContractSigned(signed.content.subject, signed);
+    if (signed.content.subject.bookingId) queueGoogleSync(signed.content.subject.bookingId);
     res.status(201).json({
       signed: true,
       signedAt: signed.signedAt.toISOString(),

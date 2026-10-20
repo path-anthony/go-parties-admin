@@ -1,5 +1,6 @@
 import type {
   BidsSummaryRow,
+  GoogleCalendarInfo,
   ContractStatusInfo,
   GoTermsContent,
   ServiceRow,
@@ -521,4 +522,20 @@ export function saveServiceRows(rows: ServiceRowInput[]): Promise<{ rows: Servic
 
 export function getContractStatus(bookingId: string): Promise<ContractStatusInfo> {
   return fetch(`/api/contract-admin/status/${bookingId}`).then(asJson<ContractStatusInfo>);
+}
+
+export function getGoogleCalendar(): Promise<GoogleCalendarInfo> {
+  return fetch("/api/integrations/google").then(asJson<GoogleCalendarInfo>);
+}
+
+export function updateGoogleCalendar(patch: { calendarId?: string | null; invitesCalendarId?: string | null; sendInvites?: boolean; syncStage?: "Confirmed" | "Signed" }): Promise<GoogleCalendarInfo> {
+  return fetch("/api/integrations/google", jsonRequest("PATCH", patch)).then(asJson<GoogleCalendarInfo>);
+}
+
+export function disconnectGoogle(): Promise<{ ok: true }> {
+  return fetch("/api/integrations/google/disconnect", jsonRequest("POST")).then(asJson<{ ok: true }>);
+}
+
+export function syncGoogleNow(): Promise<NonNullable<GoogleCalendarInfo["lastSyncResult"]>> {
+  return fetch("/api/integrations/google/sync", jsonRequest("POST")).then(asJson<NonNullable<GoogleCalendarInfo["lastSyncResult"]>>);
 }

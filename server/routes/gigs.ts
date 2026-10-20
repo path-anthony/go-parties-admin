@@ -1,6 +1,7 @@
 import { AGREEMENT_SELECT } from "../agreements.js";
 import { BidError, acceptOffer, extendDeadline, inviteBids, notifyAccepted, offerState, prefillFromBooking, rangeFlag } from "../bids.js";
 import { buildMessageValues } from "../messageContext.js";
+import { queueGoogleSync } from "../google/sync.js";
 import { renderChannel } from "../sendTemplated.js";
 import { getEffectiveTemplates } from "../templates.js";
 import { mustGetTrigger } from "../triggers.js";
@@ -238,6 +239,7 @@ router.patch("/:id/offers/:offerId", async (req, res) => {
       const result = await acceptOffer(gig.id, offer.id);
       await logActivity(gig.booking.leadId, `${gig.itemName}: ${offer.crewMember.name} accepted, gig filled.`);
       await notifyAccepted(result);
+      queueGoogleSync(gig.bookingId);
     } catch (err) {
       return fail(res, err);
     }

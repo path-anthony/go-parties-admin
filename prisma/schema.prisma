@@ -83,6 +83,23 @@ model Account {
   signAndPayWindowDays          Int     @default(7) @map("sign_and_pay_window_days")
   // When on, a contract prepared for the first time is the GO contract.
   useGoContract                 Boolean @default(false) @map("use_go_contract")
+  // Google Calendar, connected once by a Workspace admin with OAuth (never a
+  // service account). The refresh token is AES-256-GCM ciphertext under
+  // GOOGLE_TOKEN_ENCRYPTION_KEY; the email and time say who connected.
+  googleRefreshTokenEnc     String?   @map("google_refresh_token_enc")
+  googleConnectedEmail      String?   @map("google_connected_email")
+  googleConnectedAt         DateTime? @map("google_connected_at")
+  // GO's own calendar (internal events) and the calendar customer invites
+  // go out from. Null until chosen; GO's defaults to the primary calendar.
+  googleCalendarId          String?   @map("google_calendar_id")
+  googleInvitesCalendarId   String?   @map("google_invites_calendar_id")
+  googleSendInvites         Boolean   @default(false) @map("google_send_invites")
+  // Confirmed (signed and retainer paid) or Signed: when a booking gets its events.
+  googleSyncStage           String    @default("Confirmed") @map("google_sync_stage")
+  googleLastSyncAt          DateTime? @map("google_last_sync_at")
+  googleLastSyncResult      Json?     @map("google_last_sync_result")
+  // Set when Google refuses the refresh token (access revoked); cleared on reconnect.
+  googleNeedsReconnect      Boolean   @default(false) @map("google_needs_reconnect")
 
   items             Item[]
   leads             Lead[]
@@ -390,6 +407,14 @@ model Booking {
   discountDescription      String?   @map("discount_description")
   // Staff overrides per service row: { [rowId]: { checked, details, feeCents } }.
   contractServices         Json?     @map("contract_services")
+  // Google Calendar: the internal event on GO's calendar and the customer's
+  // invite event, a fingerprint of what was last sent (so an unchanged
+  // booking is not re-sent), when, and the last error in plain words.
+  googleEventId            String?   @map("google_event_id")
+  googleInviteEventId      String?   @map("google_invite_event_id")
+  googleSyncHash           String?   @map("google_sync_hash")
+  googleSyncedAt           DateTime? @map("google_synced_at")
+  googleSyncError          String?   @map("google_sync_error")
   // Set when the booking was made from a logged-in customer account; null
   // for admin-entered and anonymous storefront bookings. Deleting the
   // account keeps the booking.
@@ -985,5 +1010,17 @@ model ContractServiceRow {
 
   @@index([accountId, column, position])
   @@map("contract_service_rows")
+}
+
+// One OAuth round trip with Google: the state parameter is this row's id,
+// signed, tied to the admin session that started it, and spent on first use.
+model GoogleOauthState {
+  id        String    @id @default(cuid())
+  sessionId String    @map("session_id")
+  createdAt DateTime  @default(now()) @map("created_at")
+  expiresAt DateTime  @map("expires_at")
+  usedAt    DateTime? @map("used_at")
+
+  @@map("google_oauth_states")
 }
 
