@@ -191,23 +191,22 @@ export async function sendEmail(input: {
   // The row exists before the POST so n8n can report against its id.
   const logId = await safeLog({ channel: "email", purpose, recipient: to, subject, body, status: "queued", link, meta });
   try {
-    const headers: Record<string, string> = { "Content-Type": "application/json" };
-    if (process.env.N8N_WEBHOOK_SECRET) headers[WEBHOOK_SECRET_HEADER] = process.env.N8N_WEBHOOK_SECRET;
-    const res = await fetch(url, {
-      method: "POST",
-      headers,
-      body: JSON.stringify({
-        referenceId: logId,
-        channel: "email",
-        purpose,
-        to,
-        subject,
-        body,
-        ...(input.pdfUrl ? { pdfUrl: input.pdfUrl } : {}),
-        ...(link?.bookingId ? { bookingId: link.bookingId } : {}),
-      }),
-      signal: AbortSignal.timeout(WEBHOOK_TIMEOUT_MS),
+    const payload = JSON.stringify({
+      referenceId: logId,
+      channel: "email",
+      purpose,
+      to,
+      subject,
+      body,
+      ...(input.pdfUrl ? { pdfUrl: input.pdfUrl } : {}),
+      ...(link?.bookingId ? { bookingId: link.bookingId } : {}),
     });
+    // During a secret rotation n8n may still expect the previous value: a
+    // refusal with the current secret is tried once more with the old one.
+    const post = (secret: string | undefined) =>
+      fetch(url, { method: "POST", headers: { "Content-Type": "application/json", ...(secret ? { [WEBHOOK_SECRET_HEADER]: secret } : {}) }, body: payload, signal: AbortSignal.timeout(WEBHOOK_TIMEOUT_MS) });
+    let res = await post(process.env.N8N_WEBHOOK_SECRET);
+    if ((res.status === 401 || res.status === 403) && process.env.N8N_WEBHOOK_SECRET_PREVIOUS) res = await post(process.env.N8N_WEBHOOK_SECRET_PREVIOUS);
     if (!res.ok) throw new Error(`the email webhook answered ${res.status}`);
     if (logId) await prisma.messageLog.update({ where: { id: logId }, data: { status: "sent" } });
     return { logId, status: "sent" };
