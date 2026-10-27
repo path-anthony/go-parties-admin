@@ -13,6 +13,7 @@ import { ContractSettingsForm } from "../ContractSettingsForm";
 import { GoogleCalendarCard } from "../GoogleCalendarCard";
 import { ContractTermsEditor } from "../ContractTermsEditor";
 import { ServiceRowsEditor } from "../ServiceRowsEditor";
+import { TierSettings } from "../TierSettings";
 import { useIsOwner } from "../../lib/me";
 
 // Settings is a group in the sidebar; each of these is one of its pages,
@@ -66,6 +67,16 @@ export function BusinessRulesPage() {
           storefront shows the retainer share and the cancellation window; the review rules are applied on the server.
         </p>
         <ReviewSettings />
+      </section>
+
+      <section className="panel">
+        <h2>Agreements and checkout payment</h2>
+        <p className="muted settings-help">
+          Which agreement a booking takes. The review rules above come first (tier 3, staff look before anything is held); then a contract is required over the amount
+          below or for crewed items (tier 2, the GO contract signed in checkout); everything else takes the rental policy checkbox (tier 1). Tier 2 holds the date at
+          the hold and reads Requested until the retainer is paid.
+        </p>
+        <TierSettings />
       </section>
 
       <section className="panel">
@@ -244,6 +255,36 @@ export function IntegrationsPage() {
                 </span>
                 <span>{status.automation.needsAttention} failed after 3 tries</span>
               </li>
+            </ul>
+          </section>
+          <section className="panel">
+            <h2>Online payment (Stripe)</h2>
+            <ul className="addon-list">
+              <StatusLine label={status.stripe.configured ? `Online payment is set up, ${status.stripe.mode === "live" ? "live mode" : "test mode"}` : "Online payment not set up"} ok={status.stripe.configured} />
+              {!status.stripe.configured && (
+                <li className="muted">
+                  Still needed: {[!status.stripe.parts.secretKey && "the secret key", !status.stripe.parts.webhookSecret && "the webhook signing secret"].filter(Boolean).join(", ")}. Until then checkout holds the date and GO
+                  collects the retainer by hand.
+                </li>
+              )}
+              <li className="unit-row">
+                <span>
+                  <strong>Last webhook received</strong>
+                </span>
+                <span>{status.stripe.lastWebhookAt ? `${when(status.stripe.lastWebhookAt)} ET` : "None yet"}</span>
+              </li>
+              <li className="unit-row">
+                <span>
+                  <strong>Last error</strong>
+                </span>
+                <span className={status.stripe.lastError ? "form-error" : "muted"}>{status.stripe.lastError ?? "None"}</span>
+              </li>
+            </ul>
+          </section>
+          <section className="panel">
+            <h2>Address checking (Google Maps)</h2>
+            <ul className="addon-list">
+              <StatusLine label="Server key for Places and Geocoding is set" ok={status.maps.configured} detail={status.maps.configured ? undefined : "delivery addresses are stored but marked not checked"} />
             </ul>
           </section>
           <section className="panel">

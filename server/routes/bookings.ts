@@ -38,11 +38,24 @@ const WITH_UNITS = {
 const ORDER = [{ eventDate: "asc" as const }, { createdAt: "asc" as const }];
 
 // The join rows are an implementation detail; clients see a flat unitIds.
-function serialize<T extends { units: { unitId: string }[]; status: string; retainerPaid: boolean }>(booking: T) {
+function serialize<T extends { units: { unitId: string }[]; status: string; retainerPaid: boolean; tier?: number | null; agreement?: { confirmByDate?: string | null } | null }>(booking: T) {
   const { units, ...rest } = booking;
   // status is the stage set by hand; displayStatus is what it reads as
   // (Confirmed only when Signed and the retainer is paid).
-  return { ...rest, unitIds: units.map((row) => row.unitId), displayStatus: displayStatus(booking) };
+  return { ...rest, unitIds: units.map((row) => row.unitId), displayStatus: displayStatus(booking), retainerOverdue: retainerOverdue(booking) };
+}
+
+// Block T1: a tier 2 booking past its sign-and-pay date with the retainer
+// still unpaid. The date is the one printed on the contract ("October 17,
+// 2026"), read back here.
+export function retainerOverdue(b: { status: string; retainerPaid: boolean; tier?: number | null; agreement?: { confirmByDate?: string | null } | null }, now = new Date()): boolean {
+  if (b.tier !== 2 || b.retainerPaid || b.status === "Cancelled" || b.status === "Released" || b.status === "Completed") return false;
+  const text = b.agreement?.confirmByDate;
+  if (!text) return false;
+  const by = new Date(`${text} 23:59:59 UTC`);
+  if (Number.isNaN(by.getTime())) return false;
+  // The contract date is a calendar day; it is overdue the day after, Eastern.
+  return now.getTime() > by.getTime() + 4 * 3_600_000;
 }
 
 // Confirmed and Retainer Paid are computed, never set, so they get their

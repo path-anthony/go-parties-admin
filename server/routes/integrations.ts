@@ -8,6 +8,9 @@ import { authUrl, GoogleError, REDIRECT_URI, SCOPES } from "../google/client.js"
 import { ConnectError, beginConnect, calendarsFor, disconnect, finishConnect, googleSettings, spendState } from "../google/connection.js";
 import { reconcileCalendar } from "../google/sync.js";
 import { safeErr } from "../log.js";
+import { stripeStatus } from "../payments.js";
+import { stripeConfigured, stripeMode, stripeSecretKey, stripeWebhookSecret } from "../stripe/client.js";
+import { mapsConfigured } from "../delivery.js";
 
 const router = Router();
 
@@ -32,8 +35,13 @@ router.get("/status", async (_req, res) => {
   const lastRun = await prisma.automationRun.findFirst({ where: { accountId: account.id }, orderBy: { ranAt: "desc" } });
   const needsAttention = await prisma.messageLog.count({ where: { accountId: account.id, status: "failed_final" } });
 
+  const stripe = await stripeStatus(account.id);
   res.json({
     automation: { last: lastRun ? { ranAt: lastRun.ranAt, source: lastRun.source, summary: lastRun.summary } : null, needsAttention },
+    // Block T1: online payment and address checking. Mode, last webhook and
+    // last error only; never a key.
+    stripe: { configured: stripeConfigured(), mode: stripeMode(), parts: { secretKey: stripeSecretKey() !== null, webhookSecret: stripeWebhookSecret() !== null }, lastWebhookAt: stripe.lastWebhookAt, lastError: stripe.lastError },
+    maps: { configured: mapsConfigured() },
     texting: { configured: twilioParts.accountId && twilioParts.authToken && twilioParts.phoneNumber, parts: twilioParts, last: lastText },
     email: { configured: has("EMAIL_WEBHOOK_URL"), last: lastEmail },
     storefront: { urlSet: has("STOREFRONT_URL") },

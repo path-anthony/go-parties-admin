@@ -25,6 +25,8 @@ const PUBLIC_ROUTES: RegExp[] = [
   /^\/packages\/public(\/|$)/,
   /^\/settings\/public$/,
   /^\/bookings\/direct$/,
+  /^\/bookings\/tier$/,
+  /^\/payments\/status$/,
   /^\/leads\/concierge$/,
   /^\/recommend$/,
   /^\/customer(\/|$)/,
@@ -111,7 +113,8 @@ export const securityHeaders = helmet({
       "font-src": ["'self'", "https://fonts.gstatic.com", "data:"],
       "img-src": ["'self'", "data:", "blob:", "https:"],
       "connect-src": ["'self'"],
-      "frame-src": ["'none'"],
+      // Block T1: the booking popup embeds a small Google map of the setup pin.
+      "frame-src": ["https://maps.google.com", "https://www.google.com"],
       "object-src": ["'none'"],
       "frame-ancestors": ["'none'"],
       "base-uri": ["'self'"],

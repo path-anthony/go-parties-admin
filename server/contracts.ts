@@ -396,7 +396,7 @@ export async function buildContractPdf(content: ContractContent, signature?: Con
 
 // ---- links --------------------------------------------------------------
 
-const token = () => randomBytes(32).toString("base64url");
+export const token = () => randomBytes(32).toString("base64url");
 
 // Where the customer opens the contract. The storefront renders it from
 // the signing endpoints; STOREFRONT_URL says where that page lives. Without
@@ -605,8 +605,18 @@ export type SignedGo = {
 // signature and no client lines; that is what contentHash fingerprints. Their
 // typed name (and an optional second signer) become the client lines, the
 // signed document is kept whole, and the PDF is made from it.
-async function signGoContract(agreement: { id: string; accountId: string; bookingId: string | null; designRequestId: string | null }, input: SignInput): Promise<SignedGo> {
-  const shown = await buildGoDocument(agreement.id);
+// Block T1: a tier 2 booking is signed in checkout against a quote (the
+// document composed from the cart, client fields empty). The hash the
+// customer signed is the quote's; the stored document is the contract as it
+// reads on the booking now (client fields filled from the hold), with their
+// signature on it.
+export async function signContractFromQuote(agreementId: string, input: SignInput, quoteHash: string): Promise<SignedGo> {
+  const agreement = await prisma.agreement.findUniqueOrThrow({ where: { id: agreementId } });
+  return signGoContract(agreement, { ...input, contentHash: quoteHash }, quoteHash);
+}
+
+async function signGoContract(agreement: { id: string; accountId: string; bookingId: string | null; designRequestId: string | null }, input: SignInput, shownHash?: string): Promise<SignedGo> {
+  const shown = shownHash ? { contentHash: shownHash } : await buildGoDocument(agreement.id);
   if (input.contentHash && input.contentHash !== shown.contentHash) {
     throw new ContractError(409, "contract-changed", "The contract changed since you opened it. Please read it again before signing.");
   }

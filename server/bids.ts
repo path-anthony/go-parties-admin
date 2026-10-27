@@ -68,7 +68,7 @@ export function rangeFlag(amount: number, min: number | null, max: number | null
 // ---- what the page reads --------------------------------------------------
 
 const PAGE_INCLUDE = {
-  gig: { include: { booking: { select: { address: true, eventTime: true } } } },
+  gig: { include: { booking: { select: { address: true, eventTime: true, setupLat: true, setupLng: true } } } },
   crewMember: { select: { name: true } },
   questions: { orderBy: { createdAt: "asc" as const }, select: { text: true, createdAt: true } },
 } satisfies Prisma.GigOfferInclude;
@@ -103,6 +103,8 @@ export function serializeBid(offer: PageOffer, now: Date, phone: string) {
   };
   if (state === "accepted") {
     out.address = g.booking.address;
+    // Block T1: a Google Maps link to the setup pin, when the booking has one.
+    out.mapsUrl = typeof g.booking.setupLat === "number" && typeof g.booking.setupLng === "number" ? `https://www.google.com/maps/search/?api=1&query=${g.booking.setupLat.toFixed(6)},${g.booking.setupLng.toFixed(6)}` : null;
     out.arrivalNotes = g.arrivalNotes;
     out.contactPhone = phone;
     out.crewFirstName = offer.crewMember.name.trim().split(/\s+/)[0] ?? "";

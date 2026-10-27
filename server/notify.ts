@@ -63,7 +63,7 @@ export type ContractSendResult = {
 export async function sendContract(target: { bookingId?: string; designRequestId?: string }, kind: ContractSendKind): Promise<ContractSendResult> {
   const nothing: ContractSendResult = { result: null, action: "nothing", linkIsOut: false, stageMoved: false, signed: false, reason: "the message could not be prepared" };
   const done = await guard("contract link", async (): Promise<ContractSendResult> => {
-    const booking = target.bookingId ? await prisma.booking.findUnique({ where: { id: target.bookingId }, select: { phone: true, email: true, status: true, leadId: true } }) : null;
+    const booking = target.bookingId ? await prisma.booking.findUnique({ where: { id: target.bookingId }, select: { phone: true, email: true, status: true, leadId: true, customerId: true } }) : null;
     const subject = booking ?? (target.designRequestId ? await prisma.designRequest.findUnique({ where: { id: target.designRequestId }, select: { phone: true, email: true } }) : null);
     if (!subject) return { ...nothing, reason: "not found" };
     const recordId = target.bookingId ?? `req:${target.designRequestId}`;
@@ -114,7 +114,11 @@ export async function sendContract(target: { bookingId?: string; designRequestId
         const outcomes = await sendTemplatedMessage("contract_signed", { ...ctx, extra: { contractPdfLink: prepared.link } }, recipient, `contract_signed:${recordId}${unique}`, { purpose });
         return { result: asSendResult(outcomes), action, linkIsOut: false, stageMoved: false, signed: true, reason: reallySent(outcomes) ? null : sendFailureReason(outcomes) };
       }
-      const outcomes = action === "send-link" ? await sendTemplatedMessage("contract_sent", { ...ctx, extra: { contractLink: prepared.link } }, recipient, `contract_sent:${recordId}${unique}`, { purpose }) : [];
+      // Block T1: a customer with an account is sent to their portal's
+      // contract page (signed in, their own booking); anyone else gets the
+      // /sign token page.
+      const contractLink = contractReadyLink({ bookingId: target.bookingId ?? null, customerId: booking?.customerId ?? null, tokenLink: prepared.link });
+      const outcomes = action === "send-link" ? await sendTemplatedMessage("contract_sent", { ...ctx, extra: { contractLink } }, recipient, `contract_sent:${recordId}${unique}`, { purpose }) : [];
       const sent = reallySent(outcomes);
       const after = afterContractSend({ action, sent, linkAlreadySent: earlier !== null, bookingStage });
       let stageMoved = false;
@@ -155,6 +159,13 @@ export async function sendContract(target: { bookingId?: string; designRequestId
     }
   });
   return done ?? nothing;
+}
+
+// Pure. Where the "contract ready" message points.
+export function contractReadyLink(input: { bookingId: string | null; customerId: string | null; tokenLink: string }, storefrontUrl = process.env.STOREFRONT_URL): string {
+  const base = storefrontUrl?.replace(/\/$/, "");
+  if (base && input.bookingId && input.customerId) return `${base}/party/${encodeURIComponent(input.bookingId)}/contract`;
+  return input.tokenLink;
 }
 
 // Staff changed the stage (or ticked the retainer): tell the customer, if
