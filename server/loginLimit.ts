@@ -29,8 +29,8 @@ export type LoginAttempt = "ok" | "failed" | "locked";
 // was written.) An attempt that is refused, or that succeeds, removes its own
 // row again: only wrong passwords count, and being locked out does not extend
 // the lockout. No transaction is held open, so a burst cannot tie up the
-// database either. `check` must be quick and must not touch the database.
-export async function attemptLogin(scope: string, ip: string | null | undefined, check: () => boolean, now = new Date()): Promise<LoginAttempt> {
+// database either. `check` must not touch the database (a bcrypt compare is fine).
+export async function attemptLogin(scope: string, ip: string | null | undefined, check: () => boolean | Promise<boolean>, now = new Date()): Promise<LoginAttempt> {
   const key = ipHash(ip);
   const mine = await prisma.loginFailure.create({ data: { scope, ipHash: key, failedAt: now }, select: { id: true } });
   const inWindow = await prisma.loginFailure.count({ where: { scope, ipHash: key, failedAt: { gt: new Date(now.getTime() - LOGIN_WINDOW_MS) } } });
@@ -39,7 +39,7 @@ export async function attemptLogin(scope: string, ip: string | null | undefined,
     await forget();
     return "locked";
   }
-  if (check()) {
+  if (await check()) {
     await forget();
     return "ok";
   }

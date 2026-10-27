@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { NavLink, useLocation } from "react-router-dom";
 import { ChevronDown, ChevronRight, PanelLeftClose, PanelLeftOpen, Sparkles } from "lucide-react";
-import { NAV, type NavItem } from "../nav";
+import { NAV, visiblePages, type NavItem } from "../nav";
+import { useIsOwner } from "../lib/me";
 
 const GROUPS_KEY = "go-admin-nav-groups";
 
@@ -45,6 +46,7 @@ export function SideNav({
   onCloseDrawer: () => void;
 }) {
   const { pathname } = useLocation();
+  const isOwner = useIsOwner();
   // On load, the remembered choices, with the group holding the current
   // page forced open.
   const [open, setOpen] = useState<Record<string, boolean>>(() => {
@@ -151,7 +153,7 @@ export function SideNav({
                 </button>
                 {expanded && groupOpen && (
                   <ul className="nav-sublist">
-                    {item.pages.map((page) => (
+                    {visiblePages(item, isOwner).map((page) => (
                       <li key={page.path}>
                         <NavLink to={page.path} className={({ isActive }) => (isActive ? "nav-subitem nav-subitem-active" : "nav-subitem")} onClick={onCloseDrawer}>
                           {page.label}
@@ -163,7 +165,7 @@ export function SideNav({
                 {!expanded && flyout === item.key && (
                   <div className="nav-flyout" role="menu" aria-label={item.label}>
                     <div className="nav-flyout-title">{item.label}</div>
-                    {item.pages.map((page) => (
+                    {visiblePages(item, isOwner).map((page) => (
                       <NavLink key={page.path} to={page.path} role="menuitem" className={({ isActive }) => (isActive ? "nav-subitem nav-subitem-active" : "nav-subitem")} onClick={() => setFlyout(null)}>
                         {page.label}
                       </NavLink>

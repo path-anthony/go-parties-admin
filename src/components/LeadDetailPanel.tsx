@@ -346,6 +346,7 @@ function LeadDetailBody({
               <li key={entry.id} className="activity-entry">
                 <span className="activity-time">{relativeTime(entry.createdAt)}</span>
                 {entry.text}
+                {entry.userName && <span className="muted"> · {entry.userName}</span>}
               </li>
             ))}
           </ul>

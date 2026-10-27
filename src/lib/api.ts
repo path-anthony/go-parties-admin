@@ -1,4 +1,8 @@
 import type {
+  AdminRole,
+  AdminUser,
+  AuditRow,
+  TeamUser,
   BidsSummaryRow,
   GoogleCalendarInfo,
   ContractStatusInfo,
@@ -76,22 +80,46 @@ function jsonRequest(method: "POST" | "PATCH" | "PUT" | "DELETE", body?: unknown
   };
 }
 
-export function getAuthStatus(): Promise<{ authenticated: boolean }> {
+export function getAuthStatus(): Promise<{ authenticated: boolean; user: AdminUser | null }> {
   return fetch("/api/auth/me").then((res) => res.json());
 }
 
-export async function login(password: string): Promise<{ ok: true }> {
-  // Doesn't go through asJson: a wrong password here is an expected login
-  // failure, not an expired session, so it shouldn't fire AUTH_EXPIRED_EVENT.
-  // A 429 (too many failed attempts) arrives the same way, with the
-  // server's own message, and is shown as is.
-  const res = await fetch("/api/auth/login", jsonRequest("POST", { password }));
-  const body = await res.json();
-  if (!res.ok) {
-    throw new Error(body?.error ?? "Login failed");
-  }
-  return body;
+// The sign-in calls don't go through asJson: a wrong password or code is an
+// expected failure, not an expired session, so it must not fire
+// AUTH_EXPIRED_EVENT. A 429 arrives the same way, with the server's own
+// message, and is shown as is.
+async function plainPost<T>(path: string, body?: unknown): Promise<T> {
+  const res = await fetch(path, jsonRequest("POST", body));
+  const data = await res.json();
+  if (!res.ok) throw new Error(data?.error ?? "Request failed");
+  return data as T;
 }
+
+export type LoginResult = { ok: true; twoStep: boolean; user?: AdminUser };
+
+export const login = (email: string, password: string): Promise<LoginResult> => plainPost("/api/auth/login", { email, password });
+export const loginTwoStep = (code: string): Promise<{ ok: true; user: AdminUser }> => plainPost("/api/auth/two-step", { code });
+export const forgotPassword = (email: string): Promise<{ ok: true; message: string }> => plainPost("/api/auth/forgot", { email });
+export const setPasswordWithToken = (token: string, password: string): Promise<LoginResult> => plainPost("/api/auth/set-password", { token, password });
+export async function tokenInfo(token: string): Promise<{ kind: "invite" | "reset"; name: string; email: string }> {
+  const res = await fetch(`/api/auth/token?token=${encodeURIComponent(token)}`);
+  const data = await res.json();
+  if (!res.ok) throw new Error(data?.error ?? "That link is not valid.");
+  return data;
+}
+export const changePassword = (current: string, next: string): Promise<{ ok: true }> => fetch("/api/auth/password", jsonRequest("POST", { current, next })).then(asJson<{ ok: true }>);
+export const twoStepSetup = (): Promise<{ secret: string; otpauth: string; qrSvg: string }> => fetch("/api/auth/two-step/setup", jsonRequest("POST")).then(asJson<{ secret: string; otpauth: string; qrSvg: string }>);
+export const twoStepConfirm = (code: string): Promise<{ ok: true; backupCodes: string[] }> => fetch("/api/auth/two-step/confirm", jsonRequest("POST", { code })).then(asJson<{ ok: true; backupCodes: string[] }>);
+export const twoStepDisable = (password: string): Promise<{ ok: true }> => fetch("/api/auth/two-step/disable", jsonRequest("POST", { password })).then(asJson<{ ok: true }>);
+
+// Settings > Team (owners only).
+export const getTeam = (): Promise<{ users: TeamUser[] }> => fetch("/api/team").then(asJson<{ users: TeamUser[] }>);
+export const inviteTeamMember = (input: { name: string; email: string; role: AdminRole }): Promise<AdminUser> => fetch("/api/team/invites", jsonRequest("POST", input)).then(asJson<AdminUser>);
+export const resendTeamInvite = (id: string): Promise<{ ok: true; expiresAt: string }> => fetch(`/api/team/${id}/resend-invite`, jsonRequest("POST")).then(asJson<{ ok: true; expiresAt: string }>);
+export const revokeTeamInvite = (id: string): Promise<{ ok: true }> => fetch(`/api/team/${id}/revoke-invite`, jsonRequest("POST")).then(asJson<{ ok: true }>);
+export const changeTeamRole = (id: string, role: AdminRole): Promise<AdminUser> => fetch(`/api/team/${id}`, jsonRequest("PATCH", { role })).then(asJson<AdminUser>);
+export const removeTeamMember = (id: string): Promise<{ ok: true }> => fetch(`/api/team/${id}`, jsonRequest("DELETE")).then(asJson<{ ok: true }>);
+export const getTeamAudit = (): Promise<AuditRow[]> => fetch("/api/team/audit").then(asJson<AuditRow[]>);
 
 // Ends the session on the server (the row is deleted), then the gate
 // shows the login screen.

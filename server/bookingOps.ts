@@ -1,6 +1,7 @@
 import { Prisma } from "../src/generated/prisma/client.js";
 import { describeAddon, resolveAddons } from "./addons.js";
 import { lockFreeUnit } from "./availability.js";
+import { actorFields } from "./actor.js";
 import { prisma } from "./db.js";
 import { BOOKING_GIGS_SELECT, cancelGigs, createGigs, moveGigs, needsCrew } from "./gigs.js";
 import { displayStatus, legacyCustomerStatus } from "../src/lib/bookingStatus.js";
@@ -47,7 +48,7 @@ export function releaseUnits(tx: Tx | typeof prisma, bookingId: string) {
 }
 
 async function logActivity(tx: Tx, leadId: string | null, text: string) {
-  if (leadId) await tx.leadActivity.create({ data: { leadId, text } });
+  if (leadId) await tx.leadActivity.create({ data: { leadId, text, ...actorFields() } });
 }
 
 // Cancelling releases the booking's units and cancels its gigs, so

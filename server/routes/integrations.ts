@@ -1,7 +1,8 @@
 import { Router } from "express";
 import { getDefaultAccount } from "../account.js";
 import { prisma } from "../db.js";
-import { SESSION_COOKIE } from "../auth.js";
+import { SESSION_COOKIE, requireOwner } from "../auth.js";
+import { audit } from "../users.js";
 import { signedCookie } from "../sessions.js";
 import { authUrl, GoogleError, REDIRECT_URI, SCOPES } from "../google/client.js";
 import { ConnectError, beginConnect, calendarsFor, disconnect, finishConnect, googleSettings, spendState } from "../google/connection.js";
@@ -60,7 +61,7 @@ router.get("/google", async (_req, res) => {
   res.json({ ...s, needsReconnect, calendars, calendarError, redirectUri: REDIRECT_URI, scopes: SCOPES });
 });
 
-router.get("/google/start", async (req, res) => {
+router.get("/google/start", requireOwner, async (req, res) => {
   const sessionId = signedCookie(req, SESSION_COOKIE);
   if (typeof sessionId !== "string") return res.status(401).json({ error: "Unauthorized" });
   try {
@@ -74,7 +75,7 @@ router.get("/google/start", async (req, res) => {
 
 // Google sends the browser back here. Whatever happens, the admin lands on
 // Settings > Integrations with a one-line result in the address.
-router.get("/google/callback", async (req, res) => {
+router.get("/google/callback", requireOwner, async (req, res) => {
   const back = (result: string) => res.redirect(`/settings/integrations?google=${encodeURIComponent(result)}`);
   const sessionId = signedCookie(req, SESSION_COOKIE);
   if (typeof sessionId !== "string") return res.status(401).json({ error: "Unauthorized" });
@@ -85,6 +86,7 @@ router.get("/google/callback", async (req, res) => {
   if (!code) return back("Google did not send back a code. Try again.");
   try {
     const { email } = await finishConnect(code);
+    await audit("Google Calendar connected", email ?? null);
     return back(`Connected as ${email ?? "the Google account"}.`);
   } catch (err) {
     console.warn("[google] connect failed:", safeErr(err));
@@ -92,12 +94,13 @@ router.get("/google/callback", async (req, res) => {
   }
 });
 
-router.post("/google/disconnect", async (_req, res) => {
+router.post("/google/disconnect", requireOwner, async (_req, res) => {
   await disconnect();
+  await audit("Google Calendar disconnected");
   res.json({ ok: true });
 });
 
-router.patch("/google", async (req, res) => {
+router.patch("/google", requireOwner, async (req, res) => {
   const body = (req.body ?? {}) as Record<string, unknown>;
   const data: { googleCalendarId?: string | null; googleInvitesCalendarId?: string | null; googleSendInvites?: boolean; googleSyncStage?: string } = {};
   for (const field of ["calendarId", "invitesCalendarId"] as const) {
@@ -118,10 +121,11 @@ router.patch("/google", async (req, res) => {
   if (Object.keys(data).length === 0) return res.status(400).json({ error: "no editable fields provided" });
   const account = await getDefaultAccount();
   await prisma.account.update({ where: { id: account.id }, data });
+  await audit("Google Calendar settings changed", Object.keys(data).join(", "));
   res.json(await googleSettings(account.id));
 });
 
-router.post("/google/sync", async (_req, res) => {
+router.post("/google/sync", requireOwner, async (_req, res) => {
   res.json(await reconcileCalendar());
 });
 

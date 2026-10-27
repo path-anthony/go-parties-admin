@@ -22,6 +22,7 @@ import { prisma } from "../db.js";
 import { safeInline } from "../sanitize.js";
 import { queueGoogleSync } from "../google/sync.js";
 import { BOOKING_GIGS_SELECT, NoCrewFree } from "../gigs.js";
+import { attemptLogin } from "../loginLimit.js";
 import { customerActionLimiter, customerLoginLimiter, customerSignupLimiter } from "../rateLimit.js";
 import { INVALID, normalizeDate, normalizeText, todayEastern } from "../validate.js";
 
@@ -101,9 +102,12 @@ router.post("/login", customerLoginLimiter, async (req, res) => {
       : null;
 
   // Always run the compare so timing looks the same whether or not the
-  // identifier exists.
-  const ok = await bcrypt.compare(password, customer?.passwordHash ?? "$2a$12$invalidinvalidinvalidinvalidinvalidinvalidinvalidinvalid");
-  if (!customer || !ok) {
+  // identifier exists. The failure count lives in the database (five in 15
+  // minutes per address, see server/loginLimit.ts), so a deploy does not
+  // reset it; the in-memory limiter in front is only a cheap burst cap.
+  const result = await attemptLogin("customer", req.ip, async () => (await bcrypt.compare(password, customer?.passwordHash ?? "$2a$12$invalidinvalidinvalidinvalidinvalidinvalidinvalidinvalid")) && customer !== null);
+  if (result === "locked") return res.status(429).json({ error: "Too many sign-in attempts. Try again in 15 minutes." });
+  if (result === "failed" || !customer) {
     return res.status(401).json({ error: BAD_LOGIN });
   }
 
