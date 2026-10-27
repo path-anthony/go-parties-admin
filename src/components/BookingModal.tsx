@@ -24,6 +24,8 @@ import { SendMessageControls } from "./SendMessageControls";
 import { AgreementChip } from "./AgreementChip";
 import { BookingStatusTag } from "./BookingStatusTag";
 import { RushTag } from "./RushTag";
+import { PaymentsSection } from "./PaymentsSection";
+import { DeliverySection } from "./DeliverySection";
 
 const usd = (n: number) => n.toLocaleString("en-US", { style: "currency", currency: "USD" });
 
@@ -131,6 +133,21 @@ export function BookingModal({
               <BookingStatusTag booking={booking} />
             </span>
             <RushTag rush={booking.rush} cancelled={cancelled} />
+            {booking.tier && (
+              <span className="booking-pill">
+                <span className="achip achip-none">{booking.tier === 1 ? "Tier 1: rental policy" : booking.tier === 2 ? "Tier 2: contract" : "Tier 3: reviewed"}</span>
+              </span>
+            )}
+            {booking.retainerOverdue && !cancelled && (
+              <span className="booking-pill">
+                <span className="achip achip-unchecked">Retainer overdue</span>
+              </span>
+            )}
+            {booking.disputeFlaggedAt && (
+              <span className="booking-pill">
+                <span className="achip achip-unchecked">Payment disputed</span>
+              </span>
+            )}
           </h2>
           <button type="button" className="icon-btn" onClick={onClose} aria-label="Close">
             <X size={16} />
@@ -302,6 +319,28 @@ export function BookingModal({
             </span>
           </div>
           <ContractDetails booking={booking} onSave={save} />
+          <PaymentsSection
+            bookingId={booking.id}
+            onChanged={() => {
+              void getBookings()
+                .then((all) => {
+                  const fresh = all.find((b) => b.id === booking.id);
+                  if (fresh) onUpdated(fresh);
+                })
+                .catch(() => undefined);
+            }}
+          />
+          <DeliverySection
+            booking={booking}
+            onChanged={() => {
+              void getBookings()
+                .then((all) => {
+                  const fresh = all.find((b) => b.id === booking.id);
+                  if (fresh) onUpdated(fresh);
+                })
+                .catch(() => undefined);
+            }}
+          />
           <RecordMessages bookingId={booking.id} />
           <AutomationTimeline kind="booking" id={booking.id} />
           <label className="detail-field">

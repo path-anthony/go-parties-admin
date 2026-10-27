@@ -419,7 +419,37 @@ export type AgreementInfo = {
   contractExternalId: string | null;
   contractStatus: string | null;
   contractUrl: string | null;
+  // Block T1: go-v2 or null, and the sign-and-pay date a checkout contract pinned.
+  format?: string | null;
+  confirmByDate?: string | null;
+  contractSentAt?: string | null;
   policyVersion: { id: string; version: number };
+};
+
+// Block T1: the delivery location, the address check and the tier.
+export type AddressCheck = "verified" | "needs_check" | "not_checked";
+export type PaymentRow = {
+  id: string;
+  kind: string;
+  amountCents: number;
+  currency: string;
+  method: string;
+  status: string;
+  refundedCents: number;
+  failureReason: string | null;
+  note: string | null;
+  recordedByName: string | null;
+  paidAt: string | null;
+  createdAt: string;
+  refundable: boolean;
+};
+export type PaymentsView = {
+  stripeConfigured: boolean;
+  stripeMode: "test" | "live" | null;
+  money: { totalCents: number | null; retainerDueCents: number | null; retainerPaidCents: number; paidCents: number; balanceDueCents: number | null; retainerPaid: boolean; balancePaid: boolean };
+  disputeFlaggedAt: string | null;
+  disputeNote: string | null;
+  payments: PaymentRow[];
 };
 
 export type Booking = {
@@ -472,6 +502,22 @@ export type Booking = {
   contractServices: Record<string, ServiceRowOverride> | null;
   customerId: string | null; // set when booked from a customer account
   total: string | null; // what the customer was quoted, add-ons included
+  // Block T1.
+  tier: 1 | 2 | 3 | null;
+  placeId: string | null;
+  addressLat: number | null;
+  addressLng: number | null;
+  setupLat: number | null;
+  setupLng: number | null;
+  setupNotes: string | null;
+  addressCheck: AddressCheck | null;
+  addressCheckReason: string | null;
+  addressCheckedAt: string | null;
+  addressCheckedByName: string | null;
+  disputeFlaggedAt: string | null;
+  disputeNote: string | null;
+  // Tier 2, retainer unpaid past the contract's sign-and-pay date.
+  retainerOverdue: boolean;
   addons: BookingAddon[];
   gigs: BookingGig[];
   unitIds: string[];
@@ -572,6 +618,12 @@ export type AccountSettings = {
   returnedCheckFee: number;
   signAndPayWindowDays: number;
   useGoContract: boolean;
+  // Block T1.
+  contractRequiredOver: number;
+  contractRequiredForCrewed: boolean;
+  contractHoldReleaseDays: number;
+  tier1Collect: "retainer" | "full";
+  saveCardForBalance: boolean;
 };
 
 export type PolicyVersionInfo = { id: string; version: number; text: string; createdAt: string; agreements: number };

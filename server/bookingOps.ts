@@ -71,10 +71,10 @@ export async function cancelBooking(bookingId: string, activity: string): Promis
 // status Released, logged on the lead. Refuses (returns false) if the booking
 // moved on in the meantime: not Held any more, or the retainer was paid. Done
 // under the same transaction so a staff edit racing it wins cleanly.
-export async function releaseBooking(bookingId: string, activity: string): Promise<boolean> {
+export async function releaseBooking(bookingId: string, activity: string, fromStages: string[] = ["Held"]): Promise<boolean> {
   return prisma.$transaction(async (tx) => {
     const locked = await tx.$queryRaw<{ status: string; retainer_paid: boolean }[]>`SELECT status, retainer_paid FROM bookings WHERE id = ${bookingId} FOR UPDATE`;
-    if (locked.length === 0 || locked[0].status !== "Held" || locked[0].retainer_paid) return false;
+    if (locked.length === 0 || !fromStages.includes(locked[0].status) || locked[0].retainer_paid) return false;
     await releaseUnits(tx, bookingId);
     await cancelGigs(tx, bookingId);
     const booking = await tx.booking.update({ where: { id: bookingId }, data: { status: "Released" } });

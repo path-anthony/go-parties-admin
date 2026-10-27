@@ -100,6 +100,23 @@ model Account {
   googleLastSyncResult      Json?     @map("google_last_sync_result")
   // Set when Google refuses the refresh token (access revoked); cleared on reconnect.
   googleNeedsReconnect      Boolean   @default(false) @map("google_needs_reconnect")
+  // Block T1: which agreement a booking needs. Review rules (above) decide
+  // tier 3 first; then a contract is required over this total or, when the
+  // switch is on, for any crewed item (tier 2); everything else is tier 1.
+  contractRequiredOver      Decimal   @default(1000) @map("contract_required_over") @db.Decimal(10, 2)
+  contractRequiredForCrewed Boolean   @default(true) @map("contract_required_for_crewed")
+  // Tier 2 holds (signed at checkout, retainer unpaid) are released after
+  // this many days. 0 = never.
+  contractHoldReleaseDays   Int       @default(0) @map("contract_hold_release_days")
+  // What a tier 1 booking collects at checkout: "retainer" (the retainer
+  // percent of the total) or "full" (the whole total).
+  tier1Collect              String    @default("retainer") @map("tier1_collect")
+  // When on, a Checkout session asks Stripe to keep the card for an
+  // off-session balance charge later. Nothing charges automatically yet.
+  saveCardForBalance        Boolean   @default(false) @map("save_card_for_balance")
+  // Stripe webhook health, for the Integrations card.
+  stripeLastWebhookAt       DateTime? @map("stripe_last_webhook_at")
+  stripeLastError           String?   @map("stripe_last_error")
 
   items             Item[]
   leads             Lead[]
@@ -124,6 +141,9 @@ model Account {
   usageCounters     UsageCounter[]
   contractTerms     ContractTermsVersion[]
   serviceRows       ContractServiceRow[]
+  quotes            Quote[]
+  payments          Payment[]
+  stripeEvents      StripeEvent[]
 
   @@map("accounts")
 }
@@ -443,6 +463,31 @@ model Booking {
   // bundle price, or the item prices times quantity for a direct booking.
   // Null for admin-entered bookings, which carry no price yet.
   total                    Decimal?  @db.Decimal(10, 2)
+  // Block T1: which agreement the booking took (1 rental policy, 2 signed
+  // contract, 3 reviewed first). Null on bookings from before tiers.
+  tier                     Int?
+  // The delivery location as the storefront sent it (Google Places): the
+  // place, the address point, the setup pin and the customer's note.
+  placeId                  String?   @map("place_id")
+  deliveryComponents       Json?     @map("delivery_components")
+  addressLat               Float?    @map("address_lat")
+  addressLng               Float?    @map("address_lng")
+  setupLat                 Float?    @map("setup_lat")
+  setupLng                 Float?    @map("setup_lng")
+  setupNotes               String?   @map("setup_notes")
+  // The server-side check of that place: verified, needs_check (with the
+  // reason) or not_checked (no key, or no place sent). Staff can mark a
+  // booking verified by hand; who did is recorded.
+  addressCheck             String?   @map("address_check")
+  addressCheckReason       String?   @map("address_check_reason")
+  addressCheckedAt         DateTime? @map("address_checked_at")
+  addressCheckedByName     String?   @map("address_checked_by_name")
+  // A Stripe dispute was opened on one of this booking's payments.
+  disputeFlaggedAt         DateTime? @map("dispute_flagged_at")
+  disputeNote              String?   @map("dispute_note")
+  // The Stripe Customer used for this booking's sessions (a guest's, or a
+  // copy of the account customer's).
+  stripeCustomerId         String?   @map("stripe_customer_id")
   createdAt                DateTime  @default(now()) @map("created_at")
   updatedAt                DateTime  @default(now()) @updatedAt @map("updated_at")
 
@@ -455,6 +500,7 @@ model Booking {
   gigs          Gig[]
   agreement     Agreement?
   designRequest DesignRequest?
+  payments      Payment[]
 
   @@index([accountId, eventDate])
   @@index([leadId])
@@ -477,6 +523,8 @@ model Customer {
   email           String
   passwordHash    String    @map("password_hash")
   phoneVerifiedAt DateTime? @map("phone_verified_at")
+  // Block T1: the Stripe Customer for this account, made on first payment.
+  stripeCustomerId String?  @map("stripe_customer_id")
   createdAt       DateTime  @default(now()) @map("created_at")
   updatedAt       DateTime  @default(now()) @updatedAt @map("updated_at")
 
@@ -763,6 +811,10 @@ model Agreement {
   contractSentAt     DateTime? @map("contract_sent_at")
   contractSentById   String?   @map("contract_sent_by_id")
   contractSentByName String?   @map("contract_sent_by_name")
+  // Block T1: a tier 2 hold is signed against a quote; which one, and the
+  // confirm-by date it pinned.
+  quoteId            String?   @map("quote_id")
+  confirmByDate      String?   @map("confirm_by_date")
   createdAt          DateTime  @default(now()) @map("created_at")
 
   account          Account           @relation(fields: [accountId], references: [id])
@@ -847,6 +899,86 @@ model ContractDocument {
   policyVersion PolicyVersion @relation(fields: [policyVersionId], references: [id])
 
   @@map("contract_documents")
+}
+
+// Block T1. A tier 2 quote: the GO contract composed from a cart before any
+// booking exists, so the customer can read and sign it in checkout. The
+// cart, the document and its hash are kept so the hold can prove the
+// customer signed exactly this. Expires at the end of the day, Eastern.
+model Quote {
+  id             String   @id @default(cuid())
+  accountId      String   @map("account_id")
+  contentHash    String   @map("content_hash")
+  cart           Json
+  document       Json
+  termsVersionId String?  @map("terms_version_id")
+  confirmByDate  String   @map("confirm_by_date")
+  goSignedAt     DateTime? @map("go_signed_at")
+  totalCents     Int      @map("total_cents")
+  retainerCents  Int      @map("retainer_cents")
+  expiresAt      DateTime @map("expires_at")
+  usedByBookingId String? @map("used_by_booking_id")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  account Account @relation(fields: [accountId], references: [id])
+
+  @@index([accountId, createdAt])
+  @@map("quotes")
+}
+
+// Block T1. Money on a booking: a Stripe Checkout session (retainer or
+// balance), a payment staff recorded by hand (cash or check), and what came
+// back (refunds, disputes). Amounts are cents. The booking id is a plain
+// reference so a payment survives the booking being deleted.
+model Payment {
+  id                    String    @id @default(cuid())
+  accountId             String    @map("account_id")
+  bookingId             String    @map("booking_id")
+  agreementId           String?   @map("agreement_id")
+  // retainer, balance or other
+  kind                  String
+  amountCents           Int       @map("amount_cents")
+  currency              String    @default("usd")
+  // card (Stripe), cash, check, other
+  method                String    @default("card")
+  // pending, succeeded, failed, expired, refunded, disputed
+  status                String    @default("pending")
+  stripeSessionId       String?   @unique @map("stripe_session_id")
+  stripePaymentIntentId String?   @map("stripe_payment_intent_id")
+  stripeChargeId        String?   @map("stripe_charge_id")
+  refundedCents         Int       @default(0) @map("refunded_cents")
+  failureReason         String?   @map("failure_reason")
+  note                  String?
+  recordedById          String?   @map("recorded_by_id")
+  recordedByName        String?   @map("recorded_by_name")
+  paidAt                DateTime? @map("paid_at")
+  createdAt             DateTime  @default(now()) @map("created_at")
+  updatedAt             DateTime  @default(now()) @map("updated_at") @updatedAt
+
+  account Account @relation(fields: [accountId], references: [id])
+  booking Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+
+  @@index([bookingId])
+  @@index([stripePaymentIntentId])
+  @@map("payments")
+}
+
+// Block T1. Every Stripe webhook event, by Stripe's own id, so a replay is
+// a no-op. The payload is kept for staff to look at; it never carries card
+// numbers.
+model StripeEvent {
+  id          String    @id
+  accountId   String    @map("account_id")
+  type        String
+  payload     Json
+  receivedAt  DateTime  @default(now()) @map("received_at")
+  processedAt DateTime? @map("processed_at")
+  error       String?
+
+  account Account @relation(fields: [accountId], references: [id])
+
+  @@index([accountId, receivedAt])
+  @@map("stripe_events")
 }
 
 // One line per message the system tried to send, SMS or email, plus what

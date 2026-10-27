@@ -9,8 +9,16 @@ import { currentPolicy } from "./policy.js";
 import { reviewReasons } from "./review.js";
 import { getSettings, rushFor } from "./settings.js";
 import { getDefaultAccount } from "./account.js";
-import { ipHash } from "./log.js";
+import { ipHash, safeErr } from "./log.js";
 import { stripControl } from "./sanitize.js";
+import { loadGoSigner, signContractFromQuote, token } from "./contracts.js";
+import { deliveryColumns, verifyBookingAddress, type Delivery } from "./delivery.js";
+import { queueGoogleSync } from "./google/sync.js";
+import { notifyContractSigned } from "./notify.js";
+import { createPaymentSession, type PaymentOffer } from "./payments.js";
+import { customerStage } from "./portal.js";
+import { checkQuote, resolveCart, type QuoteCart } from "./quotes.js";
+import { decideTier, type Tier } from "./tiers.js";
 
 export const MAX_UNITS_PER_BOOKING = 50;
 
@@ -64,7 +72,18 @@ export type DirectBookingInput = {
   designRequestId?: string | null;
   // The public request's origin, for the agreement record. Storefront only.
   request?: { ip: string | null | undefined; userAgent: string | null | undefined };
+  // Block T1. The tier the storefront was told (the server recomputes and
+  // refuses a mismatch), the signature taken on the tier 2 quote, and the
+  // verified delivery location. Storefront only; staff bookings carry none.
+  tier?: Tier | null;
+  signature?: HoldSignature | null;
+  delivery?: Delivery | null;
 };
+
+export type HoldSignature = { fullName: string; additionalSignerName: string | null; contentHash: string; quoteId: string };
+
+const QUOTE_CHANGED = "Your cart or the contract changed. Please read it again.";
+type UsableQuote = Extract<Awaited<ReturnType<typeof checkQuote>>, { ok: true }>["quote"];
 
 // What is kept with a storefront agreement besides the policy version and
 // the time: a keyed hash of the address and the user agent. Nothing for
@@ -245,6 +264,45 @@ export async function createDirectBooking(input: DirectBookingInput): Promise<{ 
     }
   }
 
+  // Block T1: which agreement this booking takes. The review rules above
+  // already sent tier 3 to staff, so this is 1 or 2. A storefront hold must
+  // match the tier it was told; a tier 2 hold carries a signature on a quote
+  // that still has to hash the same today.
+  const decided = decideTier(
+    { total, occasions: [...(occasion ? [occasion] : []), ...(pkg?.occasions ?? [])], categories: items.map((item) => item.category), crewed: items.some((item) => needsCrew(item)) },
+    { fullReviewThreshold: settings.fullReviewThreshold, reviewOccasions: settings.reviewOccasions, contractRequiredOver: settings.contractRequiredOver, contractRequiredForCrewed: settings.contractRequiredForCrewed },
+  );
+  const tier: Tier = designRequestId ? (decided.tier === 3 ? 2 : decided.tier) : decided.tier;
+  let quote: UsableQuote | null = null;
+  let cartForQuote: QuoteCart | null = null;
+  if (!staff) {
+    if (input.tier !== undefined && input.tier !== null && input.tier !== tier) {
+      return out(409, { error: QUOTE_CHANGED, reason: "tier-changed", tier });
+    }
+    if (tier === 2) {
+      if (!input.signature) return out(400, { error: "This booking needs the signed GO contract. Read and sign it to continue.", reason: "agreement-required", tier });
+      cartForQuote = {
+        itemIds: [...itemIds].sort(),
+        packageId: pkg?.id ?? null,
+        addons: selections.size > 0 ? Object.fromEntries([...selections.entries()].sort(([a], [b]) => (a < b ? -1 : 1)).map(([k, v]) => [k, [...v].sort()])) : null,
+        eventDate: dateText,
+        eventTime,
+        occasion,
+      };
+      const resolved = await resolveCart(account.id, cartForQuote);
+      const check = await checkQuote(account.id, input.signature.quoteId, input.signature.contentHash, cartForQuote, resolved);
+      if (!check.ok) return out(409, { error: check.message, reason: check.reason, tier });
+      quote = check.quote;
+    } else if (input.signature) {
+      // A signature on a cart that no longer needs a contract: the tier
+      // moved under the customer. Start them over rather than keep a
+      // contract they did not need.
+      return out(409, { error: QUOTE_CHANGED, reason: "tier-changed", tier });
+    }
+  }
+  const delivery = input.delivery ?? null;
+  const signer = tier === 2 ? await loadGoSigner(account.id) : null;
+
   // An item is promisable through its units, through the crew for its
   // skills, or both. One with neither can't be promised at all.
   const untracked = items.filter((item) => item._count.units === 0 && !needsCrew(item));
@@ -336,6 +394,11 @@ export async function createDirectBooking(input: DirectBookingInput): Promise<{ 
           balancePaymentPreference,
           packageId: pkg?.id ?? null,
           total,
+          tier,
+          ...deliveryColumns(delivery),
+          // The contract's mailing address comes from the verified delivery
+          // address when there is one.
+          ...(delivery ? { mailingAddress: `${delivery.components.streetNumber} ${delivery.components.route}`.trim(), city: delivery.components.city || null, state: delivery.components.state || null, zip: delivery.components.zip || null } : {}),
           // eventDate is copied onto each join row for the (unitId, eventDate)
           // unique constraint, the database-level backstop behind the lock.
           units: { create: claimed.map(({ unit }) => ({ unitId: unit.id, eventDate: date })) },
@@ -375,8 +438,26 @@ export async function createDirectBooking(input: DirectBookingInput): Promise<{ 
           policyVersionId: policy.id,
           checkboxChecked,
           ...evidence,
+          // A tier 2 hold is the GO contract, prepared, sent (at checkout)
+          // and signed by the customer in one go; GO's signature is the one
+          // the quote carried.
+          ...(quote
+            ? {
+                format: "go-v2",
+                termsVersionId: quote.termsVersionId,
+                contractProvider: "self-hosted",
+                signingToken: token(),
+                contractStatus: "Sent",
+                contractSentAt: quote.goSignedAt,
+                goSignerName: signer?.name ?? null,
+                goSignedAt: signer ? quote.goSignedAt : null,
+                quoteId: quote.id,
+                confirmByDate: quote.confirmByDate,
+              }
+            : {}),
         },
       });
+      if (quote) await tx.quote.update({ where: { id: quote.id }, data: { usedByBookingId: booking.id } });
       // Converting a design request: claim it under a row lock so two
       // people can't both turn it into a booking, then link the two.
       if (designRequestId) {
@@ -392,6 +473,49 @@ export async function createDirectBooking(input: DirectBookingInput): Promise<{ 
     // contract link. After the booking is safely committed, and never in
     // the way of its response.
     if (designRequestId) void sendContract({ bookingId: result.booking.id }, "conversion");
+
+    // Block T1. A tier 2 hold: the signature taken in checkout is recorded
+    // now, against the quote's hash, and the signed document and PDF are
+    // stored. A failure here leaves the booking held with the contract
+    // prepared (staff can send the link); the customer's hold is never lost.
+    let contract: { agreementId: string; signed: boolean; signedAt: string | null; pdfUrl: string | null } | null = null;
+    if (quote && input.signature) {
+      contract = { agreementId: result.agreement.id, signed: false, signedAt: null, pdfUrl: null };
+      try {
+        const signed = await signContractFromQuote(
+          result.agreement.id,
+          {
+            fullName: input.signature.fullName,
+            additionalSignerName: input.signature.additionalSignerName,
+            consentToElectronicSignature: true,
+            agreeToTerms: true,
+            ip: input.request?.ip ?? null,
+            userAgent: input.request?.userAgent ?? null,
+          },
+          quote.contentHash,
+        );
+        contract = { agreementId: result.agreement.id, signed: true, signedAt: signed.signedAt.toISOString(), pdfUrl: signed.pdfUrl };
+        void notifyContractSigned({ bookingId: result.booking.id, designRequestId: null }, signed);
+      } catch (err) {
+        console.error("[bookings] checkout signature could not be recorded:", safeErr(err));
+      }
+    }
+    // What to collect now: the retainer (or, for a small rental set to collect
+    // in full, the whole amount). Null when online payment is not set up or
+    // the session could not be made; the booking stands either way.
+    let payment: PaymentOffer | null = null;
+    if (!staff && total !== null && total > 0) {
+      try {
+        payment = await createPaymentSession(result.booking.id, "retainer");
+      } catch (err) {
+        console.warn("[bookings] no payment session for the hold:", safeErr(err));
+      }
+    }
+    const fresh = await prisma.booking.findUniqueOrThrow({ where: { id: result.booking.id }, select: { status: true, retainerPaid: true, tier: true } });
+    // The address check runs after the reply and never blocks it; the
+    // calendar follows a signed contract.
+    if (delivery) void verifyBookingAddress(result.booking.id).catch(() => undefined);
+    if (contract?.signed) queueGoogleSync(result.booking.id);
 
     // One entry per unit held and one per gig, so an item wanted twice
     // appears twice. A gig has no unit; its entry says so with null.
@@ -424,8 +548,11 @@ export async function createDirectBooking(input: DirectBookingInput): Promise<{ 
       email: result.booking.email,
       // status keeps the meaning the storefront reads (live = "Confirmed");
       // stage is the real one, depositPaid the old name for retainerPaid.
-      status: legacyCustomerStatus(result.booking.status),
-      stage: displayStatus(result.booking),
+      status: legacyCustomerStatus(fresh.status),
+      stage: staff ? displayStatus(fresh) : customerStage(fresh),
+      tier,
+      payment,
+      contract,
       // True when the event starts inside the minimum notice window; the
       // booking is complete either way, this is so the storefront can say
       // it is pending confirmation.

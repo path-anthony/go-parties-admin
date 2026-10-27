@@ -26,7 +26,16 @@ export type BookingForCalendar = {
   email: string | null;
   items: { name: string; quantity: number }[];
   crew: { name: string; role: string }[];
+  // Block T1: the setup pin and note from the verified delivery location.
+  setupLat?: number | null;
+  setupLng?: number | null;
+  setupNotes?: string | null;
+  addressCheck?: string | null;
 };
+
+// A Google Maps link to the setup pin, for the internal event.
+export const setupMapsUrl = (b: Pick<BookingForCalendar, "setupLat" | "setupLng">): string | null =>
+  typeof b.setupLat === "number" && typeof b.setupLng === "number" ? `https://www.google.com/maps/search/?api=1&query=${b.setupLat.toFixed(6)},${b.setupLng.toFixed(6)}` : null;
 
 export type CompanyForCalendar = { name: string; phone: string; email: string; portalUrl: string | null; adminUrl: string };
 
@@ -80,6 +89,8 @@ export function internalEventPayload(b: BookingForCalendar, company: CompanyForC
     `Crew: ${b.crew.length > 0 ? b.crew.map((c) => `${safeInline(c.name, 100)} (${safeInline(c.role, 60)})`).join(", ") : "none assigned"}`,
     `On-site contact: ${[safeInline(b.onsiteContactName, 120), safeInline(b.onsiteContactPhone, 40)].filter(Boolean).join(" ") || "not set"}`,
     `Customer: ${safeInline(b.customerName, 100)}${b.phone ? ` ${safeInline(b.phone, 40)}` : ""}`,
+    ...(setupMapsUrl(b) ? [`Map: ${setupMapsUrl(b)}${b.addressCheck === "verified" ? " (address verified)" : b.addressCheck === "needs_check" ? " (address needs a check)" : ""}`] : []),
+    ...(b.setupNotes ? [`Setup notes: ${safeInline(b.setupNotes, 300)}`] : []),
     `Admin: ${company.adminUrl}/scheduling/bookings?booking=${b.id}`,
   ];
   return {

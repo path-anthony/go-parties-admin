@@ -3,7 +3,8 @@ import { getDefaultAccount } from "../account.js";
 import { parseAddonSelections } from "../addons.js";
 import { currentCustomer } from "../customerAuth.js";
 import { botCheck } from "../botCheck.js";
-import { createDirectBooking, MAX_UNITS_PER_BOOKING } from "../directBooking.js";
+import { createDirectBooking, MAX_UNITS_PER_BOOKING, type HoldSignature } from "../directBooking.js";
+import { isInvalidDelivery, parseDelivery } from "../delivery.js";
 import { prettyPhone } from "../messageContext.js";
 import { safeInline, stripControl } from "../sanitize.js";
 import { getSettings } from "../settings.js";
@@ -55,6 +56,26 @@ function resolveContact(
   if (contact) return splitContact(contact);
   if (fallback) return fallback;
   return "phone and email are required";
+}
+
+// The tier 2 signature as the storefront sends it with the hold: the typed
+// name (first and last), an optional second signer, consent, and the quote it
+// was given on.
+function resolveSignature(value: unknown): HoldSignature | null | string {
+  if (value === undefined || value === null) return null;
+  if (typeof value !== "object" || Array.isArray(value)) return "signature must be an object";
+  const s = value as Record<string, unknown>;
+  const fullName = typeof s.fullName === "string" ? safeInline(s.fullName, 120).replace(/\s+/g, " ") : "";
+  if (fullName.length < 3 || !fullName.includes(" ")) return "Type your full name, first and last, to sign.";
+  let additionalSignerName: string | null = null;
+  if (s.additionalSignerName !== undefined && s.additionalSignerName !== null && s.additionalSignerName !== "") {
+    if (typeof s.additionalSignerName !== "string") return "additionalSignerName must be text";
+    additionalSignerName = safeInline(s.additionalSignerName, 120) || null;
+  }
+  if (s.esignConsent !== true) return "You need to consent to sign electronically to continue.";
+  if (typeof s.contentHash !== "string" || !/^[a-f0-9]{16,128}$/i.test(s.contentHash)) return "signature.contentHash must be the quote's hash";
+  if (typeof s.quoteId !== "string" || s.quoteId === "" || s.quoteId.length > 60) return "signature.quoteId must be the quote id";
+  return { fullName, additionalSignerName, contentHash: s.contentHash, quoteId: s.quoteId };
 }
 
 function optionalText(value: unknown, max: number): string | null | typeof INVALID {
@@ -183,6 +204,19 @@ router.post("/", botCheck("direct-booking"), async (req, res) => {
   if (body.agreedToPolicy !== undefined && typeof body.agreedToPolicy !== "boolean") {
     return res.status(400).json({ error: "agreedToPolicy must be true or false" });
   }
+  // Block T1: the tier the storefront was told, the tier 2 signature and
+  // the delivery location, each optional and checked for shape here.
+  let tier: 1 | 2 | 3 | null = null;
+  if (body.tier !== undefined && body.tier !== null) {
+    if (body.tier !== 1 && body.tier !== 2 && body.tier !== 3) return res.status(400).json({ error: "tier must be 1, 2 or 3" });
+    tier = body.tier;
+  }
+  const signature = resolveSignature(body.signature);
+  if (typeof signature === "string") return res.status(400).json({ error: signature, reason: "signature-invalid" });
+  const delivery = parseDelivery(body.delivery);
+  if (isInvalidDelivery(delivery)) return res.status(400).json({ error: delivery.invalid, reason: "delivery-invalid" });
+  // The plain address is the verified one whenever a delivery was sent.
+  const addressForBooking = delivery ? delivery.formattedAddress : cleanAddress;
 
   // Site-wide cap on storefront bookings per day. Staff bookings are not
   // counted or limited. A slot is taken here in one atomic step (so a burst
@@ -213,11 +247,14 @@ router.post("/", botCheck("direct-booking"), async (req, res) => {
       date,
       dateText,
       eventTime: cleanTime,
-      address: cleanAddress,
+      address: addressForBooking,
       selections,
       packageId,
       // Kept with the agreement: who ticked the box, as far as the request shows.
       request: { ip: req.ip, userAgent: req.get("user-agent") },
+      tier,
+      signature,
+      delivery,
     });
   } catch (err) {
     await refundDaily(account.id, "direct_booking").catch(() => undefined);

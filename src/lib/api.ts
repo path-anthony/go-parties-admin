@@ -40,6 +40,7 @@ import type {
   StaffBookingRequest,
   StaffBookingResult,
   AccountSettings,
+  PaymentsView,
   MessageLogRow,
   MessageSummary,
   MessageTrigger,
@@ -501,7 +502,24 @@ export type IntegrationStatus = {
   texting: { configured: boolean; parts: { accountId: boolean; authToken: boolean; phoneNumber: boolean }; last: { status: string; createdAt: string; confirmation: string | null } | null };
   email: { configured: boolean; last: { status: string; createdAt: string; confirmation: string | null } | null };
   storefront: { urlSet: boolean };
+  stripe: { configured: boolean; mode: "test" | "live" | null; parts: { secretKey: boolean; webhookSecret: boolean }; lastWebhookAt: string | null; lastError: string | null };
+  maps: { configured: boolean };
 };
+
+// Block T1: payments and the delivery location on a booking.
+export function getBookingPayments(bookingId: string): Promise<PaymentsView> {
+  return fetch(`/api/bookings/${bookingId}/payments`).then(asJson<PaymentsView>);
+}
+export function recordPayment(bookingId: string, input: { kind: "retainer" | "balance" | "other"; amountCents: number; method: "cash" | "check" | "other"; note: string | null }): Promise<PaymentsView> {
+  return fetch(`/api/bookings/${bookingId}/payments`, jsonRequest("POST", input)).then(asJson<PaymentsView>);
+}
+export function refundPayment(bookingId: string, paymentId: string, input: { amountCents: number; note: string | null }): Promise<PaymentsView> {
+  return fetch(`/api/bookings/${bookingId}/payments/${paymentId}/refund`, jsonRequest("POST", input)).then(asJson<PaymentsView>);
+}
+export type DeliveryPatch = { address?: string | null; setupLat?: number | null; setupLng?: number | null; setupNotes?: string | null; verified?: boolean };
+export function updateDelivery(bookingId: string, patch: DeliveryPatch): Promise<{ ok: true }> {
+  return fetch(`/api/bookings/${bookingId}/delivery`, jsonRequest("PATCH", patch)).then(asJson<{ ok: true }>);
+}
 
 export function getIntegrationStatus(): Promise<IntegrationStatus> {
   return fetch("/api/integrations/status").then(asJson<IntegrationStatus>);

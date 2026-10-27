@@ -35,6 +35,10 @@ import packagesRouter from "./routes/packages.js";
 import publicItemsRouter from "./routes/publicItems.js";
 import publicPackagesRouter from "./routes/publicPackages.js";
 import settingsRouter, { publicSettingsRouter } from "./routes/settings.js";
+import tierRouter from "./routes/tier.js";
+import { adminPaymentsRouter, publicPaymentsRouter } from "./routes/payments.js";
+import stripeWebhookRouter from "./routes/stripeWebhook.js";
+import { availabilityLimiter } from "./rateLimit.js";
 import teamRouter from "./routes/team.js";
 import skillsRouter from "./routes/skills.js";
 import recommendRouter from "./routes/recommend.js";
@@ -85,10 +89,15 @@ app.use("/api", corsPolicy);
 // Origin only for anything that changes state.
 app.use("/api/customer", customerWriteGuard);
 app.use("/api/bookings/direct", customerWriteGuard);
+app.use("/api/bookings/tier", customerWriteGuard);
+// Stripe signs the exact bytes it sends: the webhook reads a raw body,
+// parsed here before any JSON parser can touch it.
+app.use("/api/webhooks/stripe", express.raw({ type: "*/*", limit: "1mb" }));
 // Public write routes parse a small body first (body-parser skips a body that
 // is already parsed), so a flood of big requests is refused early.
 app.use("/api/recommend", express.json({ limit: "20kb" }));
 app.use("/api/bookings/direct", express.json({ limit: "50kb" }));
+app.use("/api/bookings/tier", express.json({ limit: "20kb" }));
 app.use("/api/leads/concierge", express.json({ limit: "10kb" }));
 app.use("/api/customer", express.json({ limit: "20kb" }));
 app.use("/api/contracts", express.json({ limit: "20kb" }));
@@ -152,6 +161,10 @@ app.use("/api/messages", requireAuth, messagesRouter);
 app.use("/api/automation", requireAuth, automationAdminRouter);
 app.use("/api/automations", externalLeadLimiter, requireWebhookSecret, automationsRouter);
 app.use("/api/webhooks/n8n", externalLeadLimiter, requireWebhookSecret, n8nWebhooksRouter);
+// Stripe calling in: signature-checked inside the router, no session.
+app.use("/api/webhooks/stripe", stripeWebhookRouter);
+// The storefront's payment status poll: public, by session id, rate limited.
+app.use("/api/payments", availabilityLimiter, publicPaymentsRouter);
 app.use("/api/design-requests", requireAuth, designRequestsRouter);
 app.use("/api/settings", publicSettingsRouter);
 app.use("/api/settings", requireAuth, settingsRouter);
@@ -160,7 +173,10 @@ app.use("/api/gigs", requireAuth, gigsRouter);
 app.use("/api/packages", publicPackagesRouter);
 app.use("/api/packages", requireAuth, packagesRouter);
 app.use("/api/bookings/direct", directBookingLimiter, directBookingsRouter);
+// Which agreement a cart needs: public like the hold, same limiter.
+app.use("/api/bookings/tier", directBookingLimiter, tierRouter);
 app.use("/api/bookings/staff", requireAuth, staffBookingRouter);
+app.use("/api/bookings", requireAuth, adminPaymentsRouter);
 app.use("/api/bookings", requireAuth, bookingsRouter);
 // Customer accounts: signup and login are public (strictly rate limited
 // inside the router), everything else there requires the customer cookie,

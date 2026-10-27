@@ -25,6 +25,13 @@ import { BOOKING_GIGS_SELECT, NoCrewFree } from "../gigs.js";
 import { attemptLogin } from "../loginLimit.js";
 import { customerActionLimiter, customerLoginLimiter, customerSignupLimiter } from "../rateLimit.js";
 import { INVALID, normalizeDate, normalizeText, todayEastern } from "../validate.js";
+import { ContractError, prepareContract, signContract } from "../contracts.js";
+import { contractView, parseSignBody } from "./contracts.js";
+import { notifyContractSigned } from "../notify.js";
+import { PaymentError, createPaymentSession } from "../payments.js";
+import { SELF_SERVE_REFUSAL, portalFields, selfServeAllowed } from "../portal.js";
+import { getSettings } from "../settings.js";
+import { StripeError } from "../stripe/client.js";
 
 const BCRYPT_ROUNDS = 12;
 const MAX_TIME_LENGTH = 60;
@@ -38,7 +45,23 @@ const WITH_UNIT_DETAILS = {
   units: { include: { unit: { include: { item: { select: { id: true, name: true } } } } } },
   addons: { orderBy: { createdAt: "asc" as const } },
   gigs: BOOKING_GIGS_SELECT,
+  // Block T1: the contract and the money, for the portal's steps.
+  agreement: { select: { id: true, format: true, signingToken: true, contractStatus: true, contractSentAt: true, contractUrl: true, contractDocument: { select: { signedAt: true, documentJson: true } } } },
+  payments: { select: { kind: true, status: true, amountCents: true, refundedCents: true, paidAt: true }, orderBy: { createdAt: "asc" as const } },
 } as const;
+
+type PortalRow = Parameters<typeof serializeCustomerBooking>[0] & Parameters<typeof portalFields>[0];
+
+async function portalSettings(accountId: string) {
+  const s = await getSettings(accountId);
+  return { depositPercentage: s.depositPercentage, tier1Collect: s.tier1Collect, balanceDueDays: s.balanceDueDays };
+}
+
+// The customer booking as the portal reads it: the original fields plus the
+// Block T1 ones (tier, stage, steps, contract, money, delivery).
+async function portalBooking(b: PortalRow) {
+  return { ...serializeCustomerBooking(b), ...portalFields(b, await portalSettings(b.accountId)) };
+}
 
 router.post("/signup", customerSignupLimiter, async (req, res) => {
   const { phone, email, password, name } = req.body ?? {};
@@ -133,7 +156,8 @@ router.get("/bookings", requireCustomer, async (_req, res) => {
     include: WITH_UNIT_DETAILS,
     orderBy: [{ eventDate: "asc" }, { createdAt: "asc" }],
   });
-  res.json(bookings.map(serializeCustomerBooking));
+  const settings = bookings.length > 0 ? await portalSettings(bookings[0].accountId) : null;
+  res.json(bookings.map((b) => ({ ...serializeCustomerBooking(b), ...(settings ? portalFields(b, settings) : {}) })));
 });
 
 // A booking is only reachable through the customer that owns it. Anyone
@@ -157,14 +181,17 @@ router.post("/bookings/:id/cancel", requireCustomer, customerActionLimiter, asyn
     return res.status(404).json({ error: "booking not found" });
   }
   if (booking.status === "Cancelled" || booking.status === "Released") {
-    return res.json(serializeCustomerBooking(booking));
+    return res.json(await portalBooking(booking));
   }
   if (booking.status === "Completed") {
     return res.status(409).json({ error: "This booking already happened." });
   }
+  // Block T1: a contract booking (tier 2) or a reviewed one (tier 3) is
+  // changed with GO, not from the portal.
+  if (!selfServeAllowed(booking)) return res.status(409).json({ error: SELF_SERVE_REFUSAL, reason: "call-go" });
 
-  const cancelled = await cancelBooking(booking.id, "Cancelled by the customer from their account.");
-  res.json(serializeCustomerBooking(cancelled));
+  await cancelBooking(booking.id, "Cancelled by the customer from their account.");
+  res.json(await portalBooking((await ownBooking(customer, booking.id)) as PortalRow));
   queueGoogleSync(booking.id);
 });
 
@@ -205,13 +232,14 @@ router.post("/bookings/:id/reschedule", requireCustomer, customerActionLimiter, 
   if (blocked) {
     return res.status(409).json({ error: blocked });
   }
+  if (!selfServeAllowed(booking)) return res.status(409).json({ error: SELF_SERVE_REFUSAL, reason: "call-go" });
 
   try {
-    const updated = await rescheduleBooking(booking.id, change, (b) => {
+    await rescheduleBooking(booking.id, change, (b) => {
       const when = b.eventTime ? `${b.eventDate.toISOString().slice(0, 10)} at ${b.eventTime}` : b.eventDate.toISOString().slice(0, 10);
       return `Rescheduled to ${when} by the customer from their account.`;
     });
-    res.json(serializeCustomerBooking(updated));
+    res.json(await portalBooking((await ownBooking(customer, booking.id)) as PortalRow));
     queueGoogleSync(booking.id);
   } catch (err) {
     if (err instanceof NoFreeUnit || err instanceof NoCrewFree || (err as { code?: unknown }).code === "P2002") {
@@ -237,6 +265,7 @@ router.post("/bookings/:id/change-item", requireCustomer, customerActionLimiter,
   if (blocked) {
     return res.status(409).json({ error: blocked });
   }
+  if (!selfServeAllowed(booking)) return res.status(409).json({ error: SELF_SERVE_REFUSAL, reason: "call-go" });
 
   const item = typeof itemId === "string" ? await prisma.item.findFirst({ where: { id: itemId, accountId: booking.accountId } }) : null;
   if (!item) {
@@ -250,12 +279,12 @@ router.post("/bookings/:id/change-item", requireCustomer, customerActionLimiter,
   }
 
   try {
-    const { booking: updated, unit } = await changeBookingItem(
+    const { unit } = await changeBookingItem(
       booking.id,
       { id: item.id, name: item.name, skills: item.skills, unitCount },
       (b, unitLabel) => `Changed to ${item.name} (${unitLabel}) for ${b.eventDate.toISOString().slice(0, 10)} by the customer from their account.`,
     );
-    res.json({ ...serializeCustomerBooking(updated), unit: { id: unit.id, label: unit.label } });
+    res.json({ ...(await portalBooking((await ownBooking(customer, booking.id)) as PortalRow)), unit: { id: unit.id, label: unit.label } });
   } catch (err) {
     if (err instanceof NoFreeUnit || err instanceof NoCrewFree || (err as { code?: unknown }).code === "P2002") {
       return res.status(409).json({
@@ -263,6 +292,92 @@ router.post("/bookings/:id/change-item", requireCustomer, customerActionLimiter,
         reason: "unavailable",
       });
     }
+    throw err;
+  }
+});
+
+// ---- Block T1: the customer's own contract and payments ----------------------
+
+// The contract on one of the customer's bookings, in the same shape as the
+// public signing link's. 404 for someone else's booking or a booking with no
+// contract (a tier 1 rental has none).
+router.get("/bookings/:id/contract", requireCustomer, async (req, res) => {
+  const customer = res.locals.customer as Customer;
+  const booking = await prisma.booking.findFirst({ where: { id: String(req.params.id), customerId: customer.id }, select: { id: true, tier: true, agreement: { include: { contractDocument: true } } } });
+  if (!booking) return res.status(404).json({ error: "booking not found" });
+  let agreement = booking.agreement;
+  if (!agreement || (!agreement.contractDocument && agreement.format !== "go-v2" && !agreement.signingToken)) {
+    if (booking.tier !== 2 && booking.tier !== 3) return res.status(404).json({ error: "There is no contract on this booking." });
+    try {
+      await prepareContract({ bookingId: booking.id });
+    } catch (err) {
+      if (err instanceof ContractError) return res.status(404).json({ error: "There is no contract on this booking." });
+      throw err;
+    }
+    agreement = await prisma.agreement.findUnique({ where: { bookingId: booking.id }, include: { contractDocument: true } });
+    if (!agreement) return res.status(404).json({ error: "There is no contract on this booking." });
+  }
+  try {
+    const view = await contractView(agreement, req);
+    res.status(view.status).json(view.body);
+  } catch (err) {
+    if (err instanceof ContractError) return res.status(err.status).json({ error: err.message, reason: err.reason });
+    throw err;
+  }
+});
+
+// Signing from the portal: the same rules and the same record as the public
+// link, on the customer's own booking only.
+router.post("/bookings/:id/sign", requireCustomer, customerActionLimiter, async (req, res) => {
+  const customer = res.locals.customer as Customer;
+  const booking = await prisma.booking.findFirst({ where: { id: String(req.params.id), customerId: customer.id }, select: { id: true, agreement: { select: { signingToken: true, format: true, contractStatus: true } } } });
+  if (!booking) return res.status(404).json({ error: "booking not found" });
+  if (!booking.agreement?.signingToken) return res.status(404).json({ error: "There is no contract on this booking." });
+  if (booking.agreement.contractStatus === "Signed") return res.status(409).json({ error: "This contract was already signed. Nothing more is needed from you.", reason: "already-signed" });
+  const parsed = parseSignBody((req.body ?? {}) as Record<string, unknown>, booking.agreement.format === "go-v2");
+  if ("status" in parsed) return res.status(parsed.status).json(parsed.body);
+  try {
+    const signed = await signContract(booking.agreement.signingToken, {
+      fullName: parsed.fullName,
+      additionalSignerName: parsed.additionalSignerName,
+      consentToElectronicSignature: true,
+      agreeToTerms: true,
+      contentHash: parsed.contentHash,
+      ip: req.ip ?? null,
+      userAgent: req.get("user-agent") ?? null,
+      baseRequest: req,
+    });
+    void notifyContractSigned({ bookingId: booking.id, designRequestId: null }, signed);
+    queueGoogleSync(booking.id);
+    res.status(201).json({
+      signed: true,
+      signedAt: signed.signedAt.toISOString(),
+      signedName: parsed.fullName,
+      documentId: signed.documentId,
+      pdfUrl: signed.pdfUrl,
+      ...("format" in signed && signed.format === "go-v2" ? { format: "go-v2", document: signed.document } : {}),
+    });
+  } catch (err) {
+    if (err instanceof ContractError) return res.status(err.status).json({ error: err.message, reason: err.reason });
+    throw err;
+  }
+});
+
+// A Checkout Session for the retainer or the balance on the customer's own
+// booking. The amount is the admin's; 409 nothing-due or not-payable.
+router.post("/bookings/:id/payments/session", requireCustomer, customerActionLimiter, async (req, res) => {
+  const customer = res.locals.customer as Customer;
+  const kind = (req.body ?? {}).kind;
+  if (kind !== "retainer" && kind !== "balance") return res.status(400).json({ error: "kind must be retainer or balance" });
+  const booking = await prisma.booking.findFirst({ where: { id: String(req.params.id), customerId: customer.id }, select: { id: true } });
+  if (!booking) return res.status(404).json({ error: "booking not found" });
+  try {
+    const offer = await createPaymentSession(booking.id, kind);
+    if (!offer) return res.status(409).json({ error: "Online payment is not set up yet. GO will follow up to collect it.", reason: "not-payable" });
+    res.json({ clientSecret: offer.clientSecret, sessionId: offer.sessionId, amount: offer.amount, kind: offer.kind });
+  } catch (err) {
+    if (err instanceof PaymentError) return res.status(err.status).json({ error: err.message, reason: err.reason });
+    if (err instanceof StripeError) return res.status(502).json({ error: "The payment could not be started. Try again in a moment.", reason: "stripe" });
     throw err;
   }
 });

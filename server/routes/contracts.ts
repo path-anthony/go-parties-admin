@@ -55,38 +55,40 @@ publicContractsRouter.get("/logo.png", availabilityLimiter, async (_req, res) =>
 // in server/contract/goDocument.ts. Agreements on the original layout answer
 // exactly as before. contentHash identifies exactly this text; send it back when
 // signing so the customer can only sign what they were shown.
-publicContractsRouter.get("/:token", availabilityLimiter, async (req, res) => {
-  try {
-    const agreement = await prisma.agreement.findUnique({ where: { signingToken: String(req.params.token) }, include: { contractDocument: true } });
-    if (!agreement) return res.status(404).json({ error: "This signing link isn't valid." });
-    // The link stops working 30 days after the event, and for an unsigned
-    // contract on a cancelled, completed or released booking. The signed PDF
-    // has its own link and is unaffected.
-    const window = await signingWindow(agreement);
-    if (window === "expired" || (window === "closed" && !agreement.contractDocument)) return res.status(404).json({ error: "This signing link isn't valid." });
+// The contract as the customer reads it, by agreement. Shared by the public
+// signing link and the portal's own contract page (Block T1), so both answer
+// in the one locked shape.
+export async function contractView(agreement: { id: string; bookingId: string | null; designRequestId: string | null; format: string | null; contractUrl: string | null; contractDocument: { text: string; signedName: string; signedAt: Date; downloadToken: string; format: string | null; documentJson: unknown } | null }, req: import("express").Request): Promise<{ status: number; body: Record<string, unknown> }> {
+  // The link stops working 30 days after the event, and for an unsigned
+  // contract on a cancelled, completed or released booking. The signed PDF
+  // has its own link and is unaffected.
+  const window = await signingWindow(agreement);
+  if (window === "expired" || (window === "closed" && !agreement.contractDocument)) return { status: 404, body: { error: "This signing link isn't valid." } };
 
-    if (agreement.contractDocument) {
-      const doc = agreement.contractDocument;
-      const base = {
-        status: "Signed",
-        signed: true,
-        title: "Event Services Agreement",
-        text: doc.text,
-        signedName: doc.signedName,
-        signedAt: doc.signedAt.toISOString(),
-        pdfUrl: agreement.contractUrl ?? pdfLink(doc.downloadToken, req),
-      };
-      // The signed GO document is served as it was signed, all three
-      // signature lines in it, never rebuilt.
-      if (doc.format === "go-v2" && doc.documentJson) return res.json({ ...base, format: "go-v2", document: doc.documentJson });
-      return res.json(base);
-    }
+  if (agreement.contractDocument) {
+    const doc = agreement.contractDocument;
+    const base = {
+      status: "Signed",
+      signed: true,
+      title: "Event Services Agreement",
+      text: doc.text,
+      signedName: doc.signedName,
+      signedAt: doc.signedAt.toISOString(),
+      pdfUrl: agreement.contractUrl ?? pdfLink(doc.downloadToken, req),
+    };
+    // The signed GO document is served as it was signed, all three
+    // signature lines in it, never rebuilt.
+    if (doc.format === "go-v2" && doc.documentJson) return { status: 200, body: { ...base, format: "go-v2", title: "Service Contract and Retainer Agreement", document: doc.documentJson } };
+    return { status: 200, body: base };
+  }
 
-    if (agreement.format === "go-v2") {
-      const go = await buildGoDocument(agreement.id);
-      const d = go.document;
-      const cents = (v: number | "-" | null) => (typeof v === "number" ? v / 100 : null);
-      return res.json({
+  if (agreement.format === "go-v2") {
+    const go = await buildGoDocument(agreement.id);
+    const d = go.document;
+    const cents = (v: number | "-" | null) => (typeof v === "number" ? v / 100 : null);
+    return {
+      status: 200,
+      body: {
         status: "Sent",
         signed: false,
         format: "go-v2",
@@ -105,11 +107,14 @@ publicContractsRouter.get("/:token", availabilityLimiter, async (req, res) => {
         consentText: d.acceptance.esignLabel ?? CONSENT_TEXT,
         termsText: TERMS_TEXT,
         document: d,
-      });
-    }
+      },
+    };
+  }
 
-    const c = await buildContractContent(agreement.id);
-    res.json({
+  const c = await buildContractContent(agreement.id);
+  return {
+    status: 200,
+    body: {
       status: "Sent",
       signed: false,
       title: "Event Services Agreement",
@@ -130,7 +135,16 @@ publicContractsRouter.get("/:token", availabilityLimiter, async (req, res) => {
       contentHash: c.contentHash,
       consentText: CONSENT_TEXT,
       termsText: TERMS_TEXT,
-    });
+    },
+  };
+}
+
+publicContractsRouter.get("/:token", availabilityLimiter, async (req, res) => {
+  try {
+    const agreement = await prisma.agreement.findUnique({ where: { signingToken: String(req.params.token) }, include: { contractDocument: true } });
+    if (!agreement) return res.status(404).json({ error: "This signing link isn't valid." });
+    const view = await contractView(agreement, req);
+    res.status(view.status).json(view.body);
   } catch (err) {
     fail(res, err);
   }
@@ -139,6 +153,30 @@ publicContractsRouter.get("/:token", availabilityLimiter, async (req, res) => {
 // Signs it. Both consent to sign electronically and agreement to the terms
 // must be true; they are asked separately. The typed name becomes the
 // signature. IP and time are taken from the request, never the body.
+// Reads and checks the sign request body. Shared with the portal's sign
+// route (Block T1). Returns the refusal to send, or the clean input.
+export function parseSignBody(body: Record<string, unknown>, isGo: boolean): { status: number; body: Record<string, unknown> } | { fullName: string; additionalSignerName: string | null; contentHash: string | undefined } {
+  const fullName = typeof body.fullName === "string" ? body.fullName.trim().replace(/\s+/g, " ") : "";
+  if (fullName.length < 3 || fullName.length > 120 || !fullName.includes(" ")) {
+    return { status: 400, body: { error: "Type your full name, first and last.", reason: "name-required" } };
+  }
+  // The GO contract has one checkbox: consenting to sign electronically is
+  // agreeing to the terms (its text says so). The original layout asks twice.
+  const consented = body.consentToElectronicSignature === true || (isGo && body.esignConsent === true);
+  const agreed = body.agreeToTerms === true || (isGo && body.esignConsent === true);
+  if (!consented) return { status: 400, body: { error: "You need to consent to sign electronically to continue.", reason: "consent-required" } };
+  if (!agreed) return { status: 400, body: { error: "You need to agree to the contract terms to continue.", reason: "terms-required" } };
+  let additionalSignerName: string | null = null;
+  if (body.additionalSignerName !== undefined && body.additionalSignerName !== null && body.additionalSignerName !== "") {
+    if (typeof body.additionalSignerName !== "string" || body.additionalSignerName.trim().length > 120) {
+      return { status: 400, body: { error: "The additional signer's name can be up to 120 characters.", reason: "name-required" } };
+    }
+    additionalSignerName = body.additionalSignerName.trim().replace(/\s+/g, " ") || null;
+  }
+  if (body.contentHash !== undefined && typeof body.contentHash !== "string") return { status: 400, body: { error: "contentHash must be text" } };
+  return { fullName, additionalSignerName, contentHash: body.contentHash as string | undefined };
+}
+
 publicContractsRouter.post("/:token/sign", contractSignLimiter, async (req, res) => {
   const body = (req.body ?? {}) as Record<string, unknown>;
   const fullName = typeof body.fullName === "string" ? body.fullName.trim().replace(/\s+/g, " ") : "";

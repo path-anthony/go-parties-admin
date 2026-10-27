@@ -41,6 +41,11 @@ export async function getSettings(accountId: string) {
       returnedCheckFee: true,
       signAndPayWindowDays: true,
       useGoContract: true,
+      contractRequiredOver: true,
+      contractRequiredForCrewed: true,
+      contractHoldReleaseDays: true,
+      tier1Collect: true,
+      saveCardForBalance: true,
     },
   });
   return {
@@ -74,6 +79,12 @@ export async function getSettings(accountId: string) {
     returnedCheckFee: Number(account.returnedCheckFee),
     signAndPayWindowDays: account.signAndPayWindowDays,
     useGoContract: account.useGoContract,
+    // Block T1: the tier rules and what checkout collects.
+    contractRequiredOver: Number(account.contractRequiredOver),
+    contractRequiredForCrewed: account.contractRequiredForCrewed,
+    contractHoldReleaseDays: account.contractHoldReleaseDays,
+    tier1Collect: account.tier1Collect,
+    saveCardForBalance: account.saveCardForBalance,
   };
 }
 

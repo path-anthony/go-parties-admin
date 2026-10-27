@@ -32,6 +32,10 @@ publicSettingsRouter.get("/public", availabilityLimiter, async (_req, res) => {
     rushContactPhone: settings.rushContactPhone,
     depositPercentage: settings.depositPercentage,
     cancellationWindowDays: settings.cancellationWindowDays,
+    // Block T1: the number to call or text about a booking (the contract's
+    // phone) and the reschedule fee the portal quotes.
+    companyPhone: settings.contractPhone,
+    rescheduleFeePercent: settings.rescheduleFeePercent,
     policy: publicPolicy(policy),
   });
 });
@@ -83,6 +87,11 @@ router.patch("/", async (req, res) => {
     returnedCheckFee?: number;
     signAndPayWindowDays?: number;
     useGoContract?: boolean;
+    contractRequiredOver?: number;
+    contractRequiredForCrewed?: boolean;
+    contractHoldReleaseDays?: number;
+    tier1Collect?: string;
+    saveCardForBalance?: boolean;
   } = {};
 
   if ("minBookingNoticeHours" in body) {
@@ -205,6 +214,27 @@ router.patch("/", async (req, res) => {
   if ("useGoContract" in body) {
     if (typeof body.useGoContract !== "boolean") return res.status(400).json({ error: "useGoContract must be true or false" });
     data.useGoContract = body.useGoContract;
+  }
+  // Block T1: the tier rules and what checkout collects.
+  if ("contractRequiredOver" in body) {
+    const n = body.contractRequiredOver;
+    if (typeof n !== "number" || !Number.isFinite(n) || n < 0 || n > MAX_THRESHOLD) return res.status(400).json({ error: `contractRequiredOver must be a dollar amount from 0 to ${MAX_THRESHOLD}` });
+    data.contractRequiredOver = Math.round(n * 100) / 100;
+  }
+  for (const field of ["contractRequiredForCrewed", "saveCardForBalance"] as const) {
+    if (field in body) {
+      if (typeof body[field] !== "boolean") return res.status(400).json({ error: `${field} must be true or false` });
+      data[field] = body[field];
+    }
+  }
+  if ("contractHoldReleaseDays" in body) {
+    const n = body.contractHoldReleaseDays;
+    if (typeof n !== "number" || !Number.isInteger(n) || n < 0 || n > 365) return res.status(400).json({ error: "contractHoldReleaseDays must be a whole number of days from 0 to 365" });
+    data.contractHoldReleaseDays = n;
+  }
+  if ("tier1Collect" in body) {
+    if (body.tier1Collect !== "retainer" && body.tier1Collect !== "full") return res.status(400).json({ error: "tier1Collect must be retainer or full" });
+    data.tier1Collect = body.tier1Collect;
   }
   if ("requireBotCheck" in body) {
     if (typeof body.requireBotCheck !== "boolean") return res.status(400).json({ error: "requireBotCheck must be true or false" });
