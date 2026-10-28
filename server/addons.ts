@@ -12,18 +12,36 @@ type GroupRow = {
   id: string;
   name: string;
   required: boolean;
+  selectMode: string;
+  maxSelect: number | null;
   addons: { id: string; name: string; priceDelta: unknown }[];
 };
 
-// The public shape: ids, names, whether a choice is forced, and the price
-// delta as a plain number. Nothing internal (positions, timestamps).
+export const SELECT_MODES = ["one", "many"] as const;
+export type SelectMode = (typeof SELECT_MODES)[number];
+export const selectModeOf = (value: string): SelectMode => (value === "many" ? "many" : "one");
+
+// The public shape: ids, names, whether a choice is forced, how many may be
+// picked, and the price delta as a plain number. Nothing internal
+// (positions, timestamps).
 export function publicAddonGroups(groups: GroupRow[]) {
   return groups.map((group) => ({
     id: group.id,
     name: group.name,
     required: group.required,
+    selectMode: selectModeOf(group.selectMode),
+    maxSelect: group.selectMode === "many" ? group.maxSelect : null,
     addons: group.addons.map((addon) => ({ id: addon.id, name: addon.name, priceDelta: Number(addon.priceDelta) })),
   }));
+}
+
+// Pure. Whether a count of picks is allowed in a group: one for "one",
+// up to maxSelect (or any number) for "many". Returns the refusal, or null.
+export function selectionProblem(group: { name: string; selectMode: string; maxSelect: number | null }, count: number, itemName: string): string | null {
+  if (count <= 1) return null;
+  if (selectModeOf(group.selectMode) === "one") return `Pick one ${group.name} for ${itemName}, not several.`;
+  if (group.maxSelect !== null && count > group.maxSelect) return `Pick up to ${group.maxSelect} ${group.name} for ${itemName}.`;
+  return null;
 }
 
 export type ChosenAddon = {
@@ -65,7 +83,9 @@ export function parseAddonSelections(value: unknown, itemIds: string[]): Map<str
 
 // Checks the selections against the live configuration of every item being
 // booked: each addon has to belong to the item it was sent under, a group
-// takes at most one choice, and every required group has to be answered.
+// takes one choice (or, for a "many" group, up to its limit; Block A3), and
+// every required group has to be answered. Every pick is priced, so a
+// "many" group adds up its deltas.
 // Throws AddonSelectionError with a message a customer can act on.
 // enforceRequired is on for customers; the admin turns it off so Andy can
 // correct a booking's choices without being forced to answer everything.
@@ -85,15 +105,17 @@ export async function resolveAddons(
     const itemGroups = groups.filter((group) => group.itemId === item.id);
     const wanted = selections.get(item.id) ?? [];
     const answered = new Set<string>();
+    const counts = new Map<string, number>();
 
     for (const addonId of wanted) {
       const group = itemGroups.find((g) => g.addons.some((addon) => addon.id === addonId));
       if (!group) {
         throw new AddonSelectionError("addon-invalid", `One of the options picked isn't an option for ${item.name}.`);
       }
-      if (answered.has(group.id)) {
-        throw new AddonSelectionError("addon-invalid", `Pick one ${group.name} for ${item.name}, not several.`);
-      }
+      const count = (counts.get(group.id) ?? 0) + 1;
+      counts.set(group.id, count);
+      const problem = selectionProblem(group, count, item.name);
+      if (problem) throw new AddonSelectionError("addon-invalid", problem);
       answered.add(group.id);
       const addon = group.addons.find((a) => a.id === addonId)!;
       chosen.push({

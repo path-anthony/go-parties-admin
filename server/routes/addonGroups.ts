@@ -2,6 +2,28 @@ import { Router } from "express";
 import { getDefaultAccount } from "../account.js";
 import { prisma } from "../db.js";
 import { normalizeText } from "../validate.js";
+import { SELECT_MODES } from "../addons.js";
+
+const MAX_MAX_SELECT = 50;
+
+// Block A3: "one" or "many", and for "many" an optional cap. Returns the
+// fields to write, or a message.
+function selectionFields(body: Record<string, unknown>, current: { selectMode: string; maxSelect: number | null } | null): { selectMode?: string; maxSelect?: number | null } | string {
+  const out: { selectMode?: string; maxSelect?: number | null } = {};
+  if ("selectMode" in body) {
+    if (!(SELECT_MODES as readonly unknown[]).includes(body.selectMode)) return "selectMode must be one or many";
+    out.selectMode = body.selectMode as string;
+  }
+  if ("maxSelect" in body) {
+    const v = body.maxSelect;
+    if (v !== null && (typeof v !== "number" || !Number.isInteger(v) || v < 1 || v > MAX_MAX_SELECT)) return `maxSelect must be a whole number from 1 to ${MAX_MAX_SELECT}, or blank for no limit`;
+    out.maxSelect = v as number | null;
+  }
+  // A limit only means something for "many"; "one" drops it.
+  const mode = out.selectMode ?? current?.selectMode ?? "one";
+  if (mode === "one") out.maxSelect = null;
+  return out;
+}
 
 const MAX_NAME_LENGTH = 80;
 const MAX_GROUPS_PER_ITEM = 20;
@@ -40,6 +62,8 @@ router.post("/", async (req, res) => {
   if (body.required !== undefined && typeof body.required !== "boolean") {
     return res.status(400).json({ error: "required must be true or false" });
   }
+  const selection = selectionFields(body, null);
+  if (typeof selection === "string") return res.status(400).json({ error: selection });
   const account = await getDefaultAccount();
   const item =
     typeof body.itemId === "string"
@@ -60,6 +84,8 @@ router.post("/", async (req, res) => {
       itemId: item.id,
       name,
       required: body.required === true,
+      selectMode: selection.selectMode ?? "one",
+      maxSelect: selection.maxSelect ?? null,
       position: existing.reduce((max, g) => Math.max(max, g.position), -1) + 1,
     },
     include: WITH_ADDONS,
@@ -73,7 +99,12 @@ router.patch("/:id", async (req, res) => {
     return res.status(404).json({ error: "add-on group not found" });
   }
   const body = (req.body ?? {}) as Record<string, unknown>;
-  const data: { name?: string; required?: boolean } = {};
+  const data: { name?: string; required?: boolean; selectMode?: string; maxSelect?: number | null } = {};
+  if ("selectMode" in body || "maxSelect" in body) {
+    const selection = selectionFields(body, group);
+    if (typeof selection === "string") return res.status(400).json({ error: selection });
+    Object.assign(data, selection);
+  }
   if ("name" in body) {
     const name = normalizeName(body.name);
     if (!name) {

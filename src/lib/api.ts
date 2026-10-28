@@ -178,11 +178,11 @@ export function deleteItemsBulk(itemIds: string[]): Promise<BulkItemDeleteResult
   return fetch("/api/items/bulk-delete", jsonRequest("POST", { itemIds })).then(asJson<BulkItemDeleteResult>);
 }
 
-export function createAddonGroup(input: { itemId: string; name: string; required: boolean }): Promise<AddonGroup> {
+export function createAddonGroup(input: { itemId: string; name: string; required: boolean; selectMode?: "one" | "many"; maxSelect?: number | null }): Promise<AddonGroup> {
   return fetch("/api/addon-groups", jsonRequest("POST", input)).then(asJson<AddonGroup>);
 }
 
-export function updateAddonGroup(id: string, patch: { name?: string; required?: boolean }): Promise<AddonGroup> {
+export function updateAddonGroup(id: string, patch: { name?: string; required?: boolean; selectMode?: "one" | "many"; maxSelect?: number | null }): Promise<AddonGroup> {
   return fetch(`/api/addon-groups/${id}`, jsonRequest("PATCH", patch)).then(asJson<AddonGroup>);
 }
 

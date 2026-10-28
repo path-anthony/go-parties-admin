@@ -652,8 +652,9 @@ function AddonsSection({ item, onItemUpdated }: { item: Item; onItemUpdated: (it
     <div className="modal-section">
       <span className="detail-field-label">Add-ons</span>
       <p className="muted addon-help">
-        A group is one choice about this item, like Flavor or Print size. A customer picks one option per group. Required
-        groups have to be answered to book; the rest are optional upgrades. A price change can be zero or negative.
+        A group is one choice about this item, like Flavor or Print size. A customer picks one option per group, or any
+        number when the group allows it. Required groups have to be answered to book; the rest are optional upgrades. A
+        price change can be zero or negative.
       </p>
 
       {groups.length === 0 && <p className="muted">No add-on groups yet.</p>}
@@ -748,6 +749,30 @@ function AddonGroupCard({
           />
           Required
         </label>
+        <label>
+          <span className="muted">Customers can choose</span>{" "}
+          <select
+            value={group.selectMode}
+            disabled={busy}
+            aria-label={`How many ${group.name} options a customer can choose for ${itemName}`}
+            onChange={(e) => run(async () => onChanged(await updateAddonGroup(group.id, { selectMode: e.target.value as "one" | "many" })), "Couldn't save")}
+          >
+            <option value="one">One</option>
+            <option value="many">Any number</option>
+          </select>
+        </label>
+        {group.selectMode === "many" && (
+          <label>
+            <span className="muted">Up to (leave blank for no limit)</span>{" "}
+            <EditableCell
+              type="number"
+              value={group.maxSelect === null ? "" : String(group.maxSelect)}
+              placeholder="No limit"
+              ariaLabel={`Most ${group.name} options a customer can choose for ${itemName}`}
+              onSave={async (value) => onChanged(await updateAddonGroup(group.id, { maxSelect: value.trim() === "" ? null : Number(value) }))}
+            />
+          </label>
+        )}
         {confirmingDelete ? (
           <span className="addon-confirm">
             <span className="muted">Delete {group.name} and its options?</span>

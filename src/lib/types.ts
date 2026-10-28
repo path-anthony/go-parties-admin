@@ -20,6 +20,10 @@ export type AddonGroup = {
   itemId: string;
   name: string;
   required: boolean;
+  // Block A3: how many options a customer may pick, and the cap for "many"
+  // (null means no limit).
+  selectMode: "one" | "many";
+  maxSelect: number | null;
   position: number;
   createdAt: string;
   addons: Addon[];
