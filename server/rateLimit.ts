@@ -27,6 +27,19 @@ export const directBookingLimiter = rateLimit({
   message: { error: "Too many booking attempts from this connection. Please try again later, or call or text us.", reason: "rate-limited" },
 });
 
+// POST /api/bookings/tier is public and read-only: it prices a cart and
+// answers which agreement it needs (a tier 2 answer writes a quote row that
+// expires the same day). The storefront asks on every cart change, so it
+// gets its own bucket, well above the booking cap, so pricing a cart can
+// never use up someone's booking attempts. Same 429 shape as the hold.
+export const tierLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000, // 1 hour
+  limit: 60,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many pricing requests from this connection. Please try again later, or call or text us.", reason: "rate-limited" },
+});
+
 // POST /api/leads/concierge is public and writes a Lead per call, so it
 // gets the same tight per-IP cap as direct booking, in its own bucket.
 export const conciergeLeadLimiter = rateLimit({

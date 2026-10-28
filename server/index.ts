@@ -8,7 +8,7 @@ import { requireAuth, requireOwner } from "./auth.js";
 import { redact, safeErr } from "./log.js";
 import { markAdmin } from "./ai.js";
 import { corsPolicy, customerWriteGuard, securityHeaders } from "./security.js";
-import { conciergeLeadLimiter, directBookingLimiter, externalLeadLimiter, recommendLimiter } from "./rateLimit.js";
+import { conciergeLeadLimiter, directBookingLimiter, externalLeadLimiter, recommendLimiter, tierLimiter } from "./rateLimit.js";
 import addonGroupsRouter from "./routes/addonGroups.js";
 import authRouter from "./routes/auth.js";
 import bookingsRouter from "./routes/bookings.js";
@@ -173,8 +173,9 @@ app.use("/api/gigs", requireAuth, gigsRouter);
 app.use("/api/packages", publicPackagesRouter);
 app.use("/api/packages", requireAuth, packagesRouter);
 app.use("/api/bookings/direct", directBookingLimiter, directBookingsRouter);
-// Which agreement a cart needs: public like the hold, same limiter.
-app.use("/api/bookings/tier", directBookingLimiter, tierRouter);
+// Which agreement a cart needs: public and read-only, its own limiter (60
+// an hour) so pricing a cart never spends the five booking attempts.
+app.use("/api/bookings/tier", tierLimiter, tierRouter);
 app.use("/api/bookings/staff", requireAuth, staffBookingRouter);
 app.use("/api/bookings", requireAuth, adminPaymentsRouter);
 app.use("/api/bookings", requireAuth, bookingsRouter);
