@@ -1,5 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { Router } from "express";
+import { safeInline } from "../sanitize.js";
+import { clearPublicPackagesCache } from "./publicPackages.js";
 import { getDefaultAccount } from "../account.js";
 import { prisma } from "../db.js";
 import { ALL_OCCASIONS } from "../../src/lib/occasions.js";
@@ -103,8 +105,22 @@ router.get("/", async (_req, res) => {
   res.json(packages);
 });
 
+// Block A2: the two short display lines. Blank, null or absent all mean none;
+// anything else must be text within the limit. Cleaned like a name, since
+// the storefront prints them.
+export const MAX_TAG_LENGTH = 20;
+export const MAX_GUEST_NOTE_LENGTH = 40;
+function shortText(value: unknown, _field: string, max: number): string | null | typeof INVALID {
+  if (value === undefined || value === null) return null;
+  if (typeof value !== "string") return INVALID;
+  const text = safeInline(value, max + 1);
+  if (text === "") return null;
+  return text.length <= max ? text : INVALID;
+}
+
 // New packages are always Draft. Publishing is its own deliberate step.
 router.post("/", async (req, res) => {
+  clearPublicPackagesCache();
   const body = req.body ?? {};
   const name = normalizeText(body.name);
   if (!name) return res.status(400).json({ error: "name is required" });
@@ -123,12 +139,18 @@ router.post("/", async (req, res) => {
   if (typeof occasions === "string") return res.status(400).json({ error: occasions });
   const keywords = stringList(body.keywords ?? [], "keywords", MAX_KEYWORDS, MAX_KEYWORD_LENGTH);
   if (typeof keywords === "string") return res.status(400).json({ error: keywords });
+  const tag = shortText(body.tag, "tag", MAX_TAG_LENGTH);
+  if (tag === INVALID) return res.status(400).json({ error: `tag must be text up to ${MAX_TAG_LENGTH} characters` });
+  const guestNote = shortText(body.guestNote, "guestNote", MAX_GUEST_NOTE_LENGTH);
+  if (guestNote === INVALID) return res.status(400).json({ error: `guestNote must be text up to ${MAX_GUEST_NOTE_LENGTH} characters` });
 
   const created = await prisma.package.create({
     data: {
       accountId: account.id,
       name,
       description: normalizeText(body.description),
+      tag,
+      guestNote,
       price,
       status: "Draft",
       keywords,
@@ -144,6 +166,7 @@ router.post("/", async (req, res) => {
 // Status is deliberately not editable here; see /publish and /unpublish.
 // Edits to a published package go live as soon as they save.
 router.patch("/:id", async (req, res) => {
+  clearPublicPackagesCache();
   const id = String(req.params.id);
   const body = req.body ?? {};
 
@@ -158,7 +181,19 @@ router.patch("/:id", async (req, res) => {
     keywords?: string[];
     occasions?: string[];
     photoUrl?: string | null;
+    tag?: string | null;
+    guestNote?: string | null;
   } = {};
+  if ("tag" in body) {
+    const tag = shortText(body.tag, "tag", MAX_TAG_LENGTH);
+    if (tag === INVALID) return res.status(400).json({ error: `tag must be text up to ${MAX_TAG_LENGTH} characters` });
+    data.tag = tag;
+  }
+  if ("guestNote" in body) {
+    const guestNote = shortText(body.guestNote, "guestNote", MAX_GUEST_NOTE_LENGTH);
+    if (guestNote === INVALID) return res.status(400).json({ error: `guestNote must be text up to ${MAX_GUEST_NOTE_LENGTH} characters` });
+    data.guestNote = guestNote;
+  }
   if ("name" in body) {
     const name = normalizeText(body.name);
     if (!name) return res.status(400).json({ error: "name is required" });
@@ -214,6 +249,7 @@ router.patch("/:id", async (req, res) => {
 // A published package has to be findable and sellable: at least one
 // occasion so the storefront can ask for it, and at least one item.
 router.post("/:id/publish", async (req, res) => {
+  clearPublicPackagesCache();
   const id = String(req.params.id);
   const account = await getDefaultAccount();
   const existing = await prisma.package.findFirst({ where: { id, accountId: account.id }, include: { _count: { select: { items: true } } } });
@@ -231,6 +267,7 @@ router.post("/:id/publish", async (req, res) => {
 });
 
 router.post("/:id/unpublish", async (req, res) => {
+  clearPublicPackagesCache();
   const id = String(req.params.id);
   const account = await getDefaultAccount();
   const existing = await prisma.package.findFirst({ where: { id, accountId: account.id } });
@@ -264,6 +301,7 @@ const SUGGEST_TOOL: Anthropic.Tool = {
 // Asks Claude for search keywords from what the package is made of. The
 // suggestions come back to the admin to edit; nothing is saved here.
 router.post("/suggest-keywords", async (req, res) => {
+  clearPublicPackagesCache();
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) return res.status(500).json({ error: "ANTHROPIC_API_KEY is not set on the server" });
   const body = req.body ?? {};
@@ -314,6 +352,7 @@ router.post("/suggest-keywords", async (req, res) => {
 
 // A real delete. The join rows cascade; nothing else references a package.
 router.delete("/:id", async (req, res) => {
+  clearPublicPackagesCache();
   const id = String(req.params.id);
   const account = await getDefaultAccount();
   const existing = await prisma.package.findFirst({ where: { id, accountId: account.id } });

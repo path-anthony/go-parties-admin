@@ -389,6 +389,9 @@ export type Package = {
   // The storefront sub-occasions it is offered under; one or more to publish.
   occasions: string[];
   photoUrl: string | null;
+  // Block A2: short display lines for the storefront card, both optional.
+  tag: string | null;
+  guestNote: string | null;
   items: PackageItemRow[];
   createdAt: string;
   updatedAt: string;
@@ -397,6 +400,8 @@ export type Package = {
 export type PackageInput = {
   name: string;
   description: string;
+  tag: string;
+  guestNote: string;
   keywords: string[];
   occasions: string[];
   price: string;

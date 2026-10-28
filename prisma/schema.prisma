@@ -555,6 +555,11 @@ model Package {
   keywords    String[] @default([])
   occasions   String[] @default([])
   photoUrl    String?  @map("photo_url")
+  // Block A2: two short display lines for the storefront card, both
+  // optional. tag is a badge ("Most booked"); guestNote a size hint
+  // ("Up to 25 kids").
+  tag         String?
+  guestNote   String?  @map("guest_note")
   createdAt   DateTime @default(now()) @map("created_at")
   updatedAt   DateTime @default(now()) @updatedAt @map("updated_at")
 

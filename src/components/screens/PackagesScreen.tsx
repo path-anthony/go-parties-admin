@@ -192,6 +192,8 @@ function toInput(pkg: Package | null): PackageInput {
   return {
     name: pkg?.name ?? "",
     description: pkg?.description ?? "",
+    tag: pkg?.tag ?? "",
+    guestNote: pkg?.guestNote ?? "",
     keywords: pkg?.keywords ?? [],
     occasions: pkg?.occasions ?? [],
     price: pkg?.price ?? "",
@@ -335,6 +337,16 @@ function PackageModal({
             <label>
               Name*
               <input value={form.name} onChange={(e) => set("name", e.target.value)} required autoFocus />
+            </label>
+            <label>
+              Tag (optional)
+              <input value={form.tag} maxLength={20} onChange={(e) => set("tag", e.target.value)} placeholder="e.g. Most booked" />
+              <span className="muted field-help">Up to 20 characters. {form.tag.length}/20.</span>
+            </label>
+            <label>
+              Guest note (optional)
+              <input value={form.guestNote} maxLength={40} onChange={(e) => set("guestNote", e.target.value)} placeholder="e.g. Up to 25 kids" />
+              <span className="muted field-help">Up to 40 characters. {form.guestNote.length}/40.</span>
             </label>
             <label>
               Bundle price*
