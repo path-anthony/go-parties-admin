@@ -633,6 +633,8 @@ export type AccountSettings = {
   contractHoldReleaseDays: number;
   tier1Collect: "retainer" | "full";
   saveCardForBalance: boolean;
+  // Block A5.
+  requireCustomerAccount: boolean;
 };
 
 export type PolicyVersionInfo = { id: string; version: number; text: string; createdAt: string; agreements: number };

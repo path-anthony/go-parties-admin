@@ -12,12 +12,13 @@ export function ReviewSettings() {
   const [deposit, setDeposit] = useState("");
   const [cancelDays, setCancelDays] = useState("");
   const [requireBox, setRequireBox] = useState(false);
+  const [requireAccount, setRequireAccount] = useState(false);
   const [saved, setSaved] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const snapshot = (t: string, o: string[], d: string, r: boolean, c: string) => JSON.stringify([t, [...o].sort(), d, r, c]);
+  const snapshot = (t: string, o: string[], d: string, r: boolean, c: string, a: boolean) => JSON.stringify([t, [...o].sort(), d, r, c, a]);
 
   useEffect(() => {
     getSettings()
@@ -27,7 +28,8 @@ export function ReviewSettings() {
         setDeposit(String(s.depositPercentage));
         setCancelDays(String(s.cancellationWindowDays));
         setRequireBox(s.requireAgreementCheckbox);
-        setSaved(snapshot(String(s.fullReviewThreshold), s.reviewOccasions, String(s.depositPercentage), s.requireAgreementCheckbox, String(s.cancellationWindowDays)));
+        setRequireAccount(s.requireCustomerAccount);
+        setSaved(snapshot(String(s.fullReviewThreshold), s.reviewOccasions, String(s.depositPercentage), s.requireAgreementCheckbox, String(s.cancellationWindowDays), s.requireCustomerAccount));
       })
       .catch((err) => setError(err instanceof Error ? err.message : "Couldn't load the settings"));
   }, []);
@@ -48,13 +50,15 @@ export function ReviewSettings() {
         depositPercentage: Number(deposit),
         cancellationWindowDays: Number(cancelDays),
         requireAgreementCheckbox: requireBox,
+        requireCustomerAccount: requireAccount,
       });
       setThreshold(String(s.fullReviewThreshold));
       setOccasions(s.reviewOccasions);
       setDeposit(String(s.depositPercentage));
       setCancelDays(String(s.cancellationWindowDays));
       setRequireBox(s.requireAgreementCheckbox);
-      setSaved(snapshot(String(s.fullReviewThreshold), s.reviewOccasions, String(s.depositPercentage), s.requireAgreementCheckbox, String(s.cancellationWindowDays)));
+      setRequireAccount(s.requireCustomerAccount);
+      setSaved(snapshot(String(s.fullReviewThreshold), s.reviewOccasions, String(s.depositPercentage), s.requireAgreementCheckbox, String(s.cancellationWindowDays), s.requireCustomerAccount));
       setMessage("Saved.");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Couldn't save");
@@ -64,7 +68,7 @@ export function ReviewSettings() {
   }
 
   const ready = saved !== null;
-  const dirty = ready && saved !== snapshot(threshold, occasions, deposit, requireBox, cancelDays);
+  const dirty = ready && saved !== snapshot(threshold, occasions, deposit, requireBox, cancelDays, requireAccount);
 
   return (
     <form onSubmit={handleSave} className="add-item-form">
@@ -125,6 +129,12 @@ export function ReviewSettings() {
         Turn this on once the storefront shows the policy and sends the ticked box. While it is off, a storefront booking without it is
         still recorded, marked "box not ticked".
       </span>
+
+      <label className="checkbox-label">
+        <input type="checkbox" checked={requireAccount} onChange={(e) => setRequireAccount(e.target.checked)} disabled={!ready || busy} />
+        Require an account to book
+      </label>
+      <span className="muted field-help">When on, customers must sign in or create an account before they can hold a date.</span>
 
       <div className="form-actions">
         <button type="submit" className="btn-primary" disabled={!dirty || busy}>

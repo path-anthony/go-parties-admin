@@ -149,6 +149,13 @@ router.post("/", botCheck("direct-booking"), async (req, res) => {
   const body = (req.body ?? {}) as Record<string, unknown>;
 
   const customer = await currentCustomer(req);
+  // Block A5: with "Require an account to book" on, a guest is turned away
+  // before anything else is read. Staff bookings never come through here.
+  const account = await getDefaultAccount();
+  const settings = await getSettings(account.id);
+  if (settings.requireCustomerAccount && !customer) {
+    return res.status(401).json({ error: "Please sign in or create an account to book.", reason: "account-required" });
+  }
   // Names and free text from the public form are cleaned before they are
   // stored, because they end up in texts and emails we send: no links, no
   // control characters, a sane length.
@@ -184,6 +191,13 @@ router.post("/", botCheck("direct-booking"), async (req, res) => {
   }
   const cleanAddress = address === null ? null : safeInline(address, MAX_ADDRESS_LENGTH) || null;
   const cleanTime = eventTime === null ? null : safeInline(eventTime, MAX_TIME_LENGTH) || null;
+  // Block A5: the customer's home address (saved to the account when it has
+  // none) and whether the event is at home, kept on the booking for the record.
+  const homeAddress = optionalText(body.homeAddress, MAX_ADDRESS_LENGTH);
+  if (homeAddress === INVALID) return res.status(400).json({ error: `homeAddress must be text up to ${MAX_ADDRESS_LENGTH} characters` });
+  const cleanHome = homeAddress === null ? null : safeInline(homeAddress, MAX_ADDRESS_LENGTH) || null;
+  if (body.eventAddressSameAsHome !== undefined && typeof body.eventAddressSameAsHome !== "boolean") return res.status(400).json({ error: "eventAddressSameAsHome must be true or false" });
+  const eventAddressSameAsHome = body.eventAddressSameAsHome === true;
   const selections = parseAddonSelections(body.addons, itemIds);
   if (typeof selections === "string") {
     return res.status(400).json({ error: selections, reason: "addon-invalid" });
@@ -222,8 +236,6 @@ router.post("/", botCheck("direct-booking"), async (req, res) => {
   // counted or limited. A slot is taken here in one atomic step (so a burst
   // of requests cannot all slip under the cap) and given back below if no
   // booking or design request came of it.
-  const account = await getDefaultAccount();
-  const settings = await getSettings(account.id);
   if (!(await takeDaily(account.id, "direct_booking", settings.directBookingDailyCap))) {
     const phone = prettyPhone(settings.rushContactPhone ?? process.env.TWILIO_PHONE_NUMBER);
     console.warn("[bookings] storefront daily cap reached");
@@ -255,12 +267,18 @@ router.post("/", botCheck("direct-booking"), async (req, res) => {
       tier,
       signature,
       delivery,
+      eventAddressSameAsHome,
     });
   } catch (err) {
     await refundDaily(account.id, "direct_booking").catch(() => undefined);
     throw err;
   }
   if (result.status !== 201 && result.status !== 202) await refundDaily(account.id, "direct_booking");
+  // Block A5: a home address sent with a good hold is kept on the account
+  // when it had none. Never overwrites one the customer already set.
+  if (customer && cleanHome && !customer.homeAddress && (result.status === 201 || result.status === 202)) {
+    await prisma.customer.updateMany({ where: { id: customer.id, homeAddress: null }, data: { homeAddress: cleanHome } }).catch(() => undefined);
+  }
   res.status(result.status).json(result.body);
 });
 

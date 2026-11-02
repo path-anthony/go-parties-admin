@@ -46,6 +46,8 @@ export type DirectBookingInput = {
   contact: { phone: string | null; email: string | null };
   // The customer account the booking attaches to, if any.
   customer: { id: string; name: string | null } | null;
+  // Block A5: the customer said the event address is their home address.
+  eventAddressSameAsHome?: boolean;
   itemIds: string[];
   // Units wanted per item when not booking a package; missing means one.
   quantities?: Record<string, number>;
@@ -385,6 +387,7 @@ export async function createDirectBooking(input: DirectBookingInput): Promise<{ 
           eventDate: date,
           eventTime,
           address,
+          eventAddressSameAsHome: input.eventAddressSameAsHome === true,
           customerName: name,
           phone: contact.phone,
           email: contact.email,
