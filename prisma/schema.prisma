@@ -114,6 +114,9 @@ model Account {
   // When on, a Checkout session asks Stripe to keep the card for an
   // off-session balance charge later. Nothing charges automatically yet.
   saveCardForBalance        Boolean   @default(false) @map("save_card_for_balance")
+  // Block A5: when on, the storefront hold needs a signed-in customer.
+  // Staff bookings are never affected.
+  requireCustomerAccount    Boolean   @default(false) @map("require_customer_account")
   // Stripe webhook health, for the Integrations card.
   stripeLastWebhookAt       DateTime? @map("stripe_last_webhook_at")
   stripeLastError           String?   @map("stripe_last_error")
@@ -488,6 +491,9 @@ model Booking {
   // The Stripe Customer used for this booking's sessions (a guest's, or a
   // copy of the account customer's).
   stripeCustomerId         String?   @map("stripe_customer_id")
+  // Block A5: the customer said the event address is their home address.
+  // For the record only; delivery, crew and the calendar read `address`.
+  eventAddressSameAsHome   Boolean   @default(false) @map("event_address_same_as_home")
   createdAt                DateTime  @default(now()) @map("created_at")
   updatedAt                DateTime  @default(now()) @updatedAt @map("updated_at")
 
@@ -525,6 +531,9 @@ model Customer {
   phoneVerifiedAt DateTime? @map("phone_verified_at")
   // Block T1: the Stripe Customer for this account, made on first payment.
   stripeCustomerId String?  @map("stripe_customer_id")
+  // Block A5: where the customer lives, one line of text. Optional; the
+  // booking keeps its own event address.
+  homeAddress      String?  @map("home_address")
   createdAt       DateTime  @default(now()) @map("created_at")
   updatedAt       DateTime  @default(now()) @updatedAt @map("updated_at")
 

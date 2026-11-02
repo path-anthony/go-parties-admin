@@ -83,5 +83,5 @@ export function passwordProblem(value: unknown, ...mustNotEqual: (string | null)
 
 // What a customer is allowed to see about themselves. Never the hash.
 export function publicCustomer(customer: Customer) {
-  return { id: customer.id, name: customer.name, phone: customer.phone, email: customer.email, createdAt: customer.createdAt };
+  return { id: customer.id, name: customer.name, phone: customer.phone, email: customer.email, homeAddress: customer.homeAddress, createdAt: customer.createdAt };
 }

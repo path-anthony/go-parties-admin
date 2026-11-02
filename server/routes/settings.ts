@@ -36,6 +36,10 @@ publicSettingsRouter.get("/public", availabilityLimiter, async (_req, res) => {
     // phone) and the reschedule fee the portal quotes.
     companyPhone: settings.contractPhone,
     rescheduleFeePercent: settings.rescheduleFeePercent,
+    // Block A5: when the balance is due (the contract's number) and whether
+    // a hold needs an account, so the storefront can ask before the hold.
+    balanceDueDays: settings.balanceDueDays,
+    requireCustomerAccount: settings.requireCustomerAccount,
     policy: publicPolicy(policy),
   });
 });
@@ -92,6 +96,7 @@ router.patch("/", async (req, res) => {
     contractHoldReleaseDays?: number;
     tier1Collect?: string;
     saveCardForBalance?: boolean;
+    requireCustomerAccount?: boolean;
   } = {};
 
   if ("minBookingNoticeHours" in body) {
@@ -221,7 +226,7 @@ router.patch("/", async (req, res) => {
     if (typeof n !== "number" || !Number.isFinite(n) || n < 0 || n > MAX_THRESHOLD) return res.status(400).json({ error: `contractRequiredOver must be a dollar amount from 0 to ${MAX_THRESHOLD}` });
     data.contractRequiredOver = Math.round(n * 100) / 100;
   }
-  for (const field of ["contractRequiredForCrewed", "saveCardForBalance"] as const) {
+  for (const field of ["contractRequiredForCrewed", "saveCardForBalance", "requireCustomerAccount"] as const) {
     if (field in body) {
       if (typeof body[field] !== "boolean") return res.status(400).json({ error: `${field} must be true or false` });
       data[field] = body[field];

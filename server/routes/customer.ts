@@ -35,6 +35,9 @@ import { StripeError } from "../stripe/client.js";
 
 const BCRYPT_ROUNDS = 12;
 const MAX_TIME_LENGTH = 60;
+const MAX_NAME_LENGTH = 100;
+// The same limit as the booking's event address.
+export const MAX_HOME_ADDRESS_LENGTH = 300;
 // Same wording for an unknown identifier and a wrong password, so a login
 // attempt can't be used to check whether an address has an account.
 const BAD_LOGIN = "That phone or email and password don't match.";
@@ -63,8 +66,21 @@ async function portalBooking(b: PortalRow) {
   return { ...serializeCustomerBooking(b), ...portalFields(b, await portalSettings(b.accountId)) };
 }
 
+// Block A5: an optional one-line home address, cleaned like a name since
+// it is printed on records and in messages. Blank, null and absent clear
+// it; anything else is text within the limit.
+function parseHomeAddress(value: unknown): string | null | typeof INVALID {
+  if (value === undefined || value === null) return null;
+  if (typeof value !== "string") return INVALID;
+  const text = normalizeText(value);
+  if (text === null) return null;
+  if (text.length > MAX_HOME_ADDRESS_LENGTH) return INVALID;
+  return safeInline(text, MAX_HOME_ADDRESS_LENGTH) || null;
+}
+const HOME_ADDRESS_ERROR = `homeAddress must be text up to ${MAX_HOME_ADDRESS_LENGTH} characters, or blank`;
+
 router.post("/signup", customerSignupLimiter, async (req, res) => {
-  const { phone, email, password, name } = req.body ?? {};
+  const { phone, email, password, name, homeAddress } = req.body ?? {};
 
   const phoneDigits = normalizePhone(phone);
   if (!phoneDigits) {
@@ -78,6 +94,8 @@ router.post("/signup", customerSignupLimiter, async (req, res) => {
   if (problem) {
     return res.status(400).json({ error: problem });
   }
+  const home = parseHomeAddress(homeAddress);
+  if (home === INVALID) return res.status(400).json({ error: HOME_ADDRESS_ERROR });
 
   const account = await getDefaultAccount();
   const [phoneTaken, emailTaken] = await Promise.all([
@@ -95,7 +113,7 @@ router.post("/signup", customerSignupLimiter, async (req, res) => {
   let customer: Customer;
   try {
     customer = await prisma.customer.create({
-      data: { accountId: account.id, phone: phoneDigits, email: emailText, passwordHash, name: typeof name === "string" ? safeInline(name, 100) || null : null },
+      data: { accountId: account.id, phone: phoneDigits, email: emailText, passwordHash, name: typeof name === "string" ? safeInline(name, MAX_NAME_LENGTH) || null : null, homeAddress: home },
     });
   } catch (err) {
     // Two sign-ups racing past the checks above; the unique indexes decide.
@@ -143,6 +161,44 @@ router.post("/login", customerLoginLimiter, async (req, res) => {
 router.post("/logout", async (req, res) => {
   await endCustomerSession(req, res);
   res.json({ ok: true });
+});
+
+// Block A5: the signed-in customer changes their name, phone or home
+// address. Email changes are not offered. A phone another account holds
+// is refused the way sign-up refuses it.
+router.patch("/me", requireCustomer, customerActionLimiter, async (req, res) => {
+  const customer = res.locals.customer as Customer;
+  const body = (req.body ?? {}) as Record<string, unknown>;
+  const data: { name?: string | null; phone?: string; homeAddress?: string | null } = {};
+  if ("name" in body) {
+    if (body.name !== null && typeof body.name !== "string") return res.status(400).json({ error: `name must be text up to ${MAX_NAME_LENGTH} characters, or blank` });
+    const text = normalizeText(body.name);
+    if (text !== null && text.length > MAX_NAME_LENGTH) return res.status(400).json({ error: `name must be text up to ${MAX_NAME_LENGTH} characters, or blank` });
+    data.name = text === null ? null : safeInline(text, MAX_NAME_LENGTH) || null;
+  }
+  if ("phone" in body) {
+    const digits = normalizePhone(body.phone);
+    if (!digits) return res.status(400).json({ error: "phone must be 7 to 15 digits" });
+    if (digits !== customer.phone) {
+      const taken = await prisma.customer.findUnique({ where: { accountId_phone: { accountId: customer.accountId, phone: digits } }, select: { id: true } });
+      if (taken) return res.status(409).json({ error: "That phone number already has an account.", field: "phone" });
+      data.phone = digits;
+    }
+  }
+  if ("homeAddress" in body) {
+    const home = parseHomeAddress(body.homeAddress);
+    if (home === INVALID) return res.status(400).json({ error: HOME_ADDRESS_ERROR });
+    data.homeAddress = home;
+  }
+  if ("email" in body) return res.status(400).json({ error: "Email changes are not available here. Call or text GO to change your email." });
+  if (Object.keys(data).length === 0) return res.status(400).json({ error: "Send a name, phone or homeAddress to change" });
+  try {
+    const updated = await prisma.customer.update({ where: { id: customer.id }, data });
+    res.json({ customer: publicCustomer(updated) });
+  } catch (err) {
+    if ((err as { code?: unknown }).code === "P2002") return res.status(409).json({ error: "That phone number already has an account.", field: "phone" });
+    throw err;
+  }
 });
 
 router.get("/me", requireCustomer, (_req, res) => {
