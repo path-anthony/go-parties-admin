@@ -14,6 +14,7 @@ import { GoogleCalendarCard } from "../GoogleCalendarCard";
 import { ContractTermsEditor } from "../ContractTermsEditor";
 import { ServiceRowsEditor } from "../ServiceRowsEditor";
 import { TierSettings } from "../TierSettings";
+import { HeroPhotos } from "../HeroPhotos";
 import { useIsOwner } from "../../lib/me";
 
 // Settings is a group in the sidebar; each of these is one of its pages,
@@ -331,6 +332,17 @@ export function ContractSettingsPage() {
       <section className="panel">
         <h2>Services table rows</h2>
         <ServiceRowsEditor />
+      </section>
+    </Page>
+  );
+}
+
+// Block A6: the photos at the top of the store's Home page.
+export function HomePhotosPage() {
+  return (
+    <Page title="Home photos" intro="The photos that rotate at the top of the store's Home page.">
+      <section className="panel">
+        <HeroPhotos />
       </section>
     </Page>
   );

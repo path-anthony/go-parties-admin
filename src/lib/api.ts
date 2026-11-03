@@ -58,7 +58,7 @@ import type {
   SkillRow,
   Unit,
   UnitPatch,
-} from "./types";
+ HeroSlide } from "./types";
 
 export const AUTH_EXPIRED_EVENT = "auth:expired";
 
@@ -584,4 +584,25 @@ export function disconnectGoogle(): Promise<{ ok: true }> {
 
 export function syncGoogleNow(): Promise<NonNullable<GoogleCalendarInfo["lastSyncResult"]>> {
   return fetch("/api/integrations/google/sync", jsonRequest("POST")).then(asJson<NonNullable<GoogleCalendarInfo["lastSyncResult"]>>);
+}
+
+// Block A6: Home page photos. Uploads go one file per request as raw bytes.
+export function getHeroSlides(): Promise<HeroSlide[]> {
+  return fetch("/api/hero/admin").then(asJson<HeroSlide[]>);
+}
+
+export function uploadHeroSlide(file: File): Promise<HeroSlide> {
+  return fetch(`/api/hero?name=${encodeURIComponent(file.name)}`, { method: "POST", headers: { "Content-Type": file.type || "application/octet-stream" }, body: file }).then(asJson<HeroSlide>);
+}
+
+export function updateHeroSlide(id: string, patch: { altText?: string; active?: boolean }): Promise<HeroSlide[]> {
+  return fetch(`/api/hero/${id}`, jsonRequest("PATCH", patch)).then(asJson<HeroSlide[]>);
+}
+
+export function moveHeroSlide(id: string, direction: "up" | "down"): Promise<HeroSlide[]> {
+  return fetch(`/api/hero/${id}/move`, jsonRequest("POST", { direction })).then(asJson<HeroSlide[]>);
+}
+
+export function deleteHeroSlide(id: string): Promise<HeroSlide[]> {
+  return fetch(`/api/hero/${id}`, jsonRequest("DELETE")).then(asJson<HeroSlide[]>);
 }

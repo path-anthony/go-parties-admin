@@ -32,6 +32,9 @@ const PUBLIC_ROUTES: RegExp[] = [
   /^\/customer(\/|$)/,
   /^\/contracts(\/|$)/,
   /^\/bids(\/|$)/,
+  // Block A6: the Home page photos and their images.
+  /^\/hero$/,
+  /^\/media\/hero\/[^/]+$/,
 ];
 
 export function isPublicRoute(pathUnderApi: string): boolean {

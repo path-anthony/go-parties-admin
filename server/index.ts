@@ -35,6 +35,7 @@ import packagesRouter from "./routes/packages.js";
 import publicItemsRouter from "./routes/publicItems.js";
 import publicPackagesRouter from "./routes/publicPackages.js";
 import settingsRouter, { publicSettingsRouter } from "./routes/settings.js";
+import { heroAdminRouter, publicHeroRouter, publicMediaRouter } from "./routes/hero.js";
 import tierRouter from "./routes/tier.js";
 import { adminPaymentsRouter, publicPaymentsRouter } from "./routes/payments.js";
 import stripeWebhookRouter from "./routes/stripeWebhook.js";
@@ -171,6 +172,11 @@ app.use("/api/settings", requireAuth, settingsRouter);
 app.use("/api/team", requireAuth, requireOwner, teamRouter);
 app.use("/api/gigs", requireAuth, gigsRouter);
 app.use("/api/packages", publicPackagesRouter);
+// Block A6: the Home page photos. The public list and the images first;
+// everything else on /api/hero is the admin's.
+app.use("/api/hero", publicHeroRouter);
+app.use("/api/media", publicMediaRouter);
+app.use("/api/hero", requireAuth, heroAdminRouter);
 app.use("/api/packages", requireAuth, packagesRouter);
 app.use("/api/bookings/direct", directBookingLimiter, directBookingsRouter);
 // Which agreement a cart needs: public and read-only, its own limiter (60
