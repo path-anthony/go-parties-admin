@@ -830,3 +830,16 @@ export type AdminUser = {
 };
 export type TeamUser = AdminUser & { inviteExpiresAt: string | null };
 export type AuditRow = { id: string; userName: string; action: string; detail: string | null; createdAt: string };
+
+// Block A6: a Home page photo as the admin list reads it.
+export type HeroSlide = {
+  id: string;
+  altText: string;
+  width: number;
+  height: number;
+  sortOrder: number;
+  active: boolean;
+  createdAt: string;
+  url: string;
+  thumbnailUrl: string;
+};

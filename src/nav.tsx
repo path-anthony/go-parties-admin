@@ -11,7 +11,7 @@ import { MessageTemplatesPage, MessagesUpcomingPage, SentLogPage } from "./compo
 import { OverviewScreen } from "./components/screens/OverviewScreen";
 import { PackagesScreen } from "./components/screens/PackagesScreen";
 import { SchedulingScreen } from "./components/screens/SchedulingScreen";
-import { BusinessRulesPage, ContractSettingsPage, ContractTermsPage, IntegrationsPage, LeadPipelinePage, NotificationsPage, PoliciesPage } from "./components/screens/SettingsPages";
+import { BusinessRulesPage, ContractSettingsPage, ContractTermsPage, HomePhotosPage, IntegrationsPage, LeadPipelinePage, NotificationsPage, PoliciesPage } from "./components/screens/SettingsPages";
 import { SkillsPage } from "./components/screens/SkillsPage";
 import { TeamPage } from "./components/screens/TeamPage";
 import type { ScreenKey, ScreenParams } from "./lib/navigation";
@@ -118,6 +118,7 @@ export const NAV: NavItem[] = [
       { label: "Lead pipeline", path: "/settings/lead-pipeline", element: <LeadPipelinePage /> },
       { label: "Notifications", path: "/settings/notifications", element: <NotificationsPage /> },
       { label: "Integrations", path: "/settings/integrations", element: <IntegrationsPage /> },
+      { label: "Home photos", path: "/settings/home-photos", element: <HomePhotosPage /> },
       { label: "Team", path: "/settings/team", element: <TeamPage />, ownerOnly: true },
     ],
   },

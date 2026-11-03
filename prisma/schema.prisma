@@ -127,6 +127,7 @@ model Account {
   bookings          Booking[]
   customers         Customer[]
   packages          Package[]
+  heroSlides        HeroSlide[]
   crewMembers       CrewMember[]
   gigs              Gig[]
   sessions          Session[]
@@ -545,6 +546,30 @@ model Customer {
   @@unique([accountId, phone])
   @@unique([accountId, email])
   @@map("customers")
+}
+
+// Block A6: a photo in the rotation at the top of the storefront's Home
+// page. The bytes live here (no file store): the full image as WebP, at
+// most 2000px wide, and a 400px thumbnail for the admin list. A slide is
+// never replaced in place, so its id always names the same bytes and the
+// public URL can be cached for a year.
+model HeroSlide {
+  id        String   @id @default(cuid())
+  accountId String   @map("account_id")
+  imageData Bytes    @map("image_data")
+  thumbData Bytes    @map("thumb_data")
+  mimeType  String   @map("mime_type")
+  width     Int
+  height    Int
+  altText   String   @map("alt_text")
+  sortOrder Int      @map("sort_order")
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  account Account @relation(fields: [accountId], references: [id])
+
+  @@index([accountId, sortOrder])
+  @@map("hero_slides")
 }
 
 // A Package is a curated bundle of real catalog items with one manual
