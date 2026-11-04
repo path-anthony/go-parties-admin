@@ -23,7 +23,13 @@ const PUBLIC_SELECT = {
   photoUrl: true,
   tag: true,
   guestNote: true,
+  pricingMode: true,
+  basePrice: true,
+  minGuests: true,
+  maxGuests: true,
   items: {
+    // Block A8: a hidden item is left out of the package's public lines.
+    where: { item: { hidden: false } },
     select: {
       quantity: true,
       item: {
@@ -57,7 +63,7 @@ function loadPublished(accountId: string, occasion: string | null) {
 // when there was one, else the first group the package belongs to;
 // `groups` names every group its sub-occasions fall under ("Kids party",
 // "Wedding"), so a caller with no occasion can sort the list.
-function publicPackage({ price, items, tag, guestNote, ...pkg }: Row, occasion: string | null) {
+function publicPackage({ price, items, tag, guestNote, basePrice, ...pkg }: Row, occasion: string | null) {
   const groups = [...new Set(pkg.occasions.flatMap((o) => groupsOf(o)))];
   return {
     ...pkg,
@@ -66,6 +72,12 @@ function publicPackage({ price, items, tag, guestNote, ...pkg }: Row, occasion: 
     tag: tag ?? null,
     guestNote: guestNote ?? null,
     price: Number(price),
+    // Block A8: "fixed" (price is the bundle) or "per_guest" (price is per
+    // guest, plus basePrice, for minGuests to maxGuests).
+    pricingMode: pkg.pricingMode,
+    basePrice: basePrice === null ? null : Number(basePrice),
+    minGuests: pkg.minGuests,
+    maxGuests: pkg.maxGuests,
     items: items.map(({ quantity, item }) => ({
       itemId: item.id,
       name: item.name,

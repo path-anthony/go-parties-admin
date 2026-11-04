@@ -14,7 +14,7 @@ const CSV_HEADERS = ["name", "category", "price", "price_unit", "notes", "photo_
 
 const router = Router();
 
-const EDITABLE_FIELDS = ["name", "category", "price", "priceUnit", "notes", "description", "photoUrl", "skills", "source", "needsPriceReview"] as const;
+const EDITABLE_FIELDS = ["name", "category", "price", "priceUnit", "notes", "description", "hidden", "photoUrl", "skills", "source", "needsPriceReview"] as const;
 
 // Block A7: the customer-facing description. Blank, null and absent clear
 // it; it is cleaned like a name since the storefront prints it.
@@ -157,7 +157,7 @@ router.post("/bulk", async (req, res) => {
 });
 
 router.post("/", async (req, res) => {
-  const { name, category, price, priceUnit, notes, description, photoUrl, skills, startingUnits, source, needsPriceReview } = req.body ?? {};
+  const { name, category, price, priceUnit, notes, description, hidden, photoUrl, skills, startingUnits, source, needsPriceReview } = req.body ?? {};
 
   if (typeof name !== "string" || name.trim() === "") {
     return res.status(400).json({ error: "name is required" });
@@ -182,6 +182,7 @@ router.post("/", async (req, res) => {
   }
   const cleanDescription = normalizeDescription(description);
   if (cleanDescription === INVALID) return res.status(400).json({ error: DESCRIPTION_MESSAGE });
+  if (hidden !== undefined && typeof hidden !== "boolean") return res.status(400).json({ error: "hidden must be true or false" });
   if (source !== undefined && !isOneOf(ITEM_SOURCES, source)) {
     return res.status(400).json({ error: `source must be one of ${ITEM_SOURCES.join(", ")}` });
   }
@@ -214,6 +215,7 @@ router.post("/", async (req, res) => {
         ...(needsPriceReview !== undefined ? { needsPriceReview } : {}),
         notes: normalizeText(notes),
         description: cleanDescription,
+        ...(hidden !== undefined ? { hidden } : {}),
         photoUrl: cleanPhoto,
         skills: skillList,
       },
@@ -292,6 +294,12 @@ router.patch("/:id", async (req, res) => {
         return res.status(400).json({ error: `source must be one of ${ITEM_SOURCES.join(", ")}` });
       }
       data.source = body.source;
+      continue;
+    }
+
+    if (field === "hidden") {
+      if (typeof body.hidden !== "boolean") return res.status(400).json({ error: "hidden must be true or false" });
+      data.hidden = body.hidden;
       continue;
     }
 

@@ -144,6 +144,14 @@ function ItemDetail({
       <div className="detail-field detail-field-span">
         <DescriptionField item={item} onSave={save} />
       </div>
+      <div className="detail-field detail-field-span">
+        <span className="detail-field-label">Hidden from store</span>
+        <label className="checkbox-label">
+          <input type="checkbox" role="switch" aria-checked={item.hidden} checked={item.hidden} onChange={(e) => save({ hidden: e.target.checked })} />
+          {item.hidden ? "Hidden from the store" : "Shown in the store"}
+        </label>
+        <span className="muted field-help">Keeps the item in the admin and on existing bookings, but customers can't see or book it.</span>
+      </div>
       <div className="detail-field">
         <span className="detail-field-label">Category</span>
         <CategoryField item={item} categories={categories} onSave={save} />

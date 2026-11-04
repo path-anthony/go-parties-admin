@@ -8,6 +8,7 @@ import { isInvalidDelivery, parseDelivery } from "../delivery.js";
 import { prettyPhone } from "../messageContext.js";
 import { safeInline, stripControl } from "../sanitize.js";
 import { getSettings } from "../settings.js";
+import { parseGuestCount } from "../packagePricing.js";
 import { refundDaily, takeDaily } from "../usage.js";
 import { prisma } from "../db.js";
 import { BALANCE_PREFERENCES } from "../../src/lib/bookingStatus.js";
@@ -227,6 +228,9 @@ router.post("/", botCheck("direct-booking"), async (req, res) => {
   }
   const signature = resolveSignature(body.signature);
   if (typeof signature === "string") return res.status(400).json({ error: signature, reason: "signature-invalid" });
+  // Block A8: the guest count for a per-guest package.
+  const guestCount = parseGuestCount(body.guestCount);
+  if (typeof guestCount === "string") return res.status(400).json({ error: guestCount, reason: "guest-count-invalid" });
   const delivery = parseDelivery(body.delivery);
   if (isInvalidDelivery(delivery)) return res.status(400).json({ error: delivery.invalid, reason: "delivery-invalid" });
   // The plain address is the verified one whenever a delivery was sent.
@@ -268,6 +272,7 @@ router.post("/", botCheck("direct-booking"), async (req, res) => {
       signature,
       delivery,
       eventAddressSameAsHome,
+      guestCount,
     });
   } catch (err) {
     await refundDaily(account.id, "direct_booking").catch(() => undefined);
@@ -328,6 +333,9 @@ staffBookingRouter.post("/", async (req, res) => {
   if (date === null || date === INVALID) return res.status(400).json({ error: "eventDate is required and must be a valid YYYY-MM-DD date" });
   const dateText = date.toISOString().slice(0, 10);
   if (dateText < todayEastern()) return res.status(400).json({ error: "eventDate can't be in the past" });
+  // Block A8: staff give the guest count for a per-guest package too.
+  const staffGuestCount = parseGuestCount(body.guestCount);
+  if (typeof staffGuestCount === "string") return res.status(400).json({ error: staffGuestCount });
   const address = optionalText(body.address, MAX_ADDRESS_LENGTH);
   if (address === INVALID) return res.status(400).json({ error: `address must be text up to ${MAX_ADDRESS_LENGTH} characters` });
   const eventTime = optionalText(body.eventTime, MAX_TIME_LENGTH);
@@ -378,6 +386,7 @@ staffBookingRouter.post("/", async (req, res) => {
     selections,
     packageId,
     totalOverride,
+    guestCount: staffGuestCount,
   });
   res.status(result.status).json(result.body);
 });
