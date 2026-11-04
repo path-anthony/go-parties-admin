@@ -7,13 +7,27 @@ import { prisma } from "../db.js";
 import { validateSkills } from "../skills.js";
 import { ITEM_SOURCES } from "../../src/lib/itemFields.js";
 import { normalizeBilledPer } from "../itemFields.js";
+import { safeInline } from "../sanitize.js";
 import { INVALID as PHOTO_INVALID, isOneOf, normalizePhotoUrl } from "../validate.js";
 
 const CSV_HEADERS = ["name", "category", "price", "price_unit", "notes", "photo_url", "source", "needs_price_review"];
 
 const router = Router();
 
-const EDITABLE_FIELDS = ["name", "category", "price", "priceUnit", "notes", "photoUrl", "skills", "source", "needsPriceReview"] as const;
+const EDITABLE_FIELDS = ["name", "category", "price", "priceUnit", "notes", "description", "photoUrl", "skills", "source", "needsPriceReview"] as const;
+
+// Block A7: the customer-facing description. Blank, null and absent clear
+// it; it is cleaned like a name since the storefront prints it.
+export const MAX_DESCRIPTION_LENGTH = 240;
+const DESCRIPTION_MESSAGE = `description must be text up to ${MAX_DESCRIPTION_LENGTH} characters, or blank`;
+function normalizeDescription(value: unknown): string | null | typeof INVALID {
+  if (value === undefined || value === null) return null;
+  if (typeof value !== "string") return INVALID;
+  const text = value.trim();
+  if (text === "") return null;
+  if (text.length > MAX_DESCRIPTION_LENGTH) return INVALID;
+  return safeInline(text, MAX_DESCRIPTION_LENGTH) || null;
+}
 
 function normalizeText(value: unknown): string | null {
   return typeof value === "string" && value.trim() !== "" ? value.trim() : null;
@@ -143,7 +157,7 @@ router.post("/bulk", async (req, res) => {
 });
 
 router.post("/", async (req, res) => {
-  const { name, category, price, priceUnit, notes, photoUrl, skills, startingUnits, source, needsPriceReview } = req.body ?? {};
+  const { name, category, price, priceUnit, notes, description, photoUrl, skills, startingUnits, source, needsPriceReview } = req.body ?? {};
 
   if (typeof name !== "string" || name.trim() === "") {
     return res.status(400).json({ error: "name is required" });
@@ -166,6 +180,8 @@ router.post("/", async (req, res) => {
   if ("error" in billedPer) {
     return res.status(400).json({ error: billedPer.error });
   }
+  const cleanDescription = normalizeDescription(description);
+  if (cleanDescription === INVALID) return res.status(400).json({ error: DESCRIPTION_MESSAGE });
   if (source !== undefined && !isOneOf(ITEM_SOURCES, source)) {
     return res.status(400).json({ error: `source must be one of ${ITEM_SOURCES.join(", ")}` });
   }
@@ -197,6 +213,7 @@ router.post("/", async (req, res) => {
         ...(source !== undefined ? { source } : {}),
         ...(needsPriceReview !== undefined ? { needsPriceReview } : {}),
         notes: normalizeText(notes),
+        description: cleanDescription,
         photoUrl: cleanPhoto,
         skills: skillList,
       },
@@ -283,6 +300,13 @@ router.patch("/:id", async (req, res) => {
         return res.status(400).json({ error: "needsPriceReview must be true or false" });
       }
       data.needsPriceReview = body.needsPriceReview;
+      continue;
+    }
+
+    if (field === "description") {
+      const clean = normalizeDescription(body.description);
+      if (clean === INVALID) return res.status(400).json({ error: DESCRIPTION_MESSAGE });
+      data.description = clean;
       continue;
     }
 

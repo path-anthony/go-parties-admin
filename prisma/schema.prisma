@@ -655,6 +655,9 @@ model Item {
   // look. Admin only, never in a public response.
   needsPriceReview Boolean  @default(false) @map("needs_price_review")
   notes            String?
+  // Block A7: one or two customer-facing lines, up to 240 characters.
+  // notes stay internal; this is what the storefront prints.
+  description      String?
   photoUrl         String?  @map("photo_url")
   // The crew skills this item needs to run, from the fixed list in
   // server/skills.ts (plain strings, like CrewMember.skills). Empty for

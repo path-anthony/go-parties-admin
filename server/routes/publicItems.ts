@@ -49,6 +49,7 @@ router.get("/public", availabilityLimiter, async (req, res) => {
         category: true,
         price: true,
         priceUnit: true,
+        description: true,
         photoUrl: true,
         skills: true,
         // Unit count and each item's add-on groups and options ride along,
