@@ -33,6 +33,7 @@ const PUBLIC_SELECT = {
           category: true,
           price: true,
           priceUnit: true,
+          description: true,
           photoUrl: true,
           addonGroups: ADDON_GROUPS_INCLUDE.addonGroups,
         },
@@ -71,6 +72,7 @@ function publicPackage({ price, items, tag, guestNote, ...pkg }: Row, occasion: 
       category: item.category,
       price: item.price === null ? null : Number(item.price),
       priceUnit: item.priceUnit,
+      description: item.description ?? null,
       // So a cart row that came from a package shows the item's real
       // photo, the same as one added from the catalog.
       photoUrl: item.photoUrl,

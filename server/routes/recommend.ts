@@ -90,14 +90,15 @@ export function parseMessages(value: unknown): ParsedMessages {
   return { ok: true, messages: value.map((m) => ({ role: m.role, content: stripControlKeepNewlines(m.content).slice(0, MAX_MESSAGE_CHARS) })) };
 }
 
-type CatalogRow = { id: string; name: string; category: string; price: unknown; priceUnit: string | null };
+type CatalogRow = { id: string; name: string; category: string; price: unknown; priceUnit: string | null; description?: string | null };
 
-// What the model may see about an item: id, name, category, price and unit.
+// What the model may see about an item: id, name, category, price and unit,
+// and the customer-facing description (Block A7, public by definition).
 // Nothing internal. In particular not Item.notes, which hold supplier names,
 // costs and staff remarks; whatever is in the prompt can come back out in a
 // reply, so the prompt only ever holds what is already public.
 export function catalogLine(item: CatalogRow): string {
-  return `- id: ${item.id}, name: ${item.name}, category: ${item.category}, price: $${item.price}${item.priceUnit ? ` (${item.priceUnit})` : ""}`;
+  return `- id: ${item.id}, name: ${item.name}, category: ${item.category}, price: $${item.price}${item.priceUnit ? ` (${item.priceUnit})` : ""}${item.description ? `, about: ${item.description}` : ""}`;
 }
 
 const INSTRUCTIONS =

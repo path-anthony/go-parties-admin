@@ -55,6 +55,8 @@ export type Item = {
   source: ItemSource;
   needsPriceReview: boolean;
   notes: string | null;
+  // Block A7: customer-facing, up to 240 characters.
+  description: string | null;
   photoUrl: string | null;
   // The crew skills the item needs to run, any number, independent of
   // whether it has units. Booking it creates one gig per skill.

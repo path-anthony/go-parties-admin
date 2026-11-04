@@ -14,6 +14,7 @@ type PublicItemSource = {
   category: string;
   price: unknown;
   priceUnit: string | null;
+  description?: string | null;
   photoUrl: string | null;
   skills: string[];
   _count: { units: number };
@@ -31,6 +32,8 @@ export function toPublicItem(item: PublicItemSource) {
     category: item.category,
     price: item.price === null ? null : Number(item.price),
     priceUnit: item.priceUnit,
+    // Block A7: the customer-facing line, null when empty.
+    description: item.description ?? null,
     photoUrl: item.photoUrl,
     // "Can be booked directly": at least one unit, or at least one skill
     // (booked against the crew), or both. Neither means it can't be.

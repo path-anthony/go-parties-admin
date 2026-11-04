@@ -141,6 +141,9 @@ function ItemDetail({
         <span className="detail-field-label">Name</span>
         <EditableCell value={item.name} ariaLabel={`Name for ${item.name}`} onSave={(name) => save({ name })} />
       </div>
+      <div className="detail-field detail-field-span">
+        <DescriptionField item={item} onSave={save} />
+      </div>
       <div className="detail-field">
         <span className="detail-field-label">Category</span>
         <CategoryField item={item} categories={categories} onSave={save} />
@@ -879,5 +882,38 @@ function AddonGroupCard({
       </form>
       {error && <p className="form-error">{error}</p>}
     </div>
+  );
+}
+
+// Block A7: the customer-facing description, one or two lines, with a
+// live count against the limit. Saves on blur like the other fields.
+export const MAX_DESCRIPTION_LENGTH = 240;
+function DescriptionField({ item, onSave }: { item: Item; onSave: (patch: Partial<Item>) => Promise<void> }) {
+  const [draft, setDraft] = useState(item.description ?? "");
+  const [synced, setSynced] = useState(item.description ?? "");
+  const [error, setError] = useState<string | null>(null);
+  if ((item.description ?? "") !== synced) {
+    setSynced(item.description ?? "");
+    setDraft(item.description ?? "");
+  }
+  async function handleBlur() {
+    const next = draft.trim();
+    if (next === (item.description ?? "")) return;
+    setError(null);
+    try {
+      await onSave({ description: next === "" ? null : next });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "That didn't save");
+    }
+  }
+  return (
+    <label>
+      <span className="detail-field-label">Description (shown to customers, one or two lines)</span>
+      <textarea value={draft} maxLength={MAX_DESCRIPTION_LENGTH} rows={2} onChange={(e) => setDraft(e.target.value)} onBlur={handleBlur} aria-label={`Description for ${item.name}`} placeholder="What it is and who it suits" />
+      <span className="muted field-help">
+        {draft.length} of {MAX_DESCRIPTION_LENGTH} characters
+      </span>
+      {error && <span className="form-error">{error}</span>}
+    </label>
   );
 }
