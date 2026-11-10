@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { ArrowDown, ArrowUp, Trash2 } from "lucide-react";
 import { getItems, getServiceRows, saveServiceRows } from "../lib/api";
+import { EDITOR_COPY } from "../settingsCopy";
 import type { Item, ServiceRow, ServiceRowInput } from "../lib/types";
 
 // The SERVICES SELECTED table: its rows in two columns, and what each row
@@ -61,10 +62,7 @@ export function ServiceRowsEditor() {
 
   return (
     <div>
-      <p className="muted settings-help">
-        Each row says which catalog categories, item name words and specific items it gathers. A booked item lands in the first row that claims it (item, then category, then name word). Unclaimed
-        services go to Miscellaneous; unclaimed rentals to Rental Options.
-      </p>
+      <p className="muted settings-help">{EDITOR_COPY.services.help}</p>
       {(["left", "right"] as const).map((col) => (
         <div key={col} className="service-col-editor">
           <span className="detail-field-label">{col === "left" ? "Left column" : "Right column"}</span>
@@ -100,10 +98,12 @@ export function ServiceRowsEditor() {
                           </option>
                         ))}
                       </select>
+                      <span className="muted field-help">{EDITOR_COPY.services.categories}</span>
                     </label>
                     <label>
                       Name words (comma separated)
                       <input value={listText(row.itemWords)} disabled={busy} onChange={(e) => update(i, { itemWords: parseList(e.target.value) })} />
+                      <span className="muted field-help">{EDITOR_COPY.services.words}</span>
                     </label>
                     <label>
                       Specific items
@@ -114,6 +114,7 @@ export function ServiceRowsEditor() {
                           </option>
                         ))}
                       </select>
+                      <span className="muted field-help">{EDITOR_COPY.services.items}</span>
                     </label>
                   </div>
                 )}

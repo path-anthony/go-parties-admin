@@ -2872,3 +2872,19 @@ a.nav-item {
 .wedding-section h4 { margin: 0 0 3px; font-size: 13px; }
 .wedding-section ul { margin: 0; padding-left: 16px; font-size: 13px; }
 .wedding-value { white-space: pre-wrap; overflow-wrap: anywhere; }
+
+/* Block A12: the "On this page" list at the top of a long Settings page. */
+.settings-jump {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px 14px;
+  margin: 0 0 14px;
+}
+.settings-jump a {
+  color: inherit;
+  text-decoration: underline;
+}
+.screen .panel[id] {
+  scroll-margin-top: 12px;
+}

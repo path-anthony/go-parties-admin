@@ -12,7 +12,7 @@ import { NotificationsScreen } from "./components/screens/NotificationsScreen";
 import { OverviewScreen } from "./components/screens/OverviewScreen";
 import { PackagesScreen } from "./components/screens/PackagesScreen";
 import { SchedulingScreen } from "./components/screens/SchedulingScreen";
-import { BusinessRulesPage, ContractSettingsPage, ContractTermsPage, HomePhotosPage, IntegrationsPage, LeadPipelinePage, NotificationsPage, PoliciesPage } from "./components/screens/SettingsPages";
+import { BookingRulesPage, BusinessPage, ContractAndPolicyPage, HomePhotosPage, IntegrationsPage, MessagesAndNotificationsPage } from "./components/screens/SettingsPages";
 import { SkillsPage } from "./components/screens/SkillsPage";
 import { TeamPage } from "./components/screens/TeamPage";
 import type { ScreenKey, ScreenParams } from "./lib/navigation";
@@ -116,14 +116,12 @@ export const NAV: NavItem[] = [
     icon: Settings,
     path: "/settings",
     pages: [
-      { label: "Business rules", path: "/settings/business-rules", element: <BusinessRulesPage /> },
-      { label: "Policies and contracts", path: "/settings/policies", element: <PoliciesPage /> },
-      { label: "Contract terms", path: "/settings/contract-terms", element: <ContractTermsPage /> },
-      { label: "Contract settings", path: "/settings/contract-settings", element: <ContractSettingsPage /> },
-      { label: "Lead pipeline", path: "/settings/lead-pipeline", element: <LeadPipelinePage /> },
-      { label: "Notifications", path: "/settings/notifications", element: <NotificationsPage /> },
-      { label: "Integrations", path: "/settings/integrations", element: <IntegrationsPage /> },
+      { label: "Business", path: "/settings/business", element: <BusinessPage /> },
+      { label: "Booking rules", path: "/settings/booking-rules", element: <BookingRulesPage /> },
+      { label: "Contract and policy", path: "/settings/contract-and-policy", element: <ContractAndPolicyPage /> },
+      { label: "Messages and notifications", path: "/settings/notifications", element: <MessagesAndNotificationsPage /> },
       { label: "Home photos", path: "/settings/home-photos", element: <HomePhotosPage /> },
+      { label: "Integrations", path: "/settings/integrations", element: <IntegrationsPage /> },
       { label: "Team", path: "/settings/team", element: <TeamPage />, ownerOnly: true },
     ],
   },
@@ -135,11 +133,17 @@ export const NAV: NavItem[] = [
 // and the old Settings tabs.
 export const LEGACY_REDIRECTS: [from: string, to: string][] = [
   ["/", "/overview"],
-  ["/settings/general", "/settings/business-rules"],
+  ["/settings/general", "/settings/booking-rules"],
+  // Block A12: Settings went from nine pages to seven.
+  ["/settings/business-rules", "/settings/booking-rules"],
+  ["/settings/policies", "/settings/contract-and-policy"],
+  ["/settings/contract-terms", "/settings/contract-and-policy"],
+  ["/settings/contract-settings", "/settings/contract-and-policy"],
+  ["/settings/lead-pipeline", "/settings/notifications"],
   ["/settings/messages", "/messages/templates"],
   ["/settings/message-log", "/messages/sent-log"],
   ["/settings/skills", "/crew/skills"],
-  ["/settings/lead-columns", "/settings/lead-pipeline"],
+  ["/settings/lead-columns", "/settings/notifications"],
   ["/scheduling/units", "/scheduling/inventory-status"],
   ["/crew/crew", "/crew/members"],
   ["/crew/people", "/crew/members"],
@@ -152,7 +156,7 @@ export const LEGACY_REDIRECTS: [from: string, to: string][] = [
 // The tab the old in-page tabs would have been on, as a query string, sent
 // to the right page. Applies to a group's root address: /settings?tab=log.
 export const LEGACY_TABS: Record<string, Record<string, string>> = {
-  "/settings": { general: "/settings/business-rules", messages: "/messages/templates", log: "/messages/sent-log", "message-log": "/messages/sent-log", skills: "/crew/skills" },
+  "/settings": { general: "/settings/booking-rules", messages: "/messages/templates", log: "/messages/sent-log", "message-log": "/messages/sent-log", skills: "/crew/skills" },
   "/scheduling": { bookings: "/scheduling/bookings", units: "/scheduling/inventory-status" },
   "/crew": { gigs: "/crew/gigs", crew: "/crew/members", skills: "/crew/skills" },
 };
@@ -190,7 +194,7 @@ export function screenToPath(screen: ScreenKey, params: ScreenParams = {}): stri
   return qs ? `${base}?${qs}` : base;
 }
 
-// "Settings / Business rules" for the top of the page.
+// "Settings / Booking rules" for the top of the page.
 export function breadcrumbFor(pathname: string): { label: string; to?: string }[] {
   for (const item of NAV) {
     if (item.pages) {

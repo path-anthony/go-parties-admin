@@ -103,7 +103,7 @@ const lead: TriggerDef[] = [
     emailSubject: "Your hold on {{eventDate}} ends soon",
     emailBody: "Hi {{customerFirstName}},\n\nYour hold on {{eventDate}} ends {{holdExpiresAt}}. Sign to keep it: {{contractLink}}" + SIGN,
     wired: false,
-    unwiredReason: "No warning goes out before a hold is released. Unpaid storefront holds can be released after a set number of days (Settings, Business rules), but scheduled messages are not sent to a storefront booking that is still Held and unsigned.",
+    unwiredReason: "No warning goes out before a hold is released. Unpaid storefront holds can be released after a set number of days (Settings, Booking rules), but scheduled messages are not sent to a storefront booking that is still Held and unsigned.",
   },
   {
     key: "lead_nurture_day3",
@@ -320,7 +320,7 @@ const client: TriggerDef[] = [
     journey: "client",
     sendClass: "reminder",
     label: "Balance due soon",
-    when: "When the retainer is paid, the balance is not, and the event is inside the reminder window (Settings, Notifications).",
+    when: "When the retainer is paid, the balance is not, and the event is inside the reminder window (Settings, Messages and notifications).",
     stopsWhen: "Staff mark the balance paid, or the booking is cancelled.",
     tokens: ["customerFirstName", "balanceDue", "companyName", "eventDate"],
     sms: "Hi {{customerFirstName}}, a reminder that the remaining balance of {{balanceDue}} for your {{companyName}} event on {{eventDate}} is coming due. Please call or text us to arrange payment.",

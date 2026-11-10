@@ -1,5 +1,5 @@
 // Which Leads-board columns end the automated follow-up journey. Columns are
-// named by the admin (Settings > Lead pipeline), so the scheduler finds
+// named by the admin (Settings > Messages and notifications > Lead columns), so the scheduler finds
 // them by name, ignoring case. A lead in the won column, or in the lost
 // column, gets no more follow-ups.
 export const WON_STAGE = "Booked";

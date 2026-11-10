@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { disconnectGoogle, getGoogleCalendar, syncGoogleNow, updateGoogleCalendar } from "../lib/api";
 import type { GoogleCalendarInfo } from "../lib/types";
+import { EDITOR_COPY } from "../settingsCopy";
 
 const when = (iso: string | null) => (iso ? new Date(iso).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZone: "America/New_York" }) : "");
 
@@ -56,8 +57,7 @@ export function GoogleCalendarCard() {
       {!info.connected && (
         <div>
           <p className="muted settings-help">
-            Connect once as a Google Workspace admin (info@thegoeventgroup.com). GO gets a calendar event for every booking that reaches the stage you choose, and customers can get a calendar invite.
-            The app writes to Google; it never reads changes back.
+            {EDITOR_COPY.google.connect}
           </p>
           <a className={`btn-primary${info.configProblem ? " disabled" : ""}`} href={info.configProblem ? undefined : "/api/integrations/google/start"} aria-disabled={!!info.configProblem}>
             Connect with Google
@@ -91,7 +91,7 @@ export function GoogleCalendarCard() {
                   </option>
                 ))}
               </select>
-              <span className="muted field-help">Where GO's own event for each booking goes. Internal: crew, contacts and the admin link. Never shared.</span>
+              <span className="muted field-help">{EDITOR_COPY.google.internal}</span>
             </label>
             <label>
               Customer invites calendar
@@ -103,7 +103,7 @@ export function GoogleCalendarCard() {
                   </option>
                 ))}
               </select>
-              <span className="muted field-help">A separate calendar (for example "GO Client Invites") the invites go out from. Customer-safe: services, GO's phone and email, their portal link.</span>
+              <span className="muted field-help">{EDITOR_COPY.google.invites}</span>
             </label>
           </div>
           <label className="checkbox-label">
@@ -111,7 +111,7 @@ export function GoogleCalendarCard() {
             Send calendar invites to customers
           </label>
           <span className="muted field-help">
-            Google emails the invite, every update and the cancellation to the customer's email on the booking, and keeps their own calendar in step. Needs an invites calendar chosen.
+            {EDITOR_COPY.google.sendInvites}
           </span>
           <label>
             Add bookings when they are
@@ -119,7 +119,7 @@ export function GoogleCalendarCard() {
               <option value="Confirmed">Confirmed (signed and retainer paid)</option>
               <option value="Signed">Signed</option>
             </select>
-            <span className="muted field-help">A booking that falls below this (cancelled, released, or moved back) loses its events; the customer gets Google's cancellation.</span>
+            <span className="muted field-help">{EDITOR_COPY.google.stage}</span>
           </label>
           <div className="form-actions">
             <button type="button" className="btn-primary" disabled={busy || info.needsReconnect} onClick={() => run(() => syncGoogleNow(), "Sync finished.")}>

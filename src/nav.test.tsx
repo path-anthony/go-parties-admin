@@ -52,7 +52,7 @@ test("every place the app sends you (navigate) lands on a real page", () => {
 });
 
 test("the breadcrumb matches the sidebar path", () => {
-  assert.deepEqual(breadcrumbFor("/settings/business-rules").map((c) => c.label), ["Settings", "Business rules"]);
+  assert.deepEqual(breadcrumbFor("/settings/booking-rules").map((c) => c.label), ["Settings", "Booking rules"]);
   assert.deepEqual(breadcrumbFor("/crew/skills").map((c) => c.label), ["Crew & Gigs", "Skills"]);
   assert.deepEqual(breadcrumbFor("/messages/sent-log").map((c) => c.label), ["Messages", "Sent log"]);
   assert.deepEqual(breadcrumbFor("/leads").map((c) => c.label), ["Leads"]);
@@ -60,8 +60,27 @@ test("the breadcrumb matches the sidebar path", () => {
 });
 
 test("the pages that were on the old Settings screen and its tabs all have a home", () => {
-  const want = ["/settings/business-rules", "/settings/policies", "/settings/contract-terms", "/settings/contract-settings", "/settings/lead-pipeline", "/settings/notifications", "/settings/integrations", "/messages/upcoming", "/messages/templates", "/messages/sent-log", "/crew/skills", "/scheduling/bookings", "/scheduling/inventory-status", "/crew/gigs", "/crew/bids", "/crew/members"];
-  for (const w of want) assert.ok(pages.includes(w), w);
+  // An old address counts if it is a page now or redirects to one.
+  const redirected = new Map(LEGACY_REDIRECTS);
+  const want = ["/settings/business-rules", "/settings/policies", "/settings/contract-terms", "/settings/contract-settings", "/settings/lead-pipeline", "/settings/notifications", "/settings/integrations", "/settings/home-photos", "/settings/team", "/messages/upcoming", "/messages/templates", "/messages/sent-log", "/crew/skills", "/scheduling/bookings", "/scheduling/inventory-status", "/crew/gigs", "/crew/bids", "/crew/members"];
+  for (const w of want) assert.ok(pages.includes(w) || (redirected.has(w) && pages.includes(redirected.get(w) ?? "")), w);
+});
+
+// Block A12: Settings is seven pages, and every old Settings address lands on
+// the page that now holds its fields.
+test("Settings has seven pages and each old address redirects to its new home", () => {
+  const settings = NAV.find((n) => n.key === "settings");
+  assert.deepEqual(
+    settings?.pages?.map((p) => p.label),
+    ["Business", "Booking rules", "Contract and policy", "Messages and notifications", "Home photos", "Integrations", "Team"],
+  );
+  const redirected = new Map(LEGACY_REDIRECTS);
+  assert.equal(redirected.get("/settings/business-rules"), "/settings/booking-rules");
+  assert.equal(redirected.get("/settings/policies"), "/settings/contract-and-policy");
+  assert.equal(redirected.get("/settings/contract-terms"), "/settings/contract-and-policy");
+  assert.equal(redirected.get("/settings/contract-settings"), "/settings/contract-and-policy");
+  assert.equal(redirected.get("/settings/lead-pipeline"), "/settings/notifications");
+  assert.equal(LEGACY_TABS["/settings"].general, "/settings/booking-rules");
 });
 
 test("the Notifications page has its own address and stays out of the sidebar", () => {

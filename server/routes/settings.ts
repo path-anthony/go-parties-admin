@@ -52,7 +52,7 @@ router.get("/", async (_req, res) => {
 });
 
 // Which fields the Notifications page edits; Staff may change those.
-// Everything else here belongs to Business rules or Contract settings,
+// Everything else here belongs to Business, Booking rules or Contract and policy,
 // which only an Owner can change.
 const STAFF_FIELDS = new Set(["staffNotifyPhone", "staffNotifyEmail", "balanceReminderWindowDays", "digestEmail", "digestEnabled"]);
 

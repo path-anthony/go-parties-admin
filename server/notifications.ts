@@ -48,7 +48,6 @@ const DAY_MS = 86_400_000;
 const WAIT_DAYS = 3;
 const WEDDING_NOT_STARTED_DAYS = 60;
 const WEDDING_INCOMPLETE_DAYS = 35;
-const BALANCE_DAYS_AHEAD = 7;
 // Stages where a booking is still going ahead (Completed, Cancelled and
 // Released are not).
 const LIVE_STAGES = ["Held", "Contract Sent", "Signed"];
@@ -183,9 +182,10 @@ export async function findDueNotifications(now: Date): Promise<NotificationInput
     });
   }
 
-  // The balance falls due within 7 days (or already has) and is still open.
-  // Keyed by the due day, so moving the event raises it again.
-  const lastEvent = new Date(`${addDays(todayText, settings.balanceDueDays + BALANCE_DAYS_AHEAD)}T00:00:00Z`);
+  // The balance falls due within the balance reminder window (Settings,
+  // 7 days unless changed) or already has, and is still open. Keyed by the
+  // due day, so moving the event raises it again.
+  const lastEvent = new Date(`${addDays(todayText, settings.balanceDueDays + settings.balanceReminderWindowDays)}T00:00:00Z`);
   const openBalances = await prisma.booking.findMany({
     where: { accountId, status: { in: LIVE_STAGES }, balancePaid: false, total: { not: null }, eventDate: { gte: today, lte: lastEvent } },
     include: { agreement: { select: { contractStatus: true, contractDocument: { select: { documentJson: true } } } }, payments: true },

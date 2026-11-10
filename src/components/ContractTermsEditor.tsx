@@ -1,13 +1,13 @@
 import { useEffect, useState } from "react";
 import { ArrowDown, ArrowUp, Trash2 } from "lucide-react";
 import { getContractTerms, getSettings, saveContractTerms } from "../lib/api";
+import { EDITOR_COPY } from "../settingsCopy";
 import type { AccountSettings, GoTermsContent, TermsVersionInfo } from "../lib/types";
 
 const when = (iso: string) => new Date(iso).toLocaleString("en-US", { dateStyle: "medium", timeStyle: "short", timeZone: "America/New_York" });
 
 // The business numbers the wording binds to, in the same spelling the server
 // fills them (server/contract/goTemplate.ts).
-const TOKEN_HELP = "{{retainerPercent}} {{lateCancellationDays}} {{balanceDueDays}} {{rescheduleFeePercent}} {{outsidePlannerChargePercent}} {{returnedCheckFee}}";
 
 function fill(text: string, s: AccountSettings | null): string {
   if (!s) return text;
@@ -101,18 +101,21 @@ export function ContractTermsEditor() {
     <div className="terms-editor">
       <div className="terms-form">
         <p className="muted settings-help">
-          The numbers come from Settings, written as merge fields: <code>{TOKEN_HELP}</code>. Change a number there and every contract sent from then on says the new one.
-          {current ? ` Editing version ${current.version}.` : ""}
+          {EDITOR_COPY.terms.help}
+          {current ? ` You're editing version ${current.version}.` : ""}
         </p>
         <h3>Header</h3>
+        <p className="muted settings-help">{EDITOR_COPY.terms.header}</p>
         {text("Title", d.header.title, (v) => set("header", { ...d.header, title: v }), 1)}
         {text("Confirm-by line", d.header.confirmByLine, (v) => set("header", { ...d.header, confirmByLine: v }))}
         {text("Non-refundable line", d.header.nonRefundableLine, (v) => set("header", { ...d.header, nonRefundableLine: v }), 1)}
         <h3>Pages 2 and 3</h3>
+        <p className="muted settings-help">{EDITOR_COPY.terms.pages}</p>
         {text("Page header", d.terms.pageHeader, (v) => set("terms", { ...d.terms, pageHeader: v }), 1)}
         {text("Page subheader", d.terms.pageSubheader, (v) => set("terms", { ...d.terms, pageSubheader: v }))}
         {text("Terms heading", d.terms.heading, (v) => set("terms", { ...d.terms, heading: v }), 1)}
         <h3>Clauses</h3>
+        <p className="muted settings-help">{EDITOR_COPY.terms.clauses}</p>
         <ol className="clause-list">
           {d.terms.clauses.map((c, i) => (
             <li key={i} className="clause-row">
@@ -139,6 +142,7 @@ export function ContractTermsEditor() {
           Add a clause
         </button>
         <h3>Notes and acceptance</h3>
+        <p className="muted settings-help">{EDITOR_COPY.terms.notes}</p>
         {text("Services note", d.servicesNote, (v) => set("servicesNote", v), 3)}
         {text("Payment note", d.paymentNote, (v) => set("paymentNote", v), 3)}
         {text("Acceptance heading", d.acceptance.heading, (v) => set("acceptance", { ...d.acceptance, heading: v }), 1)}

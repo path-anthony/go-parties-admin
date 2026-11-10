@@ -1,31 +1,28 @@
-import { type FormEvent, useEffect, useState } from "react";
+import { type FormEvent, type ReactNode, useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import { checkMapsAddress, getIntegrationStatus, getLeadStatuses, type IntegrationStatus, type MapsCheck } from "../../lib/api";
-import { stageWarnings, LOST_STAGE, WON_STAGE } from "../../lib/leadStages";
+import { stageWarnings } from "../../lib/leadStages";
 import { statusLabel } from "../../lib/messages";
-import { DigestSettings } from "../DigestSettings";
-import { GoSignerSettings } from "../GoSignerSettings";
-import { LeadColumnsEditor } from "../LeadColumnsEditor";
-import { NotificationSettings } from "../NotificationSettings";
-import { PolicyEditor } from "../PolicyEditor";
-import { ReviewSettings } from "../ReviewSettings";
-import { RushSettings } from "../RushSettings";
-import { SafetySettings } from "../SafetySettings";
-import { ContractSettingsForm } from "../ContractSettingsForm";
-import { GoogleCalendarCard } from "../GoogleCalendarCard";
-import { ContractTermsEditor } from "../ContractTermsEditor";
-import { ServiceRowsEditor } from "../ServiceRowsEditor";
-import { TierSettings } from "../TierSettings";
-import { HeroPhotos } from "../HeroPhotos";
 import { useIsOwner } from "../../lib/me";
+import { EDITOR_COPY, type PageSpec, type PanelKey, type SectionSpec, pageById } from "../../settingsCopy";
+import { ContractTermsEditor } from "../ContractTermsEditor";
+import { GoogleCalendarCard } from "../GoogleCalendarCard";
+import { HeroPhotos } from "../HeroPhotos";
+import { LeadColumnsEditor } from "../LeadColumnsEditor";
+import { LogoField } from "../LogoField";
+import { PolicyEditor } from "../PolicyEditor";
+import { ServiceRowsEditor } from "../ServiceRowsEditor";
+import { SettingsForm } from "../SettingsForm";
 
 // Settings is a group in the sidebar; each of these is one of its pages,
-// with its own address. The panels are the same ones that used to be
-// stacked on one long page, unchanged.
+// with its own address. Block A12: every page is drawn from src/settingsCopy.ts
+// (title, one-line intro, each section's line, each field's label and help),
+// and each section saves only the fields it shows.
 
 // ownerOnly pages: Staff see everything but can change nothing. A disabled
 // fieldset switches off every control inside; the server refuses the
 // writes anyway (403, same sentence).
-function Page({ title, intro, ownerOnly, children }: { title: string; intro?: string; ownerOnly?: boolean; children: React.ReactNode }) {
+function Page({ title, intro, ownerOnly, children }: { title: string; intro?: string; ownerOnly?: boolean; children: ReactNode }) {
   const isOwner = useIsOwner();
   const readOnly = !!ownerOnly && !isOwner;
   return (
@@ -50,75 +47,37 @@ function Page({ title, intro, ownerOnly, children }: { title: string; intro?: st
   );
 }
 
-export function BusinessRulesPage() {
+// A short list of links to the sections of a longer page. These are links to
+// places on the same page, not tabs.
+function JumpLinks({ page }: { page: PageSpec }) {
+  if (page.sections.length < 4) return null;
   return (
-    <Page title="Business rules" ownerOnly intro="How short-notice bookings and big or special bookings are handled, and the retainer share.">
-      <section className="panel">
-        <h2>Rush orders</h2>
-        <p className="muted settings-help">
-          Bookings made, or moved, with less notice than this are tagged RUSH in Scheduling, Overview, Crew &amp; Gigs and
-          the lead panel so they can be handled differently. The storefront reads both values.
-        </p>
-        <RushSettings />
-      </section>
-
-      <section className="panel">
-        <h2>Review and retainer</h2>
-        <p className="muted settings-help">
-          Which bookings go to Design Requests for staff to look at before anything is held, and the retainer share. The
-          storefront shows the retainer share and the cancellation window; the review rules are applied on the server.
-        </p>
-        <ReviewSettings />
-      </section>
-
-      <section className="panel">
-        <h2>Agreements and checkout payment</h2>
-        <p className="muted settings-help">
-          Which agreement a booking takes. The review rules above come first (tier 3, staff look before anything is held); then a contract is required over the amount
-          below or for crewed items (tier 2, the GO contract signed in checkout); everything else takes the rental policy checkbox (tier 1). Tier 2 holds the date at
-          the hold and reads Requested until the retainer is paid.
-        </p>
-        <TierSettings />
-      </section>
-
-      <section className="panel">
-        <h2>Spending and abuse limits</h2>
-        <p className="muted settings-help">
-          Protects the public storefront's forms and Ask GO from running up costs or filling the calendar with junk bookings. Counts are kept per day and survive
-          a deploy.
-        </p>
-        <SafetySettings />
-      </section>
-    </Page>
+    <nav className="settings-jump" aria-label="On this page">
+      <span className="detail-field-label">On this page</span>
+      {page.sections.map((s) => (
+        <a key={s.id} href={`#${s.id}`}>
+          {s.title}
+        </a>
+      ))}
+    </nav>
   );
 }
 
-export function PoliciesPage() {
+function SectionView({ section, children }: { section: SectionSpec; children?: ReactNode }) {
   return (
-    <Page title="Policies and contracts" ownerOnly intro="What customers agree to, and who signs for GO.">
-      <section className="panel">
-        <h2>Cancellation and retainer policy</h2>
-        <p className="muted settings-help">
-          The text customers agree to, and the policy section of every contract. Each save is a new version, and every agreement
-          records the version the customer saw. Merge fields fill in from the booking when a contract is made:{" "}
-          <code>{"{{customer_name}} {{event_date}} {{event_time}} {{event_address}} {{total}} {{deposit_percentage}} {{deposit_amount}} {{balance_amount}} {{cancellation_window_days}}"}</code>
-          . camelCase spellings work too (<code>{"{{depositPercentage}}"}</code>, which fills in a bare number, so write the % yourself). The merge fields keep "deposit" in their names so text already written keeps working; they fill in the retainer. Anything else in double braces is left as typed.
-        </p>
-        <PolicyEditor />
-      </section>
-
-      <section className="panel">
-        <h2>Contract signature for GO</h2>
-        <p className="muted settings-help">
-          Who signs contracts on GO's behalf. Applied automatically, as a second signature block, when a customer signs.
-        </p>
-        <GoSignerSettings />
-      </section>
-    </Page>
+    <section className="panel" id={section.id}>
+      <h2>{section.title}</h2>
+      <p className="muted settings-help">{section.blurb}</p>
+      {children}
+    </section>
   );
 }
 
-export function LeadPipelinePage() {
+function marked(key: string, children: ReactNode) {
+  return <div data-setting={key}>{children}</div>;
+}
+
+function LeadColumnsPanel() {
   // Live column names, so the warning follows a rename or delete as it happens.
   const [names, setNames] = useState<string[] | null>(null);
   useEffect(() => {
@@ -128,47 +87,61 @@ export function LeadPipelinePage() {
   }, []);
   const warnings = names ? stageWarnings(names) : [];
   return (
-    <Page title="Lead pipeline">
-      <section className="panel">
-        <h2>Lead columns</h2>
-        <p className="muted settings-help">
-          The stages on the Leads board, in order. New leads land in the first one. Renaming a column moves its
-          leads with it. A column can't be deleted while it still has leads.
+    <div data-setting="panel:leadColumns">
+      <p className="muted stage-note">{EDITOR_COPY.leadColumns.note}</p>
+      {warnings.map((w) => (
+        <p key={w} className="stage-warning" role="alert">
+          {w}
         </p>
-        <p className="muted stage-note">
-          For follow-up messages, the "{WON_STAGE}" column counts as won and the "{LOST_STAGE}" column counts as lost. A lead in either one stops getting follow-ups,
-          and so does any lead that has a booking. Columns are matched by name, so keep these two names.
-        </p>
-        {warnings.map((w) => (
-          <p key={w} className="stage-warning" role="alert">
-            {w}
-          </p>
-        ))}
-        <LeadColumnsEditor onColumnsChange={(rows) => setNames(rows.map((r) => r.name))} />
-      </section>
+      ))}
+      <LeadColumnsEditor onColumnsChange={(rows) => setNames(rows.map((r) => r.name))} />
+    </div>
+  );
+}
+
+function TemplatesLink() {
+  return (
+    <div className="form-actions">
+      <Link to="/messages/templates" className="btn-secondary">
+        {EDITOR_COPY.templatesLink.button}
+      </Link>
+      <span className="muted field-help">{EDITOR_COPY.templatesLink.help}</span>
+    </div>
+  );
+}
+
+const signerNote = (v: Record<string, string>) => ((v.authorizedSignerName.trim() === "") !== (v.authorizedSignerTitle.trim() === "") ? EDITOR_COPY.signer.half : EDITOR_COPY.signer.ok);
+
+const PANELS: Partial<Record<PanelKey, ReactNode>> = {
+  logo: <LogoField />,
+  policy: marked("panel:policy", <PolicyEditor />),
+  terms: marked("panel:contractTerms", <ContractTermsEditor />),
+  services: marked("panel:serviceRows", <ServiceRowsEditor />),
+  leadColumns: <LeadColumnsPanel />,
+  templatesLink: <TemplatesLink />,
+  homePhotos: marked("panel:homePhotos", <HeroPhotos />),
+};
+
+function SettingsPage({ id, ownerOnly }: { id: string; ownerOnly?: boolean }) {
+  const page = pageById(id);
+  return (
+    <Page title={page.title} ownerOnly={ownerOnly} intro={page.intro}>
+      <JumpLinks page={page} />
+      {page.sections.map((s) => (
+        <SectionView key={s.id} section={s}>
+          {s.fields && <SettingsForm fields={s.fields} note={s.id === "signer" ? signerNote : undefined} />}
+          {s.panel && PANELS[s.panel]}
+        </SectionView>
+      ))}
     </Page>
   );
 }
 
-export function NotificationsPage() {
-  return (
-    <Page title="Notifications" intro="Who is told when a contract is signed, and how far ahead of an event the balance reminder check looks.">
-      <section className="panel">
-        <h2>Staff notifications and reminders</h2>
-        <p className="muted settings-help">
-          The staff notification phone and email below are where the "contract signed" heads-up goes. Texts go through Twilio and
-          emails through the email webhook; Messages, Sent log shows what actually went.
-        </p>
-        <NotificationSettings />
-      </section>
-      <section className="panel">
-        <h2>Daily digest</h2>
-        <p className="muted settings-help">One morning email listing the notifications from the bell that nobody has read yet, grouped by type with links.</p>
-        <DigestSettings />
-      </section>
-    </Page>
-  );
-}
+export const BusinessPage = () => <SettingsPage id="business" ownerOnly />;
+export const BookingRulesPage = () => <SettingsPage id="booking-rules" ownerOnly />;
+export const ContractAndPolicyPage = () => <SettingsPage id="contract-and-policy" ownerOnly />;
+export const MessagesAndNotificationsPage = () => <SettingsPage id="notifications" />;
+export const HomePhotosPage = () => <SettingsPage id="home-photos" />;
 
 const when = (iso: string) => new Date(iso).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZone: "America/New_York" });
 
@@ -213,6 +186,7 @@ function MapsCheckForm() {
       <label>
         Try an address
         <input value={address} onChange={(e) => setAddress(e.target.value)} maxLength={300} placeholder="767 New Britain Ave, Farmington, CT" disabled={busy} />
+        <span className="muted field-help">Type an address to see what Google finds. Each test counts as one lookup.</span>
       </label>
       <div className="form-actions">
         <button type="submit" className="btn-secondary" disabled={busy || address.trim() === ""}>
@@ -232,8 +206,9 @@ function MapsCheckForm() {
 }
 
 // Read only: what is hooked up. No keys or numbers are shown, only yes or no
-// and how the last send went.
+// and how the last send went. Google Calendar is set up here.
 export function IntegrationsPage() {
+  const page = pageById("integrations");
   const [status, setStatus] = useState<IntegrationStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -246,168 +221,136 @@ export function IntegrationsPage() {
   const last = (l: IntegrationStatus["texting"]["last"], none: string) =>
     l ? `${statusLabel(l.status)}, ${when(l.createdAt)} ET${l.confirmation === "delivered" ? ", delivered" : ""}` : none;
 
-  return (
-    <Page title="Integrations" ownerOnly intro="What is connected. Text and email report only; Google Calendar is set up here.">
-      {error && <p className="form-error">{error}</p>}
-      {!status && !error && <p className="muted">Loading…</p>}
-      {status && (
+  const loading = !status ? <p className="muted">{error ? "" : "Loading…"}</p> : null;
+  const panels: Partial<Record<PanelKey, ReactNode>> = {
+    statusText: marked(
+      "panel:statusText",
+      loading ?? (
+        <ul className="addon-list">
+          <StatusLine label="Text messaging is set up" ok={status!.texting.configured} />
+          {!status!.texting.configured && (
+            <li className="muted">
+              Still needed:{" "}
+              {[!status!.texting.parts.accountId && "the account ID", !status!.texting.parts.authToken && "the auth token", !status!.texting.parts.phoneNumber && "the sending phone number"].filter(Boolean).join(", ")}. Until then, texts are logged as not sent.
+            </li>
+          )}
+          <li className="unit-row">
+            <span>
+              <strong>Last text</strong>
+            </span>
+            <span>{last(status!.texting.last, "None yet")}</span>
+          </li>
+        </ul>
+      ),
+    ),
+    statusEmail: marked(
+      "panel:statusEmail",
+      loading ?? (
+        <ul className="addon-list">
+          <StatusLine label="Email is set up" ok={status!.email.configured} detail={status!.email.configured ? undefined : "no email address to send through yet"} />
+          <li className="unit-row">
+            <span>
+              <strong>Last email</strong>
+            </span>
+            <span>{last(status!.email.last, "None yet")}</span>
+          </li>
+        </ul>
+      ),
+    ),
+    statusAutomation: marked(
+      "panel:statusAutomation",
+      loading ?? (
+        <ul className="addon-list">
+          <li className="unit-row">
+            <span>
+              <strong>Last check</strong>
+            </span>
+            <span>
+              {status!.automation.last
+                ? `${when(status!.automation.last.ranAt)} ET, ${status!.automation.last.source === "admin" ? "run by staff" : "hourly timer"}${automationCounts(status!.automation.last.summary)}`
+                : "Never. The hourly timer has not called yet."}
+            </span>
+          </li>
+          <li className="unit-row">
+            <span>
+              <strong>Needs attention</strong>
+            </span>
+            <span>{status!.automation.needsAttention} failed after 3 tries</span>
+          </li>
+        </ul>
+      ),
+    ),
+    statusStripe: marked(
+      "panel:statusStripe",
+      loading ?? (
+        <ul className="addon-list">
+          <StatusLine label={status!.stripe.configured ? `Online payment is set up, ${status!.stripe.mode === "live" ? "live mode" : "test mode"}` : "Online payment not set up"} ok={status!.stripe.configured} />
+          {!status!.stripe.configured && (
+            <li className="muted">
+              Still needed: {[!status!.stripe.parts.secretKey && "the secret key", !status!.stripe.parts.webhookSecret && "the webhook signing secret"].filter(Boolean).join(", ")}. Until then checkout holds the date and GO collects the retainer by hand.
+            </li>
+          )}
+          <li className="unit-row">
+            <span>
+              <strong>Last payment notice from Stripe</strong>
+            </span>
+            <span>{status!.stripe.lastWebhookAt ? `${when(status!.stripe.lastWebhookAt)} ET` : "None yet"}</span>
+          </li>
+          <li className="unit-row">
+            <span>
+              <strong>Last error</strong>
+            </span>
+            <span className={status!.stripe.lastError ? "form-error" : "muted"}>{status!.stripe.lastError ?? "None"}</span>
+          </li>
+        </ul>
+      ),
+    ),
+    statusMaps: marked(
+      "panel:statusMaps",
+      loading ?? (
         <>
-          <section className="panel">
-            <h2>Text messaging</h2>
-            <ul className="addon-list">
-              <StatusLine label="Text messaging is set up" ok={status.texting.configured} />
-              {!status.texting.configured && (
-                <li className="muted">
-                  Still needed:{" "}
-                  {[!status.texting.parts.accountId && "the account ID", !status.texting.parts.authToken && "the auth token", !status.texting.parts.phoneNumber && "the sending phone number"]
-                    .filter(Boolean)
-                    .join(", ")}
-                  . Until then, texts are logged as not sent.
-                </li>
-              )}
-              <li className="unit-row">
-                <span>
-                  <strong>Last text</strong>
-                </span>
-                <span>{last(status.texting.last, "None yet")}</span>
-              </li>
-            </ul>
-          </section>
-          <section className="panel">
-            <h2>Email</h2>
-            <ul className="addon-list">
-              <StatusLine label="Email is set up" ok={status.email.configured} detail={status.email.configured ? undefined : "no email address to send through yet"} />
-              <li className="unit-row">
-                <span>
-                  <strong>Last email</strong>
-                </span>
-                <span>{last(status.email.last, "None yet")}</span>
-              </li>
-            </ul>
-          </section>
-          <section className="panel">
-            <h2>Automation check</h2>
-            <ul className="addon-list">
-              <li className="unit-row">
-                <span>
-                  <strong>Last automation check</strong>
-                </span>
-                <span>
-                  {status.automation.last
-                    ? `${when(status.automation.last.ranAt)} ET, ${status.automation.last.source === "admin" ? "run by staff" : "hourly timer"}${automationCounts(status.automation.last.summary)}`
-                    : "Never. The hourly timer has not called yet."}
-                </span>
-              </li>
-              <li className="unit-row">
-                <span>
-                  <strong>Needs attention</strong>
-                </span>
-                <span>{status.automation.needsAttention} failed after 3 tries</span>
-              </li>
-            </ul>
-          </section>
-          <section className="panel">
-            <h2>Online payment (Stripe)</h2>
-            <ul className="addon-list">
-              <StatusLine label={status.stripe.configured ? `Online payment is set up, ${status.stripe.mode === "live" ? "live mode" : "test mode"}` : "Online payment not set up"} ok={status.stripe.configured} />
-              {!status.stripe.configured && (
-                <li className="muted">
-                  Still needed: {[!status.stripe.parts.secretKey && "the secret key", !status.stripe.parts.webhookSecret && "the webhook signing secret"].filter(Boolean).join(", ")}. Until then checkout holds the date and GO
-                  collects the retainer by hand.
-                </li>
-              )}
-              <li className="unit-row">
-                <span>
-                  <strong>Last webhook received</strong>
-                </span>
-                <span>{status.stripe.lastWebhookAt ? `${when(status.stripe.lastWebhookAt)} ET` : "None yet"}</span>
-              </li>
-              <li className="unit-row">
-                <span>
-                  <strong>Last error</strong>
-                </span>
-                <span className={status.stripe.lastError ? "form-error" : "muted"}>{status.stripe.lastError ?? "None"}</span>
-              </li>
-            </ul>
-          </section>
-          <section className="panel">
-            <h2>Address checking (Google Maps)</h2>
-            <ul className="addon-list">
-              <StatusLine label="Maps connected (server key for Places and Geocoding)" ok={status.maps.configured} detail={status.maps.configured ? undefined : "addresses are saved as typed and marked not checked"} />
-              <li className="unit-row">
-                <span>
-                  <strong>Lookups today</strong>
-                  <span className="muted"> · paused for the day at {status.maps.dailyCap}; answers are kept 30 days</span>
-                </span>
-                <span>
-                  {status.maps.todayLookups} of {status.maps.dailyCap}
-                </span>
-              </li>
-              <li className="unit-row">
-                <span>
-                  <strong>Last error</strong>
-                </span>
-                <span>{status.maps.lastError ? `${status.maps.lastError} (${when(status.maps.lastErrorAt ?? "")} ET)` : "None"}</span>
-              </li>
-            </ul>
-            <MapsCheckForm />
-          </section>
-          <section className="panel">
-            <h2>Google Calendar</h2>
-            <GoogleCalendarCard />
-          </section>
-          <section className="panel">
-            <h2>Storefront</h2>
-            <ul className="addon-list">
-              <StatusLine label="Storefront web address is set" ok={status.storefront.urlSet} detail={status.storefront.urlSet ? undefined : "contract links will point at the wrong place"} />
-            </ul>
-          </section>
+          <ul className="addon-list">
+            <StatusLine label="Maps connected" ok={status!.maps.configured} detail={status!.maps.configured ? undefined : "addresses are saved as typed and marked not checked"} />
+            <li className="unit-row">
+              <span>
+                <strong>Lookups today</strong>
+                <span className="muted"> · paused for the day at {status!.maps.dailyCap}; answers are kept 30 days</span>
+              </span>
+              <span>
+                {status!.maps.todayLookups} of {status!.maps.dailyCap}
+              </span>
+            </li>
+            <li className="unit-row">
+              <span>
+                <strong>Last error</strong>
+              </span>
+              <span>{status!.maps.lastError ? `${status!.maps.lastError} (${when(status!.maps.lastErrorAt ?? "")} ET)` : "None"}</span>
+            </li>
+          </ul>
+          <MapsCheckForm />
         </>
-      )}
-    </Page>
-  );
-}
+      ),
+    ),
+    googleCalendar: marked("panel:googleCalendar", <GoogleCalendarCard />),
+    statusStorefront: marked(
+      "panel:statusStorefront",
+      loading ?? (
+        <ul className="addon-list">
+          <StatusLine label="Storefront web address is set" ok={status!.storefront.urlSet} detail={status!.storefront.urlSet ? undefined : "contract links will point at the wrong place"} />
+        </ul>
+      ),
+    ),
+  };
 
-export function ContractTermsPage() {
   return (
-    <Page title="Contract terms" ownerOnly intro="The GO contract's wording, word for word, with the business numbers filled in from Settings. Each save is a new version; a contract keeps the version it was sent with.">
-      <section className="panel">
-        <ContractTermsEditor />
-      </section>
-    </Page>
-  );
-}
-
-export function ContractSettingsPage() {
-  return (
-    <Page title="Contract settings" ownerOnly intro="How the GO contract is headed and footed, the numbers its wording uses, the logo, who signs for GO, and whether new contracts use it.">
-      <section className="panel">
-        <h2>Contract settings</h2>
-        <ContractSettingsForm />
-      </section>
-      <section className="panel">
-        <h2>Contract signature for GO</h2>
-        <p className="muted settings-help">
-          Who signs for GO. On the GO contract this name is applied the moment the contract is sent, with that date, so the customer sees GO's signature in place. On the
-          original layout it is applied when the customer signs.
-        </p>
-        <GoSignerSettings />
-      </section>
-      <section className="panel">
-        <h2>Services table rows</h2>
-        <ServiceRowsEditor />
-      </section>
-    </Page>
-  );
-}
-
-// Block A6: the photos at the top of the store's Home page.
-export function HomePhotosPage() {
-  return (
-    <Page title="Home photos" intro="The photos that rotate at the top of the store's Home page.">
-      <section className="panel">
-        <HeroPhotos />
-      </section>
+    <Page title={page.title} ownerOnly intro={page.intro}>
+      {error && <p className="form-error">{error}</p>}
+      <JumpLinks page={page} />
+      {page.sections.map((s) => (
+        <SectionView key={s.id} section={s}>
+          {s.panel && panels[s.panel]}
+        </SectionView>
+      ))}
     </Page>
   );
 }

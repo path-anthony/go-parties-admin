@@ -73,8 +73,8 @@ export function ContractDetails({ booking, onSave, onContractStateChange }: { bo
             ? status.readiness ?? (status.decided ? "This booking's contract is the GO contract." : "This booking will get the GO contract.")
             : status.decided
               ? "This booking's contract uses the original layout with the policy text."
-              : "This booking will get the original layout with the policy text. Turn on the GO contract under Settings, Contract settings to change that for contracts not yet sent."}
-          {status.format === "go-v2" && !status.goSignerConfigured && " GO's signer is not set under Settings, Policies; the contract will go out without GO's signature."}
+              : "This booking will get the original layout with the policy text. Turn on the GO contract under Settings, Contract and policy to change that for contracts not yet sent."}
+          {status.format === "go-v2" && !status.goSignerConfigured && " GO's signer is not set under Settings, Contract and policy; the contract will go out without GO's signature."}
           {status.goSigner && ` GO signed as ${status.goSigner.printedName}.`}
         </p>
       )}
