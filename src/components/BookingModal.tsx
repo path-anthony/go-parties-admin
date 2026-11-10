@@ -26,6 +26,7 @@ import { BookingStatusTag } from "./BookingStatusTag";
 import { RushTag } from "./RushTag";
 import { PaymentsSection } from "./PaymentsSection";
 import { DeliverySection } from "./DeliverySection";
+import { WeddingDetailsPanel } from "./WeddingDetailsPanel";
 
 const usd = (n: number) => n.toLocaleString("en-US", { style: "currency", currency: "USD" });
 
@@ -332,6 +333,17 @@ export function BookingModal({
           />
           <DeliverySection
             booking={booking}
+            onChanged={() => {
+              void getBookings()
+                .then((all) => {
+                  const fresh = all.find((b) => b.id === booking.id);
+                  if (fresh) onUpdated(fresh);
+                })
+                .catch(() => undefined);
+            }}
+          />
+          <WeddingDetailsPanel
+            bookingId={booking.id}
             onChanged={() => {
               void getBookings()
                 .then((all) => {

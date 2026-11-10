@@ -12,7 +12,7 @@ function facts(now: Date, opts: { logs?: Record<string, LogFact>; off?: string[]
     automationStartedAt: START,
     log: (k, c) => opts.logs?.[`${k}:${c}`],
     // Text on for everything; email only where the registry defaults it on.
-    channelOn: (t, c) => !opts.off?.includes(`${t}:${c}`) && (c === "sms" || ["staff_daily_digest", "contract_unsigned_nudge", "balance_due_reminder", "event_week_reminder", "event_eve_reminder", "post_event_thanks"].includes(t)),
+    channelOn: (t, c) => !opts.off?.includes(`${t}:${c}`) && (c === "sms" || ["wedding_details_reminder_60", "wedding_details_reminder_35", "staff_daily_digest", "contract_unsigned_nudge", "balance_due_reminder", "event_week_reminder", "event_eve_reminder", "post_event_thanks"].includes(t)),
     optedOut: (p) => opts.optedOut?.includes(p) ?? false,
     blockedReason: (t, c) => opts.blocked?.[`${t}:${c}`] ?? null,
   };
@@ -305,5 +305,46 @@ describe("staff daily digest", () => {
   });
   it("stops if staff switch the digest email off in Templates", () => {
     assert.deepEqual(planDigest(d, facts(et("2026-11-11", 8), { off: ["staff_daily_digest:email"] })).items, []);
+  });
+});
+
+describe("wedding details reminders", () => {
+  const event = "2026-12-20";
+  const b = (wedding: BookingInput["wedding"], over: Partial<BookingInput> = {}) => booking({ id: "B9", eventDate: event, createdAt: et("2026-08-01", 12), wedding, ...over });
+  const r60 = (p: { items: PlanItem[] }) => p.items.find((i) => i.triggerKey === "wedding_details_reminder_60");
+  const r35 = (p: { items: PlanItem[] }) => p.items.find((i) => i.triggerKey === "wedding_details_reminder_35");
+  it("are email only, due 60 and 35 days out at 10 AM Eastern, keyed by the date", () => {
+    const p = planBooking(b({ status: "not_started", hasAccount: true }), facts(et("2026-09-01", 12)));
+    const mine = p.items.filter((i) => i.seriesId === "wedding_details");
+    assert.deepEqual(mine.map((i) => i.channel), ["email", "email"]);
+    assert.equal(r60(p)?.dueAt.toISOString(), et("2026-10-21", 10).toISOString());
+    assert.equal(r35(p)?.dueAt.toISOString(), et("2026-11-15", 10).toISOString());
+    assert.equal(r60(p)?.baseKey, "wedding_details_reminder_60:B9:2026-12-20");
+    assert.equal(r60(p)?.state, "scheduled");
+  });
+  it("skip the 60 day reminder once started, and still send at 35", () => {
+    const p = planBooking(b({ status: "in_progress", hasAccount: true }), facts(et("2026-11-15", 11)));
+    assert.equal(r60(p)?.state, "skipped");
+    assert.equal(r35(p)?.state, "due");
+  });
+  it("stop when submitted", () => {
+    const p = planBooking(b({ status: "submitted", hasAccount: true }), facts(et("2026-11-15", 11)));
+    assert.equal(r35(p)?.state, "stopped");
+    assert.equal(r35(p)?.reason, "Stopped: details submitted");
+  });
+  it("send only once", () => {
+    const logs = { "wedding_details_reminder_60:B9:2026-12-20:email": { status: "sent", attempts: 1, sentAt: et("2026-10-21", 10), error: null } };
+    assert.equal(r60(planBooking(b({ status: "not_started", hasAccount: true }), facts(et("2026-10-21", 12), { logs })))?.state, "sent");
+  });
+  it("wait when the customer has no account to open the form with", () => {
+    const p = planBooking(b({ status: "not_started", hasAccount: false }), facts(et("2026-10-21", 12)));
+    assert.equal(r60(p)?.state, "waiting");
+  });
+  it("are not planned for a booking that is not a wedding, or a cancelled one", () => {
+    assert.equal(r60(planBooking(b(null), facts(et("2026-10-21", 12)))), undefined);
+    assert.equal(r60(planBooking(b({ status: "not_started", hasAccount: true }, { stage: "Cancelled" }), facts(et("2026-10-21", 12))))?.state, "stopped");
+  });
+  it("respect staff switching the email off", () => {
+    assert.equal(r60(planBooking(b({ status: "not_started", hasAccount: true }), facts(et("2026-10-21", 12), { off: ["wedding_details_reminder_60:email"] }))), undefined);
   });
 });

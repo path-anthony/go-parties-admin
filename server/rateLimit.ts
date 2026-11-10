@@ -94,6 +94,15 @@ export const customerSignupLimiter = rateLimit({
 
 // Cancel, reschedule, change-item: signed-in only, but they write real
 // rows, so a loose cap still applies.
+// Block A11: the wedding details form saves as the customer goes.
+export const weddingSaveLimiter = rateLimit({
+  windowMs: 10 * 60 * 1000,
+  limit: 300,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many saves at once. Try again in a few minutes.", reason: "rate-limited" },
+});
+
 export const customerActionLimiter = rateLimit({
   windowMs: 10 * 60 * 1000,
   limit: 30,

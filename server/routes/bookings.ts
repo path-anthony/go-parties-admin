@@ -1,3 +1,5 @@
+import { isWeddingBooking } from "../weddingDetails/logic.js";
+import { addDays } from "../automation/time.js";
 import { Router, type Response } from "express";
 import { getDefaultAccount } from "../account.js";
 import { AddonSelectionError } from "../addons.js";
@@ -19,7 +21,7 @@ import { AGREEMENT_SELECT } from "../agreements.js";
 import { notifyStageChange, sendContract } from "../notify.js";
 import { queueGoogleSync } from "../google/sync.js";
 import { rushFor } from "../settings.js";
-import { INVALID, normalizeDate, normalizeText } from "../validate.js";
+import { INVALID, normalizeDate, normalizeText, todayEastern } from "../validate.js";
 
 const MAX_ADDRESS_LENGTH = 300;
 const MAX_TIME_LENGTH = 60;
@@ -34,15 +36,27 @@ const WITH_UNITS = {
   },
   gigs: BOOKING_GIGS_SELECT,
   agreement: AGREEMENT_SELECT,
+  package: { select: { occasions: true } },
+  weddingDetails: { select: { status: true } },
 };
 const ORDER = [{ eventDate: "asc" as const }, { createdAt: "asc" as const }];
 
 // The join rows are an implementation detail; clients see a flat unitIds.
-function serialize<T extends { units: { unitId: string }[]; status: string; retainerPaid: boolean; tier?: number | null; agreement?: { confirmByDate?: string | null } | null }>(booking: T) {
+function serialize<T extends { units: { unitId: string }[]; status: string; eventDate: Date; occasion: string | null; weddingOverride: boolean | null; package: { occasions: string[] } | null; weddingDetails: { status: string } | null; retainerPaid: boolean; tier?: number | null; agreement?: { confirmByDate?: string | null } | null }>(booking: T) {
   const { units, ...rest } = booking;
   // status is the stage set by hand; displayStatus is what it reads as
   // (Confirmed only when Signed and the retainer is paid).
-  return { ...rest, unitIds: units.map((row) => row.unitId), displayStatus: displayStatus(booking), retainerOverdue: retainerOverdue(booking) };
+  return { ...rest, unitIds: units.map((row) => row.unitId), displayStatus: displayStatus(booking), retainerOverdue: retainerOverdue(booking), ...weddingFlags(booking) };
+}
+
+// Block A11: what the bookings list needs to know about wedding details.
+const WEDDING_MISSING_DAYS = 45;
+function weddingFlags(b: { status: string; eventDate?: Date; occasion?: string | null; weddingOverride?: boolean | null; package?: { occasions: string[] } | null; weddingDetails?: { status: string } | null }, now = new Date()) {
+  const isWedding = isWeddingBooking({ weddingOverride: b.weddingOverride ?? null, occasion: b.occasion ?? null, package: b.package });
+  const today = todayEastern(now);
+  const day = b.eventDate?.toISOString().slice(0, 10) ?? "";
+  const live = b.status !== "Cancelled" && b.status !== "Released" && b.status !== "Completed";
+  return { isWedding, weddingDetailsMissing: isWedding && live && day >= today && day <= addDays(today, WEDDING_MISSING_DAYS) && b.weddingDetails?.status !== "submitted" };
 }
 
 // Block T1: a tier 2 booking past its sign-and-pay date with the retainer

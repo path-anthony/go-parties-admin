@@ -541,6 +541,9 @@ export type Booking = {
   disputeNote: string | null;
   // Tier 2, retainer unpaid past the contract's sign-and-pay date.
   retainerOverdue: boolean;
+  // Block A11.
+  isWedding: boolean;
+  weddingDetailsMissing: boolean;
   addons: BookingAddon[];
   gigs: BookingGig[];
   unitIds: string[];
@@ -864,3 +867,27 @@ export type HeroSlide = {
 // Block A10: a staff notification, and a page of them.
 export type NotificationRow = { id: string; type: string; title: string; body: string; link: string; createdAt: string; readAt: string | null };
 export type NotificationList = { items: NotificationRow[]; page: number; limit: number; total: number; unread: number; types: { type: string; label: string }[] };
+
+// Block A11: the wedding details as staff see them.
+export type WeddingShownSection = { key: string; number: number; title: string; subtitle: string; required: boolean; done: boolean; rows: { group: string | null; label: string; value: string | null }[] };
+export type WeddingStaffView = {
+  bookingId: string;
+  isWedding: boolean;
+  weddingOverride: boolean | null;
+  automatic: boolean;
+  details: {
+    status: "not_started" | "in_progress" | "submitted";
+    templateVersion: number;
+    eventDate: string;
+    dueDate: string;
+    requiredDone: number;
+    requiredTotal: number;
+    submittedAt: string | null;
+    submittedBy: string | null;
+    unlockedAt: string | null;
+    unlockReason: string | null;
+    changeRequestedAt: string | null;
+    changeRequestNote: string | null;
+    sections: WeddingShownSection[];
+  } | null;
+};

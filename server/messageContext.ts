@@ -5,6 +5,7 @@ import { toE164 } from "./messaging.js";
 import { safeInline } from "./sanitize.js";
 import { todayEastern } from "./validate.js";
 import { humanWhen } from "./automation/time.js";
+import { DUE_DAYS_BEFORE } from "./weddingDetails/template.js";
 
 // What a message is about. Point at the records; the values for every
 // merge token are read from them. extra carries values only the caller
@@ -46,7 +47,7 @@ type Settings = Awaited<ReturnType<typeof getSettings>>;
 export type LoadedRecords = {
   lead?: { customerName: string | null; occasion: string | null; dateOfInterest: Date | null } | null;
   designRequest?: { customerName: string; eventDate: Date; eventTime: string | null; occasion: string | null; address: string | null; total: unknown } | null;
-  booking?: { customerName: string; eventDate: Date; eventTime: string | null; occasion: string | null; address: string | null; total: unknown } | null;
+  booking?: { id?: string; customerName: string; eventDate: Date; eventTime: string | null; occasion: string | null; address: string | null; total: unknown } | null;
   crew?: { name: string } | null;
   gig?: {
     skill: string;
@@ -114,6 +115,9 @@ export function composeValues(settings: Settings, rec: LoadedRecords): Record<st
     const b = rec.booking;
     applyEvent({ name: b.customerName, date: b.eventDate, time: b.eventTime, type: b.occasion, address: b.address });
     applyMoney(b.total);
+    if (b.eventDate) set("weddingDetailsDueDate", shortDate(new Date(b.eventDate.getTime() - DUE_DAYS_BEFORE * 86_400_000)));
+    // Without STOREFRONT_URL the token stays empty and the send is blocked.
+    if (storefront && b.id) set("weddingDetailsLink", `${storefront}/party/${b.id}/wedding-details`);
   }
   if (rec.crew) set("crewFirstName", firstName(safeInline(rec.crew.name, 100)));
   if (rec.gig) {

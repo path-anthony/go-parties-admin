@@ -32,6 +32,7 @@ import { PaymentError, createPaymentSession } from "../payments.js";
 import { SELF_SERVE_REFUSAL, portalFields, selfServeAllowed } from "../portal.js";
 import { getSettings } from "../settings.js";
 import { StripeError } from "../stripe/client.js";
+import { customerWeddingRouter } from "./weddingDetails.js";
 
 const BCRYPT_ROUNDS = 12;
 const MAX_TIME_LENGTH = 60;
@@ -437,5 +438,8 @@ router.post("/bookings/:id/payments/session", requireCustomer, customerActionLim
     throw err;
   }
 });
+
+// Block A11: this customer's own wedding details.
+router.use("/bookings/:id/wedding-details", customerWeddingRouter);
 
 export default router;

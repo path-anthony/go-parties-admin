@@ -131,6 +131,7 @@ model Account {
   customers         Customer[]
   packages          Package[]
   notifications     Notification[]
+  weddingDetails    WeddingDetails[]
   heroSlides        HeroSlide[]
   crewMembers       CrewMember[]
   gigs              Gig[]
@@ -501,6 +502,9 @@ model Booking {
   eventAddressSameAsHome   Boolean   @default(false) @map("event_address_same_as_home")
   // Block A8: the guest count a per-guest package was priced on.
   guestCount               Int?      @map("guest_count")
+  // Block A11: staff say this is (true) or is not (false) a wedding; null
+  // means the automatic rule decides.
+  weddingOverride          Boolean?  @map("wedding_override")
   createdAt                DateTime  @default(now()) @map("created_at")
   updatedAt                DateTime  @default(now()) @updatedAt @map("updated_at")
 
@@ -509,6 +513,7 @@ model Booking {
   customer      Customer?      @relation(fields: [customerId], references: [id], onDelete: SetNull)
   package       Package?       @relation(fields: [packageId], references: [id], onDelete: SetNull)
   notifications Notification[]
+  weddingDetails WeddingDetails?
   units         BookingUnit[]
   addons        BookingAddon[]
   gigs          Gig[]
@@ -607,6 +612,32 @@ model Notification {
   @@index([leadId])
   @@index([customerId])
   @@map("notifications")
+}
+
+// Block A11: the wedding details questionnaire for one booking. answers is
+// keyed by the stable field keys in server/weddingDetails/template.ts, and
+// templateVersion pins which version of the form a row was started on.
+// status is not_started, in_progress or submitted.
+model WeddingDetails {
+  id                String    @id @default(cuid())
+  accountId         String    @map("account_id")
+  bookingId         String    @unique @map("booking_id")
+  templateVersion   Int       @map("template_version")
+  answers           Json      @default("{}")
+  status            String    @default("not_started")
+  submittedAt       DateTime? @map("submitted_at")
+  submittedBy       String?   @map("submitted_by")
+  unlockedAt        DateTime? @map("unlocked_at")
+  unlockReason      String?   @map("unlock_reason")
+  changeRequestedAt DateTime? @map("change_requested_at")
+  changeRequestNote String?   @map("change_request_note")
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @default(now()) @updatedAt @map("updated_at")
+
+  account Account @relation(fields: [accountId], references: [id])
+  booking Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+
+  @@map("wedding_details")
 }
 
 // A Package is a curated bundle of real catalog items with one manual
