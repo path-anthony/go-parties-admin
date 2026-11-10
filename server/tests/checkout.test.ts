@@ -26,7 +26,8 @@ import express from "express";
 import { getDefaultAccount } from "../account.js";
 import { addDays } from "../automation/time.js";
 import { prisma } from "../db.js";
-import { setMapsFetch, verifyBookingAddress } from "../delivery.js";
+import { setMapsFetch } from "../delivery.js";
+import { checkBookingAddress } from "../addressLookup.js";
 import { sendContract } from "../notify.js";
 import { refundPayment } from "../payments.js";
 import { customerWriteGuard } from "../security.js";
@@ -92,10 +93,13 @@ setStripeFetch((url, init) => {
   return json(400, { error: { message: `unmocked ${path}` } });
 });
 
+// Block A9: Places API (New) answers. An exact place has a street number, a
+// route, a country and a street-address type.
+const US = { types: ["country"], longText: "United States", shortText: "US" };
 const places: Record<string, unknown> = {
-  "place-ok": { id: "place-ok", formattedAddress: "14 Maple Ln, Avon, CT 06001, USA", location: { latitude: 41.8102, longitude: -72.8309 }, addressComponents: [{ types: ["street_number"], longText: "14", shortText: "14" }, { types: ["route"], longText: "Maple Lane", shortText: "Maple Ln" }, { types: ["postal_code"], longText: "06001", shortText: "06001" }] },
-  "place-city": { id: "place-city", formattedAddress: "Avon, CT, USA", location: { latitude: 41.8102, longitude: -72.8309 }, addressComponents: [{ types: ["locality"], longText: "Avon", shortText: "Avon" }] },
-  "place-mismatch": { id: "place-mismatch", formattedAddress: "99 Elm St, Avon, CT 06001, USA", location: { latitude: 41.8102, longitude: -72.8309 }, addressComponents: [{ types: ["street_number"], longText: "99", shortText: "99" }, { types: ["route"], longText: "Elm Street", shortText: "Elm St" }] },
+  "place-ok": { id: "place-ok", formattedAddress: "14 Maple Ln, Avon, CT 06001, USA", types: ["street_address"], location: { latitude: 41.8102, longitude: -72.8309 }, addressComponents: [{ types: ["street_number"], longText: "14", shortText: "14" }, { types: ["route"], longText: "Maple Lane", shortText: "Maple Ln" }, { types: ["locality"], longText: "Avon", shortText: "Avon" }, { types: ["administrative_area_level_1"], longText: "Connecticut", shortText: "CT" }, { types: ["postal_code"], longText: "06001", shortText: "06001" }, US] },
+  "place-city": { id: "place-city", formattedAddress: "Avon, CT, USA", types: ["locality", "political"], location: { latitude: 41.8102, longitude: -72.8309 }, addressComponents: [{ types: ["locality"], longText: "Avon", shortText: "Avon" }, US] },
+  "place-mismatch": { id: "place-mismatch", formattedAddress: "99 Elm St, Avon, CT 06001, USA", types: ["premise"], location: { latitude: 41.8102, longitude: -72.8309 }, addressComponents: [{ types: ["street_number"], longText: "99", shortText: "99" }, { types: ["route"], longText: "Elm Street", shortText: "Elm St" }, US] },
 };
 setMapsFetch((url) => {
   const id = decodeURIComponent(url.split("/v1/places/")[1] ?? "");
@@ -365,8 +369,7 @@ test("tier 2 hold: the three refusals, then a signed hold with the contract stor
   assert.equal(reuse.status, 409);
   assert.equal(reuse.json.reason, "quote-expired", "a used quote cannot hold twice");
 
-  // The address check ran after the reply.
-  await new Promise((r) => setTimeout(r, 400));
+  // Block A9: the address was checked before the hold was made.
   const checked = await prisma.booking.findUniqueOrThrow({ where: { id: b.id }, select: { addressCheck: true } });
   assert.equal(checked.addressCheck, "verified");
 });
@@ -519,20 +522,33 @@ test("the contract-ready text links to the portal for an account holder and to t
   assert.ok(texts.some((t) => /https:\/\/store\.test\/sign\/[A-Za-z0-9_-]+/.test(t.body)), "a guest gets the token page");
 });
 
-// ---- the address check ------------------------------------------------------------------
-test("address check: city only and a mismatch need a check, Google down leaves it unchecked, and the hold never waits on it", async () => {
-  const run = async (placeId: string) => {
-    const r = track(await post("/api/bookings/direct", holdBody(small, { tier: 1, delivery: delivery(placeId), address: "14 Maple Ln, Avon, CT 06001, USA" })));
-    assert.equal(r.status, 201, JSON.stringify(r.json));
-    return verifyBookingAddress(r.json.bookingId as string);
-  };
-  assert.equal((await run("place-city")).check, "needs_check");
-  const mismatch = await run("place-mismatch");
-  assert.equal(mismatch.check, "needs_check");
-  assert.match(mismatch.reason ?? "", /Google has 99 Elm Street/);
-  const down = await run("place-down");
-  assert.equal(down.check, "not_checked");
-  assert.match(down.reason ?? "", /could not be reached/);
+// ---- the address check (Block A9: at the hold, from Google) ------------------------------
+test("address check: Google's exact place is the address, an area is refused, Google down leaves it unchecked and never blocks", async () => {
+  const run = (placeId: string) => post("/api/bookings/direct", holdBody(small, { tier: 1, delivery: delivery(placeId), address: "14 Maple Ln, Avon, CT 06001, USA" }));
+  // Google's answer wins over what the storefront typed.
+  const exact = track(await run("place-mismatch"));
+  assert.equal(exact.status, 201, JSON.stringify(exact.json));
+  assert.equal(exact.json.address, "99 Elm St, Avon, CT 06001, USA");
+  assert.match(String(exact.json.mapsUrl), /query=41\.810200,-72\.830900&query_place_id=place-mismatch$/);
+  const stored = await prisma.booking.findUniqueOrThrow({ where: { id: exact.json.bookingId as string }, select: { addressCheck: true, placeId: true, mailingAddress: true, setupLat: true } });
+  assert.equal(stored.addressCheck, "verified");
+  assert.equal(stored.placeId, "place-mismatch");
+  assert.equal(stored.mailingAddress, "99 Elm Street");
+  assert.equal(stored.setupLat, 41.8103, "the storefront's setup pin is kept");
+  // A town is not an address.
+  const city = await run("place-city");
+  assert.equal(city.status, 400);
+  assert.equal(city.json.reason, "address-not-exact");
+  assert.equal(city.json.field, "address");
+  // Google down: the hold goes through as sent, marked not checked.
+  const down = track(await run("place-down"));
+  assert.equal(down.status, 201, JSON.stringify(down.json));
+  const unchecked = await prisma.booking.findUniqueOrThrow({ where: { id: down.json.bookingId as string }, select: { addressCheck: true, addressCheckReason: true, address: true } });
+  assert.equal(unchecked.addressCheck, "not_checked");
+  assert.match(unchecked.addressCheckReason ?? "", /could not be reached/);
+  assert.equal(unchecked.address, "14 Maple Ln, Avon, CT 06001, USA");
+  // The same place again is answered from the cache, so a second check is free.
+  assert.equal((await checkBookingAddress(exact.json.bookingId as string)).check, "verified");
   const bad = await post("/api/bookings/direct", holdBody(small, { tier: 1, delivery: { placeId: "x", formattedAddress: "Avon", components: { city: "Avon" }, addressLat: 1, addressLng: 1, setupLat: 1, setupLng: 1, setupNotes: "" } }));
   assert.equal(bad.status, 400);
   assert.equal(bad.json.reason, "delivery-invalid");

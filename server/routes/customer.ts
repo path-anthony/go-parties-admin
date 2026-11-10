@@ -33,6 +33,8 @@ import { SELF_SERVE_REFUSAL, portalFields, selfServeAllowed } from "../portal.js
 import { getSettings } from "../settings.js";
 import { StripeError } from "../stripe/client.js";
 import { customerWeddingRouter } from "./weddingDetails.js";
+import { NOT_EXACT_MESSAGE, lookupAddress } from "../addressLookup.js";
+import { Prisma } from "../../src/generated/prisma/client.js";
 
 const BCRYPT_ROUNDS = 12;
 const MAX_TIME_LENGTH = 60;
@@ -80,6 +82,21 @@ function parseHomeAddress(value: unknown): string | null | typeof INVALID {
 }
 const HOME_ADDRESS_ERROR = `homeAddress must be text up to ${MAX_HOME_ADDRESS_LENGTH} characters, or blank`;
 
+// Block A9: the home address columns for a typed address. An exact match
+// from Google is stored as Google writes it with its place; a clear "not
+// exact" is refused (field homeAddress); when Google cannot answer the text
+// is kept as typed with no place. Null clears everything.
+type HomeColumns = { homeAddress: string | null; homePlaceId: string | null; homeLat: number | null; homeLng: number | null; homeComponents: Prisma.InputJsonObject | typeof Prisma.DbNull; homeCheckedAt: Date | null };
+async function homeColumns(accountId: string, text: string | null): Promise<HomeColumns | { refused: true }> {
+  const none: HomeColumns = { homeAddress: text, homePlaceId: null, homeLat: null, homeLng: null, homeComponents: Prisma.DbNull, homeCheckedAt: null };
+  if (!text) return none;
+  const o = await lookupAddress(accountId, { text });
+  if (o.kind === "not-exact") return { refused: true };
+  if (o.kind !== "exact") return none;
+  return { homeAddress: o.place.formattedAddress, homePlaceId: o.place.placeId, homeLat: o.place.lat, homeLng: o.place.lng, homeComponents: o.place.components as unknown as Prisma.InputJsonObject, homeCheckedAt: new Date() };
+}
+const HOME_REFUSED = { error: NOT_EXACT_MESSAGE, reason: "address-not-exact", field: "homeAddress" };
+
 router.post("/signup", customerSignupLimiter, async (req, res) => {
   const { phone, email, password, name, homeAddress } = req.body ?? {};
 
@@ -110,11 +127,13 @@ router.post("/signup", customerSignupLimiter, async (req, res) => {
     return res.status(409).json({ error: "That email already has an account. Sign in instead.", field: "email" });
   }
 
+  const homeCols = await homeColumns(account.id, home);
+  if ("refused" in homeCols) return res.status(400).json(HOME_REFUSED);
   const passwordHash = await bcrypt.hash(password, BCRYPT_ROUNDS);
   let customer: Customer;
   try {
     customer = await prisma.customer.create({
-      data: { accountId: account.id, phone: phoneDigits, email: emailText, passwordHash, name: typeof name === "string" ? safeInline(name, MAX_NAME_LENGTH) || null : null, homeAddress: home },
+      data: { accountId: account.id, phone: phoneDigits, email: emailText, passwordHash, name: typeof name === "string" ? safeInline(name, MAX_NAME_LENGTH) || null : null, ...homeCols },
     });
   } catch (err) {
     // Two sign-ups racing past the checks above; the unique indexes decide.
@@ -170,7 +189,7 @@ router.post("/logout", async (req, res) => {
 router.patch("/me", requireCustomer, customerActionLimiter, async (req, res) => {
   const customer = res.locals.customer as Customer;
   const body = (req.body ?? {}) as Record<string, unknown>;
-  const data: { name?: string | null; phone?: string; homeAddress?: string | null } = {};
+  const data: { name?: string | null; phone?: string } & Partial<HomeColumns> = {};
   if ("name" in body) {
     if (body.name !== null && typeof body.name !== "string") return res.status(400).json({ error: `name must be text up to ${MAX_NAME_LENGTH} characters, or blank` });
     const text = normalizeText(body.name);
@@ -189,7 +208,9 @@ router.patch("/me", requireCustomer, customerActionLimiter, async (req, res) => 
   if ("homeAddress" in body) {
     const home = parseHomeAddress(body.homeAddress);
     if (home === INVALID) return res.status(400).json({ error: HOME_ADDRESS_ERROR });
-    data.homeAddress = home;
+    const cols = await homeColumns(customer.accountId, home);
+    if ("refused" in cols) return res.status(400).json(HOME_REFUSED);
+    Object.assign(data, cols);
   }
   if ("email" in body) return res.status(400).json({ error: "Email changes are not available here. Call or text GO to change your email." });
   if (Object.keys(data).length === 0) return res.status(400).json({ error: "Send a name, phone or homeAddress to change" });

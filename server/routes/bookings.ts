@@ -20,6 +20,7 @@ import { BALANCE_PREFERENCES, BOOKING_STAGES, displayStatus } from "../../src/li
 import { AGREEMENT_SELECT } from "../agreements.js";
 import { notifyStageChange, sendContract } from "../notify.js";
 import { queueGoogleSync } from "../google/sync.js";
+import { checkBookingAddress } from "../addressLookup.js";
 import { rushFor } from "../settings.js";
 import { INVALID, normalizeDate, normalizeText, todayEastern } from "../validate.js";
 
@@ -297,6 +298,9 @@ router.patch("/:id", async (req, res) => {
     const addressText = optionalText(body.address, MAX_ADDRESS_LENGTH);
     if (addressText === INVALID) return res.status(400).json({ error: `address must be text up to ${MAX_ADDRESS_LENGTH} characters` });
     data.address = addressText;
+    // Block A9: a new address drops the old place; it is looked up again
+    // after the reply (never refused for staff).
+    if (addressText !== existing.address) Object.assign(data, { placeId: null, deliveryComponents: Prisma.DbNull, addressLat: null, addressLng: null, addressCheck: null, addressCheckReason: null, addressCheckedAt: null, addressCheckedByName: null });
   }
   if ("status" in body) {
     const problem = badStage(body.status);
@@ -419,6 +423,8 @@ router.patch("/:id", async (req, res) => {
   void notifyStageChange(id, statusBefore, displayStatus(booking));
   // The calendar follows every change, after the reply and never in its way.
   queueGoogleSync(id);
+  // Block A9: a changed address is looked up again, after the reply.
+  if (data.address !== undefined && data.address !== existing.address && data.address) void checkBookingAddress(id).catch(() => undefined);
 });
 
 async function findOwn(id: string) {

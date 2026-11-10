@@ -44,6 +44,9 @@ model Account {
   // is storefront bookings per day, site-wide. Counted in usage_counters so
   // a deploy does not reset them.
   aiDailyCap            Int     @default(150) @map("ai_daily_cap")
+  // Block A9: the last Google Maps error, for the Integrations card.
+  mapsLastError         String?   @map("maps_last_error")
+  mapsLastErrorAt       DateTime? @map("maps_last_error_at")
   directBookingDailyCap Int     @default(50) @map("direct_booking_daily_cap")
   // When on, the public write routes refuse requests that lack the bot-check
   // fields (hpField, formStartedAt). Off until the storefront sends them.
@@ -547,6 +550,13 @@ model Customer {
   // Block A5: where the customer lives, one line of text. Optional; the
   // booking keeps its own event address.
   homeAddress      String?  @map("home_address")
+  // Block A9: the home address as Google found it (an exact street
+  // address in the US), or null when it was saved as typed text only.
+  homePlaceId      String?  @map("home_place_id")
+  homeLat          Float?   @map("home_lat")
+  homeLng          Float?   @map("home_lng")
+  homeComponents   Json?    @map("home_components")
+  homeCheckedAt    DateTime? @map("home_checked_at")
   createdAt       DateTime  @default(now()) @map("created_at")
   updatedAt       DateTime  @default(now()) @updatedAt @map("updated_at")
 
@@ -1225,6 +1235,27 @@ model AutomationRun {
 
 // A per-day count of something that costs money or can be abused: AI
 // requests, storefront bookings. One row per account, key and Eastern day.
+// Block A9: a Google Maps answer, kept 30 days so the same place id or
+// the same typed address costs one call. An answer is either an exact
+// place or a clear "not exact" with the reason; errors are never kept.
+model AddressLookup {
+  id               String   @id @default(cuid())
+  // "place:<placeId>" or "text:<normalized address>".
+  key              String   @unique
+  exact            Boolean
+  placeId          String?  @map("place_id")
+  formattedAddress String?  @map("formatted_address")
+  lat              Float?
+  lng              Float?
+  components       Json?
+  reason           String?
+  createdAt        DateTime @default(now()) @map("created_at")
+  expiresAt        DateTime @map("expires_at")
+
+  @@index([expiresAt])
+  @@map("address_lookups")
+}
+
 model UsageCounter {
   id        String @id @default(cuid())
   accountId String @map("account_id")

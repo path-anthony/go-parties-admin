@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { addDays, atEastern } from "../automation/time.js";
 import { parseTimes } from "../bids.js";
+import { bookingMapsUrl } from "../delivery.js";
 import { safeInline } from "../sanitize.js";
 import type { EventPayload, EventTime } from "./client.js";
 
@@ -31,11 +32,15 @@ export type BookingForCalendar = {
   setupLng?: number | null;
   setupNotes?: string | null;
   addressCheck?: string | null;
+  // Block A9: the exact place, when Google found the address.
+  placeId?: string | null;
+  addressLat?: number | null;
+  addressLng?: number | null;
 };
 
-// A Google Maps link to the setup pin, for the internal event.
-export const setupMapsUrl = (b: Pick<BookingForCalendar, "setupLat" | "setupLng">): string | null =>
-  typeof b.setupLat === "number" && typeof b.setupLng === "number" ? `https://www.google.com/maps/search/?api=1&query=${b.setupLat.toFixed(6)},${b.setupLng.toFixed(6)}` : null;
+// A Google Maps link: the exact place (Block A9) when the booking has one,
+// else the setup pin. Safe for the customer's invite: it is their own address.
+export const setupMapsUrl = (b: Pick<BookingForCalendar, "setupLat" | "setupLng" | "placeId" | "addressLat" | "addressLng">): string | null => bookingMapsUrl(b);
 
 export type CompanyForCalendar = { name: string; phone: string; email: string; portalUrl: string | null; adminUrl: string };
 
@@ -115,6 +120,7 @@ export function inviteEventPayload(b: BookingForCalendar, company: CompanyForCal
   const lines = [
     `Your ${type.toLowerCase() === "event" ? "event" : type} with ${company.name}.`,
     itemsLine(b.items) ? `Booked: ${itemsLine(b.items)}` : null,
+    setupMapsUrl(b) ? `Map: ${setupMapsUrl(b)}` : null,
     `Questions? Call or text ${company.phone}, or email ${company.email}.`,
     company.portalUrl ? `Your booking: ${company.portalUrl}` : null,
   ].filter((l): l is string => l !== null);

@@ -3,7 +3,8 @@ import { getDefaultAccount } from "../account.js";
 import { requireOwner } from "../auth.js";
 import { prisma } from "../db.js";
 import { INVALID } from "../validate.js";
-import { updateDelivery } from "../delivery.js";
+import { bookingMapsUrl, updateDelivery } from "../delivery.js";
+import { checkBookingAddress } from "../addressLookup.js";
 import { MANUAL_METHODS, PAYMENT_KINDS, PaymentError, loadMoney, paymentStatus, recordManualPayment, refundPayment, type PaymentKind } from "../payments.js";
 import { StripeError, stripeConfigured, stripeMode } from "../stripe/client.js";
 import { audit } from "../users.js";
@@ -68,7 +69,7 @@ async function paymentsView(bookingId: string) {
 
 async function own(id: string) {
   const account = await getDefaultAccount();
-  return prisma.booking.findFirst({ where: { id, accountId: account.id }, select: { id: true } });
+  return prisma.booking.findFirst({ where: { id, accountId: account.id }, select: { id: true, address: true } });
 }
 
 adminPaymentsRouter.get("/:id/payments", async (req, res) => {
@@ -149,5 +150,7 @@ adminPaymentsRouter.patch("/:id/delivery", async (req, res) => {
   }
   const updated = await updateDelivery(b.id, patch);
   if (updated === INVALID) return res.status(400).json({ error: "no editable fields provided" });
-  res.json({ ok: true, addressCheck: updated.addressCheck, addressCheckReason: updated.addressCheckReason, addressCheckedAt: updated.addressCheckedAt?.toISOString() ?? null, addressCheckedByName: updated.addressCheckedByName, address: updated.address, setupLat: updated.setupLat, setupLng: updated.setupLng, setupNotes: updated.setupNotes });
+  res.json({ ok: true, addressCheck: updated.addressCheck, addressCheckReason: updated.addressCheckReason, addressCheckedAt: updated.addressCheckedAt?.toISOString() ?? null, addressCheckedByName: updated.addressCheckedByName, address: updated.address, setupLat: updated.setupLat, setupLng: updated.setupLng, setupNotes: updated.setupNotes, mapsUrl: bookingMapsUrl(updated) });
+  // Block A9: a corrected address is looked up again after the reply.
+  if (patch.address !== undefined && patch.address !== b.address && patch.address && patch.verified === undefined) void checkBookingAddress(b.id).catch(() => undefined);
 });

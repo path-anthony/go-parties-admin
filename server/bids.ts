@@ -1,4 +1,5 @@
 import { randomBytes } from "node:crypto";
+import { bookingMapsUrl } from "./delivery.js";
 import { getDefaultAccount } from "./account.js";
 import { addDays, atEastern } from "./automation/time.js";
 import { currentActor } from "./actor.js";
@@ -68,7 +69,7 @@ export function rangeFlag(amount: number, min: number | null, max: number | null
 // ---- what the page reads --------------------------------------------------
 
 const PAGE_INCLUDE = {
-  gig: { include: { booking: { select: { address: true, eventTime: true, setupLat: true, setupLng: true } } } },
+  gig: { include: { booking: { select: { address: true, eventTime: true, setupLat: true, setupLng: true, placeId: true, addressLat: true, addressLng: true } } } },
   crewMember: { select: { name: true } },
   questions: { orderBy: { createdAt: "asc" as const }, select: { text: true, createdAt: true } },
 } satisfies Prisma.GigOfferInclude;
@@ -103,8 +104,8 @@ export function serializeBid(offer: PageOffer, now: Date, phone: string) {
   };
   if (state === "accepted") {
     out.address = g.booking.address;
-    // Block T1: a Google Maps link to the setup pin, when the booking has one.
-    out.mapsUrl = typeof g.booking.setupLat === "number" && typeof g.booking.setupLng === "number" ? `https://www.google.com/maps/search/?api=1&query=${g.booking.setupLat.toFixed(6)},${g.booking.setupLng.toFixed(6)}` : null;
+    // Block A9: a Google Maps link to the exact place, else the setup pin.
+    out.mapsUrl = bookingMapsUrl(g.booking);
     out.arrivalNotes = g.arrivalNotes;
     out.contactPhone = phone;
     out.crewFirstName = offer.crewMember.name.trim().split(/\s+/)[0] ?? "";

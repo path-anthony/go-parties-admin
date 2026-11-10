@@ -1,7 +1,6 @@
 import { Prisma } from "../src/generated/prisma/client.js";
 import { actorFields } from "./actor.js";
 import { prisma } from "./db.js";
-import { safeErr } from "./log.js";
 import { safeInline } from "./sanitize.js";
 import { INVALID } from "./validate.js";
 
@@ -131,10 +130,11 @@ export function judgeDelivery(sent: Delivery, found: FoundPlace | null): { check
 // ---- Google ------------------------------------------------------------------
 
 export type MapsFetch = (url: string, init?: RequestInit) => Promise<Response>;
-let mapsFetch: MapsFetch = (url, init) => fetch(url, init);
+let currentFetch: MapsFetch = (url, init) => fetch(url, init);
 export function setMapsFetch(f: MapsFetch | null) {
-  mapsFetch = f ?? ((url, init) => fetch(url, init));
+  currentFetch = f ?? ((url, init) => fetch(url, init));
 }
+export const mapsFetch = (): MapsFetch => currentFetch;
 
 export const mapsConfigured = (): boolean => !!process.env.GOOGLE_MAPS_SERVER_KEY?.trim();
 
@@ -143,7 +143,7 @@ export const mapsConfigured = (): boolean => !!process.env.GOOGLE_MAPS_SERVER_KE
 export async function lookupPlace(placeId: string): Promise<FoundPlace | null> {
   const key = process.env.GOOGLE_MAPS_SERVER_KEY?.trim();
   if (!key) throw new Error("no key");
-  const res = await mapsFetch(`https://places.googleapis.com/v1/places/${encodeURIComponent(placeId)}`, {
+  const res = await currentFetch(`https://places.googleapis.com/v1/places/${encodeURIComponent(placeId)}`, {
     headers: { "X-Goog-Api-Key": key, "X-Goog-FieldMask": "id,formattedAddress,location,addressComponents" },
     signal: AbortSignal.timeout(10_000),
   });
@@ -159,40 +159,47 @@ export async function lookupPlace(placeId: string): Promise<FoundPlace | null> {
   };
 }
 
-// Runs after the hold's reply. Writes the outcome on the booking; a failure
-// to reach Google leaves it "not checked" with the reason, never an error.
-export async function verifyBookingAddress(bookingId: string): Promise<{ check: AddressCheck; reason: string | null }> {
-  const b = await prisma.booking.findUnique({ where: { id: bookingId }, select: { placeId: true, deliveryComponents: true, addressLat: true, addressLng: true, setupLat: true, setupLng: true, setupNotes: true, address: true } });
-  if (!b || !b.placeId || b.addressLat === null || b.addressLng === null) return { check: "not_checked", reason: "No place was sent with this booking." };
-  if (!mapsConfigured()) {
-    const out = { check: "not_checked" as const, reason: "Address checking is not set up (no Google Maps key)." };
-    await prisma.booking.update({ where: { id: bookingId }, data: { addressCheck: out.check, addressCheckReason: out.reason } });
-    return out;
-  }
-  const sent: Delivery = {
-    placeId: b.placeId,
-    formattedAddress: b.address ?? "",
-    components: (b.deliveryComponents ?? { streetNumber: "", route: "", city: "", state: "", zip: "" }) as DeliveryComponents,
-    addressLat: b.addressLat,
-    addressLng: b.addressLng,
-    setupLat: b.setupLat ?? b.addressLat,
-    setupLng: b.setupLng ?? b.addressLng,
-    setupNotes: b.setupNotes ?? "",
+// Block A9: the columns an exact place (from server/addressLookup.ts)
+// becomes on the booking: the place, its point, its parts, verified now.
+// The setup pin comes from the storefront when it sent one.
+export function placeColumns(place: { placeId: string; formattedAddress: string; lat: number; lng: number; components: DeliveryComponents }, pin: { setupLat?: number | null; setupLng?: number | null; setupNotes?: string | null } | null, now = new Date()) {
+  return {
+    placeId: place.placeId,
+    deliveryComponents: place.components as unknown as Prisma.InputJsonObject,
+    addressLat: place.lat,
+    addressLng: place.lng,
+    ...(pin && pin.setupLat !== undefined ? { setupLat: pin.setupLat ?? null, setupLng: pin.setupLng ?? null } : {}),
+    ...(pin && pin.setupNotes !== undefined ? { setupNotes: pin.setupNotes || null } : {}),
+    addressCheck: "verified" as string | null,
+    addressCheckReason: null as string | null,
+    addressCheckedAt: now as Date | null,
+    addressCheckedByName: null as string | null,
+    // The contract's mailing address lines come from the exact place.
+    mailingAddress: `${place.components.streetNumber} ${place.components.route}`.trim() || null,
+    city: place.components.city || null,
+    state: place.components.state || null,
+    zip: place.components.zip || null,
   };
-  let out: { check: AddressCheck; reason: string | null };
-  try {
-    out = judgeDelivery(sent, await lookupPlace(b.placeId));
-  } catch (err) {
-    out = { check: "not_checked", reason: `Google could not be reached (${safeErr(err)}). Check the address by hand.` };
-  }
-  await prisma.booking.update({ where: { id: bookingId }, data: { addressCheck: out.check, addressCheckReason: out.reason, addressCheckedAt: out.check === "not_checked" ? null : new Date(), addressCheckedByName: null } });
-  return out;
+}
+
+// Block A9: the Google Maps link everyone gets. The exact place when the
+// booking has one, else the setup pin, else the address point, else nothing.
+export function bookingMapsUrl(b: { placeId?: string | null; addressLat?: number | null; addressLng?: number | null; setupLat?: number | null; setupLng?: number | null }): string | null {
+  const num = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v);
+  if (b.placeId && num(b.addressLat) && num(b.addressLng)) return `https://www.google.com/maps/search/?api=1&query=${b.addressLat.toFixed(6)},${b.addressLng.toFixed(6)}&query_place_id=${encodeURIComponent(b.placeId)}`;
+  if (num(b.setupLat) && num(b.setupLng)) return mapsUrl(b.setupLat, b.setupLng);
+  return mapsUrl(b.addressLat, b.addressLng);
 }
 
 // Staff corrected the address or the pin, or looked and are satisfied.
 export async function updateDelivery(bookingId: string, patch: { address?: string | null; setupLat?: number | null; setupLng?: number | null; setupNotes?: string | null; verified?: boolean }) {
   const data: Record<string, unknown> = {};
-  if (patch.address !== undefined) data.address = patch.address;
+  if (patch.address !== undefined) {
+    data.address = patch.address;
+    // Block A9: a new address drops the old place and its check; the
+    // route looks it up again afterwards.
+    Object.assign(data, { placeId: null, deliveryComponents: Prisma.DbNull, addressLat: null, addressLng: null, addressCheck: null, addressCheckReason: null, addressCheckedAt: null, addressCheckedByName: null });
+  }
   if (patch.setupLat !== undefined) data.setupLat = patch.setupLat;
   if (patch.setupLng !== undefined) data.setupLng = patch.setupLng;
   if (patch.setupNotes !== undefined) data.setupNotes = patch.setupNotes;
