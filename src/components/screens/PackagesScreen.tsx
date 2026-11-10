@@ -132,7 +132,13 @@ export function PackagesScreen() {
                         <td>{pkg.occasions.length > 0 ? pkg.occasions.join(", ") : <span className="muted">Not set</span>}</td>
                         <td>{pkg.items.reduce((n, row) => n + row.quantity, 0)}</td>
                         <td>
-                          <strong>{usd(Number(pkg.price))}</strong>
+                          <strong>{pkg.pricingMode === "per_guest" ? `from ${usd(Number(pkg.basePrice ?? 0) + Number(pkg.price) * (pkg.minGuests ?? 1))} per guest` : usd(Number(pkg.price))}</strong>
+                          {pkg.pricingMode === "per_guest" && (
+                            <div className="muted">
+                              {usd(Number(pkg.price))} a guest{pkg.basePrice ? ` + ${usd(Number(pkg.basePrice))} base` : ""}, {pkg.minGuests ?? 1}
+                              {pkg.maxGuests ? ` to ${pkg.maxGuests}` : " or more"} guests
+                            </div>
+                          )}
                         </td>
                         <td>
                           {usd(sum)}
@@ -198,6 +204,10 @@ function toInput(pkg: Package | null): PackageInput {
     occasions: pkg?.occasions ?? [],
     price: pkg?.price ?? "",
     photoUrl: pkg?.photoUrl ?? "",
+    pricingMode: pkg?.pricingMode ?? "fixed",
+    basePrice: pkg?.basePrice ?? "",
+    minGuests: pkg?.minGuests === null || pkg?.minGuests === undefined ? "" : String(pkg.minGuests),
+    maxGuests: pkg?.maxGuests === null || pkg?.maxGuests === undefined ? "" : String(pkg.maxGuests),
     items: pkg?.items.map((row) => ({ itemId: row.itemId, quantity: row.quantity })) ?? [],
   };
 }
@@ -298,7 +308,10 @@ function PackageModal({
     e.preventDefault();
     setSaving(true);
     setError(null);
-    const input: PackageInput = { ...form, items: chosen.map((c) => ({ itemId: c.item.id, quantity: c.quantity })) };
+    const form2 = { ...form, items: chosen.map((c) => ({ itemId: c.item.id, quantity: c.quantity })) };
+    // The server takes numbers or null for the per-guest fields.
+    const num = (v: string) => (v.trim() === "" ? null : Number(v));
+    const input = { ...form2, basePrice: num(form2.basePrice), minGuests: num(form2.minGuests), maxGuests: num(form2.maxGuests) } as unknown as PackageInput;
     try {
       onSaved(pkg ? await updatePackage(pkg.id, input) : await createPackage(input));
     } catch (err) {
@@ -349,17 +362,40 @@ function PackageModal({
               <span className="muted field-help">Up to 40 characters. {form.guestNote.length}/40.</span>
             </label>
             <label>
-              Bundle price*
+              Priced
+              <select value={form.pricingMode} onChange={(e) => set("pricingMode", e.target.value as PackageInput["pricingMode"])}>
+                <option value="fixed">One price</option>
+                <option value="per_guest">Per guest</option>
+              </select>
+            </label>
+            <label>
+              {form.pricingMode === "per_guest" ? "Price per guest*" : "Bundle price*"}
               <input
                 type="number"
                 min={0}
                 step="0.01"
                 value={form.price}
                 onChange={(e) => set("price", e.target.value)}
-                placeholder="e.g. 1899"
+                placeholder={form.pricingMode === "per_guest" ? "e.g. 35" : "e.g. 1899"}
                 required
               />
             </label>
+            {form.pricingMode === "per_guest" && (
+              <>
+                <label>
+                  Base price (optional)
+                  <input type="number" min={0} step="0.01" value={form.basePrice} onChange={(e) => set("basePrice", e.target.value)} placeholder="A flat part, e.g. 250" />
+                </label>
+                <label>
+                  Minimum guests*
+                  <input type="number" min={1} step={1} value={form.minGuests} onChange={(e) => set("minGuests", e.target.value)} required />
+                </label>
+                <label>
+                  Maximum guests (optional)
+                  <input type="number" min={1} step={1} value={form.maxGuests} onChange={(e) => set("maxGuests", e.target.value)} />
+                </label>
+              </>
+            )}
             <label className="modal-span">
               Description
               <textarea rows={2} value={form.description} onChange={(e) => set("description", e.target.value)} />

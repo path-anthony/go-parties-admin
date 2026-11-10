@@ -137,7 +137,7 @@ export function createItem(item: NewItem): Promise<Item & { unitCount: number }>
   return fetch("/api/items", jsonRequest("POST", item)).then(asJson<Item & { unitCount: number }>);
 }
 
-export type ItemPatch = Partial<Pick<Item, "name" | "category" | "priceUnit" | "notes" | "photoUrl" | "skills" | "source" | "needsPriceReview">> & {
+export type ItemPatch = Partial<Pick<Item, "name" | "category" | "priceUnit" | "notes" | "photoUrl" | "skills" | "source" | "needsPriceReview" | "hidden">> & {
   price?: string | number | null;
 };
 

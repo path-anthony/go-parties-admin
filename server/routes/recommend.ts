@@ -234,7 +234,8 @@ router.post("/", botCheck("recommend", { minAgeApplies: (req) => Array.isArray(r
   // Only items with a real price can be totaled honestly. TBD/custom-quote
   // items are excluded from what the model is even shown.
   const catalogItems = await prisma.item.findMany({
-    where: { accountId: account.id, price: { not: null } },
+    // Block A8: hidden items are never shown to the model or the customer.
+    where: { accountId: account.id, price: { not: null }, hidden: false },
     orderBy: [{ category: "asc" }, { name: "asc" }],
     include: PUBLIC_ITEM_RELATIONS,
   });

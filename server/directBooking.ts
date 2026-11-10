@@ -17,7 +17,8 @@ import { queueGoogleSync } from "./google/sync.js";
 import { notifyContractSigned } from "./notify.js";
 import { createPaymentSession, type PaymentOffer } from "./payments.js";
 import { customerStage } from "./portal.js";
-import { checkQuote, resolveCart, type QuoteCart } from "./quotes.js";
+import { HIDDEN_MESSAGE, checkQuote, resolveCart, type QuoteCart } from "./quotes.js";
+import { GuestCountError, isPerGuest, packagePrice } from "./packagePricing.js";
 import { decideTier, type Tier } from "./tiers.js";
 
 export const MAX_UNITS_PER_BOOKING = 50;
@@ -27,10 +28,12 @@ const out = (status: number, body: unknown) => ({ status, body });
 // The price a direct booking is quoted at: the package's bundle price, or
 // each priced item times its quantity. Null when nothing has a price.
 function quotedTotal(
-  pkg: { price: unknown } | null,
+  pkg: { price: unknown; pricingMode: string; basePrice: unknown; minGuests: number | null; maxGuests: number | null } | null,
   wanted: { item: { price: unknown }; quantity: number }[],
+  guestCount: number | null,
 ): number | null {
-  if (pkg) return Number(pkg.price);
+  // Block A8: a per-guest package is priced on the count (checked by the caller).
+  if (pkg) return packagePrice(pkg, guestCount);
   const priced = wanted.filter(({ item }) => item.price !== null);
   if (priced.length === 0) return null;
   return Math.round(priced.reduce((sum, { item, quantity }) => sum + Number(item.price) * quantity, 0) * 100) / 100;
@@ -48,6 +51,8 @@ export type DirectBookingInput = {
   customer: { id: string; name: string | null } | null;
   // Block A5: the customer said the event address is their home address.
   eventAddressSameAsHome?: boolean;
+  // Block A8: the guest count a per-guest package is priced on.
+  guestCount?: number | null;
   itemIds: string[];
   // Units wanted per item when not booking a package; missing means one.
   quantities?: Record<string, number>;
@@ -145,6 +150,17 @@ export async function createDirectBooking(input: DirectBookingInput): Promise<{ 
       return out(400, { error: "The items don't match the package. Book the package as it is, or book the items on their own." });
     }
   }
+  // Block A8: a hidden item is for staff bookings only.
+  if (!staff && found.some((item) => item.hidden)) return out(400, { error: HIDDEN_MESSAGE, reason: "hidden" });
+  const guestCount = isPerGuest(pkg ?? { pricingMode: "fixed" }) ? (input.guestCount ?? null) : null;
+  if (pkg && isPerGuest(pkg)) {
+    try {
+      packagePrice(pkg, guestCount);
+    } catch (err) {
+      if (err instanceof GuestCountError) return out(400, { error: err.message, reason: err.reason });
+      throw err;
+    }
+  }
   // Keep the caller's order so the response lines up with the request.
   const items = itemIds.map((id) => found.find((item) => item.id === id)).filter((item) => item !== undefined);
   if (items.length !== itemIds.length) {
@@ -171,7 +187,7 @@ export async function createDirectBooking(input: DirectBookingInput): Promise<{ 
   const addonRows = chosen.map((addon) => ({ ...addon, quantity: quantityOf(addon.itemId) }));
   const addonsTotal = Math.round(addonRows.reduce((sum, a) => sum + a.priceDelta * a.quantity, 0) * 100) / 100;
   // Nothing priced means nothing to quote, add-ons or not.
-  const baseTotal = quotedTotal(pkg, wanted);
+  const baseTotal = quotedTotal(pkg, wanted, guestCount);
   const computedTotal = baseTotal === null ? null : Math.round((baseTotal + addonsTotal) * 100) / 100;
   // Staff can confirm a different price on the phone; nobody else can.
   const total = totalOverride === undefined ? computedTotal : totalOverride;
@@ -290,6 +306,7 @@ export async function createDirectBooking(input: DirectBookingInput): Promise<{ 
         eventDate: dateText,
         eventTime,
         occasion,
+        guestCount,
       };
       const resolved = await resolveCart(account.id, cartForQuote);
       const check = await checkQuote(account.id, input.signature.quoteId, input.signature.contentHash, cartForQuote, resolved);
@@ -388,6 +405,7 @@ export async function createDirectBooking(input: DirectBookingInput): Promise<{ 
           eventTime,
           address,
           eventAddressSameAsHome: input.eventAddressSameAsHome === true,
+          guestCount,
           customerName: name,
           phone: contact.phone,
           email: contact.email,

@@ -57,6 +57,8 @@ export type Item = {
   notes: string | null;
   // Block A7: customer-facing, up to 240 characters.
   description: string | null;
+  // Block A8: hidden from the store; still bookable by staff.
+  hidden: boolean;
   photoUrl: string | null;
   // The crew skills the item needs to run, any number, independent of
   // whether it has units. Booking it creates one gig per skill.
@@ -398,6 +400,11 @@ export type Package = {
   // Block A2: short display lines for the storefront card, both optional.
   tag: string | null;
   guestNote: string | null;
+  // Block A8: "fixed" or "per_guest"; the rest only mean something per guest.
+  pricingMode: "fixed" | "per_guest";
+  basePrice: string | null; // serialized Decimal
+  minGuests: number | null;
+  maxGuests: number | null;
   items: PackageItemRow[];
   createdAt: string;
   updatedAt: string;
@@ -412,6 +419,11 @@ export type PackageInput = {
   occasions: string[];
   price: string;
   photoUrl: string;
+  // Block A8.
+  pricingMode: "fixed" | "per_guest";
+  basePrice: string;
+  minGuests: string;
+  maxGuests: string;
   items: { itemId: string; quantity: number }[];
 };
 
