@@ -26,6 +26,7 @@ import { BookingStatusTag } from "./BookingStatusTag";
 import { RushTag } from "./RushTag";
 import { PaymentsSection } from "./PaymentsSection";
 import { DeliverySection } from "./DeliverySection";
+import { bookingMapsUrl } from "../lib/maps";
 import { WeddingDetailsPanel } from "./WeddingDetailsPanel";
 
 const usd = (n: number) => n.toLocaleString("en-US", { style: "currency", currency: "USD" });
@@ -212,6 +213,11 @@ export function BookingModal({
               ariaLabel={`Address for ${who}`}
               onSave={(address) => save({ address: address === "" ? null : address })}
             />
+            {bookingMapsUrl(booking) && (
+              <a className="muted field-help" href={bookingMapsUrl(booking) ?? undefined} target="_blank" rel="noreferrer">
+                {booking.placeId && booking.addressCheck === "verified" ? "Open the exact place in Google Maps" : "Open in Google Maps"}
+              </a>
+            )}
           </div>
           <div className="status-control" role="group" aria-label={`Status for ${who}`}>
             <span className="status-now">

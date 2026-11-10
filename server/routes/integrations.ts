@@ -10,7 +10,8 @@ import { reconcileCalendar } from "../google/sync.js";
 import { safeErr } from "../log.js";
 import { stripeStatus } from "../payments.js";
 import { stripeConfigured, stripeMode, stripeSecretKey, stripeWebhookSecret } from "../stripe/client.js";
-import { mapsConfigured } from "../delivery.js";
+import { lookupAddress, mapsStatus } from "../addressLookup.js";
+import { safeInline } from "../sanitize.js";
 
 const router = Router();
 
@@ -41,7 +42,8 @@ router.get("/status", async (_req, res) => {
     // Block T1: online payment and address checking. Mode, last webhook and
     // last error only; never a key.
     stripe: { configured: stripeConfigured(), mode: stripeMode(), parts: { secretKey: stripeSecretKey() !== null, webhookSecret: stripeWebhookSecret() !== null }, lastWebhookAt: stripe.lastWebhookAt, lastError: stripe.lastError },
-    maps: { configured: mapsConfigured() },
+    // Block A9: today's Google Maps lookups, the cap and the last error.
+    maps: await mapsStatus(account.id),
     texting: { configured: twilioParts.accountId && twilioParts.authToken && twilioParts.phoneNumber, parts: twilioParts, last: lastText },
     email: { configured: has("EMAIL_WEBHOOK_URL"), last: lastEmail },
     storefront: { urlSet: has("STOREFRONT_URL") },
@@ -135,6 +137,19 @@ router.patch("/google", requireOwner, async (req, res) => {
 
 router.post("/google/sync", requireOwner, async (_req, res) => {
   res.json(await reconcileCalendar());
+});
+
+// Block A9: staff try an address against Google. Counted and cached like
+// any other lookup. Returns what Google found, or why it is not exact.
+router.post("/maps/check", requireOwner, async (req, res) => {
+  const body = (req.body ?? {}) as Record<string, unknown>;
+  const text = typeof body.address === "string" ? safeInline(body.address, 300) : "";
+  if (!text) return res.status(400).json({ error: "address is required" });
+  const account = await getDefaultAccount();
+  const o = await lookupAddress(account.id, { text });
+  if (o.kind === "exact") return res.json({ exact: true, cached: o.cached, formattedAddress: o.place.formattedAddress, placeId: o.place.placeId, lat: o.place.lat, lng: o.place.lng, components: o.place.components });
+  if (o.kind === "not-exact") return res.json({ exact: false, cached: o.cached, reason: o.reason });
+  res.json({ exact: null, cached: false, reason: o.reason });
 });
 
 export default router;

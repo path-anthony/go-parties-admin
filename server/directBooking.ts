@@ -12,7 +12,8 @@ import { getDefaultAccount } from "./account.js";
 import { ipHash, safeErr } from "./log.js";
 import { stripControl } from "./sanitize.js";
 import { loadGoSigner, signContractFromQuote, token } from "./contracts.js";
-import { deliveryColumns, verifyBookingAddress, type Delivery } from "./delivery.js";
+import { bookingMapsUrl, deliveryColumns, placeColumns, type Delivery } from "./delivery.js";
+import { checkBookingAddress, type ExactPlace } from "./addressLookup.js";
 import { queueGoogleSync } from "./google/sync.js";
 import { notifyDesignRequest, notifyNewLead } from "./notifications.js";
 import { notifyContractSigned } from "./notify.js";
@@ -86,6 +87,14 @@ export type DirectBookingInput = {
   tier?: Tier | null;
   signature?: HoldSignature | null;
   delivery?: Delivery | null;
+  // Block A9: the event address as Google found it (an exact street
+  // address), already looked up by the route. When set it is the address
+  // and the booking is verified from the start. The pin still comes from
+  // delivery when the storefront sent one.
+  place?: ExactPlace | null;
+  // Block A9: why the address could not be checked (no key, Google down,
+  // the daily cap), when it could not be. Stored with "not checked".
+  addressCheckReason?: string | null;
 };
 
 export type HoldSignature = { fullName: string; additionalSignerName: string | null; contentHash: string; quoteId: string };
@@ -418,10 +427,16 @@ export async function createDirectBooking(input: DirectBookingInput): Promise<{ 
           packageId: pkg?.id ?? null,
           total,
           tier,
-          ...deliveryColumns(delivery),
-          // The contract's mailing address comes from the verified delivery
-          // address when there is one.
-          ...(delivery ? { mailingAddress: `${delivery.components.streetNumber} ${delivery.components.route}`.trim(), city: delivery.components.city || null, state: delivery.components.state || null, zip: delivery.components.zip || null } : {}),
+          ...(input.place
+            ? // Block A9: the exact place from Google, verified now.
+              placeColumns(input.place, delivery ? { setupLat: delivery.setupLat, setupLng: delivery.setupLng, setupNotes: delivery.setupNotes } : null)
+            : {
+                ...deliveryColumns(delivery),
+                // The contract's mailing address comes from the delivery
+                // address when there is one.
+                ...(delivery ? { mailingAddress: `${delivery.components.streetNumber} ${delivery.components.route}`.trim(), city: delivery.components.city || null, state: delivery.components.state || null, zip: delivery.components.zip || null } : {}),
+                ...(address && input.addressCheckReason ? { addressCheck: "not_checked", addressCheckReason: input.addressCheckReason } : {}),
+              }),
           // eventDate is copied onto each join row for the (unitId, eventDate)
           // unique constraint, the database-level backstop behind the lock.
           units: { create: claimed.map(({ unit }) => ({ unitId: unit.id, eventDate: date })) },
@@ -535,9 +550,10 @@ export async function createDirectBooking(input: DirectBookingInput): Promise<{ 
       }
     }
     const fresh = await prisma.booking.findUniqueOrThrow({ where: { id: result.booking.id }, select: { status: true, retainerPaid: true, tier: true } });
-    // The address check runs after the reply and never blocks it; the
-    // calendar follows a signed contract.
-    if (delivery) void verifyBookingAddress(result.booking.id).catch(() => undefined);
+    // Block A9: a storefront hold was looked up before it was made. A staff
+    // booking is checked after the reply, never refused, never waited on.
+    // The calendar follows a signed contract.
+    if (staff && address) void checkBookingAddress(result.booking.id).catch(() => undefined);
     if (contract?.signed) queueGoogleSync(result.booking.id);
     // Staff made this one themselves, so only a storefront hold is news.
     if (!staff) await notifyNewLead({ ...result.lead, bookingId: result.booking.id, customerId: result.booking.customerId });
@@ -569,6 +585,8 @@ export async function createDirectBooking(input: DirectBookingInput): Promise<{ 
       eventDate: dateText,
       eventTime: result.booking.eventTime,
       address: result.booking.address,
+      // Block A9: the exact place on Google Maps, when the address was found.
+      mapsUrl: bookingMapsUrl(result.booking),
       phone: result.booking.phone,
       email: result.booking.email,
       // status keeps the meaning the storefront reads (live = "Confirmed");

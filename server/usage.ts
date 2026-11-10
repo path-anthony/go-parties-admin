@@ -4,7 +4,7 @@ import { todayEastern } from "./validate.js";
 // Per-day counters kept in the database, so a deploy does not hand the
 // public a fresh budget. One row per account, key and Eastern day.
 
-export type UsageKey = "ai_public" | "ai_admin" | "direct_booking";
+export type UsageKey = "ai_public" | "ai_admin" | "direct_booking" | "maps_lookup";
 
 // Takes one unit if today's count is still under `cap`. Returns false (and
 // takes nothing) once the cap is reached. Atomic: two requests racing for the

@@ -40,7 +40,7 @@ export function DeliverySection({ booking, onChanged }: { booking: Booking; onCh
         <span className="detail-field-label">Delivery</span>
         {booking.placeId ? (
           <span className={`achip ${check === "verified" ? "achip-yes" : check === "needs_check" ? "achip-unchecked" : "achip-none"}`}>
-            {check === "verified" ? "Address verified" : check === "needs_check" ? "Address needs a check" : "Address not checked"}
+            {check === "verified" ? (booking.addressCheckedByName ? "Address verified" : "Exact address, from Google") : check === "needs_check" ? "Address needs a check" : "Address not checked"}
           </span>
         ) : (
           <span className="achip achip-none">Typed address, not from the map</span>
@@ -73,7 +73,7 @@ export function DeliverySection({ booking, onChanged }: { booking: Booking; onCh
       <div className="form-actions">
         {link && (
           <a className="btn-secondary" href={link} target="_blank" rel="noreferrer">
-            Open in Maps
+            Setup pin in Maps
           </a>
         )}
         {check !== "verified" && (

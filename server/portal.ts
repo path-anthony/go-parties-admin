@@ -2,6 +2,7 @@ import { amountsFor, type Money } from "./payments.js";
 import { stripeConfigured } from "./stripe/client.js";
 import { daysBefore } from "./contract/goMoney.js";
 import { displayStatus } from "../src/lib/bookingStatus.js";
+import { bookingMapsUrl } from "./delivery.js";
 
 // Block T1. The customer portal's view of a booking: the stage in the
 // customer's words, the steps left to do, the contract and the money. Pure
@@ -31,6 +32,9 @@ export type PortalBooking = {
   payments: { kind: string; status: string; amountCents: number; refundedCents: number; paidAt: Date | null }[];
   placeId: string | null;
   address: string | null;
+  // Block A9: the exact place's point.
+  addressLat?: number | null;
+  addressLng?: number | null;
   setupLat: number | null;
   setupLng: number | null;
   setupNotes: string | null;
@@ -120,6 +124,8 @@ export function portalFields(b: PortalBooking, settings: PortalSettings) {
     rescheduleMode: b.tier === 2 || b.tier === 3 ? ("request" as const) : ("self" as const),
     pendingRequest: null,
     delivery: customerDelivery(b),
+    // Block A9: a Google Maps link to the exact event address, when known.
+    mapsUrl: bookingMapsUrl(b),
   };
 }
 

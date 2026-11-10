@@ -1,3 +1,4 @@
+import { Prisma } from "../../src/generated/prisma/client.js";
 import { Router } from "express";
 import { getDefaultAccount } from "../account.js";
 import { parseAddonSelections } from "../addons.js";
@@ -5,6 +6,7 @@ import { currentCustomer } from "../customerAuth.js";
 import { botCheck } from "../botCheck.js";
 import { createDirectBooking, MAX_UNITS_PER_BOOKING, type HoldSignature } from "../directBooking.js";
 import { isInvalidDelivery, parseDelivery } from "../delivery.js";
+import { NOT_EXACT_MESSAGE, lookupAddress, type ExactPlace } from "../addressLookup.js";
 import { prettyPhone } from "../messageContext.js";
 import { safeInline, stripControl } from "../sanitize.js";
 import { getSettings } from "../settings.js";
@@ -233,8 +235,41 @@ router.post("/", botCheck("direct-booking"), async (req, res) => {
   if (typeof guestCount === "string") return res.status(400).json({ error: guestCount, reason: "guest-count-invalid" });
   const delivery = parseDelivery(body.delivery);
   if (isInvalidDelivery(delivery)) return res.status(400).json({ error: delivery.invalid, reason: "delivery-invalid" });
-  // The plain address is the verified one whenever a delivery was sent.
-  const addressForBooking = delivery ? delivery.formattedAddress : cleanAddress;
+  // Block A9: the exact address. The home address first (sent by a signed-
+  // in customer who has none yet), then the event address: the customer's
+  // verified home when the event is at home, else the place the storefront
+  // picked, else the typed text. A clear "not exact" refuses the hold;
+  // "unavailable" (no key, Google down, the daily cap) keeps today's
+  // behaviour: the address as sent, marked not checked with the reason.
+  const now = new Date();
+  let homePlace: ExactPlace | null = null;
+  let homeText = cleanHome;
+  const savingHome = !!(customer && cleanHome && !customer.homeAddress);
+  if (savingHome) {
+    const h = await lookupAddress(account.id, { text: cleanHome }, now);
+    if (h.kind === "not-exact") return res.status(400).json({ error: NOT_EXACT_MESSAGE, reason: "address-not-exact", field: "homeAddress" });
+    if (h.kind === "exact") {
+      homePlace = h.place;
+      homeText = h.place.formattedAddress;
+    }
+  }
+  let place: ExactPlace | null = null;
+  let addressCheckReason: string | null = null;
+  let addressForBooking = delivery ? delivery.formattedAddress : cleanAddress;
+  if (eventAddressSameAsHome && customer?.homePlaceId && customer.homeAddress && customer.homeLat !== null && customer.homeLng !== null) {
+    place = { placeId: customer.homePlaceId, formattedAddress: customer.homeAddress, lat: customer.homeLat, lng: customer.homeLng, components: (customer.homeComponents ?? { streetNumber: "", route: "", city: "", state: "", zip: "" }) as ExactPlace["components"] };
+  } else if (eventAddressSameAsHome && homePlace) {
+    place = homePlace;
+  } else if (eventAddressSameAsHome && (customer?.homeAddress || homeText)) {
+    addressForBooking = customer?.homeAddress ?? homeText;
+  }
+  if (!place && (delivery || addressForBooking)) {
+    const o = await lookupAddress(account.id, delivery ? { placeId: delivery.placeId } : { text: addressForBooking }, now);
+    if (o.kind === "not-exact") return res.status(400).json({ error: NOT_EXACT_MESSAGE, reason: "address-not-exact", field: "address" });
+    if (o.kind === "exact") place = o.place;
+    else addressCheckReason = o.reason;
+  }
+  if (place) addressForBooking = place.formattedAddress;
 
   // Site-wide cap on storefront bookings per day. Staff bookings are not
   // counted or limited. A slot is taken here in one atomic step (so a burst
@@ -271,6 +306,8 @@ router.post("/", botCheck("direct-booking"), async (req, res) => {
       tier,
       signature,
       delivery,
+      place,
+      addressCheckReason,
       eventAddressSameAsHome,
       guestCount,
     });
@@ -281,8 +318,9 @@ router.post("/", botCheck("direct-booking"), async (req, res) => {
   if (result.status !== 201 && result.status !== 202) await refundDaily(account.id, "direct_booking");
   // Block A5: a home address sent with a good hold is kept on the account
   // when it had none. Never overwrites one the customer already set.
-  if (customer && cleanHome && !customer.homeAddress && (result.status === 201 || result.status === 202)) {
-    await prisma.customer.updateMany({ where: { id: customer.id, homeAddress: null }, data: { homeAddress: cleanHome } }).catch(() => undefined);
+  if (customer && savingHome && homeText && (result.status === 201 || result.status === 202)) {
+    const home = { homeAddress: homeText, homePlaceId: homePlace?.placeId ?? null, homeLat: homePlace?.lat ?? null, homeLng: homePlace?.lng ?? null, homeComponents: homePlace ? (homePlace.components as unknown as Prisma.InputJsonObject) : Prisma.DbNull, homeCheckedAt: homePlace ? now : null };
+    await prisma.customer.updateMany({ where: { id: customer.id, homeAddress: null }, data: home }).catch(() => undefined);
   }
   res.status(result.status).json(result.body);
 });

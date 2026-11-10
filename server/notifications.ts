@@ -26,6 +26,8 @@ export const NOTIFICATION_TYPES = [
   { type: "wedding-details-submitted", label: "Wedding details submitted" },
   { type: "wedding-details-change-request", label: "Wedding details change requests" },
   { type: "content-creation-interest", label: "Upsell: content creation" },
+  { type: "address-checks-paused", label: "Address checks paused" },
+  { type: "address-not-checked", label: "Address not checked" },
 ] as const;
 export type NotificationType = (typeof NOTIFICATION_TYPES)[number]["type"];
 export const isNotificationType = (v: unknown): v is NotificationType => NOTIFICATION_TYPES.some((t) => t.type === v);

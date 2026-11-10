@@ -505,8 +505,15 @@ export type IntegrationStatus = {
   email: { configured: boolean; last: { status: string; createdAt: string; confirmation: string | null } | null };
   storefront: { urlSet: boolean };
   stripe: { configured: boolean; mode: "test" | "live" | null; parts: { secretKey: boolean; webhookSecret: boolean }; lastWebhookAt: string | null; lastError: string | null };
-  maps: { configured: boolean };
+  // Block A9: today's lookups against the cap, and the last error.
+  maps: { configured: boolean; todayLookups: number; dailyCap: number; lastError: string | null; lastErrorAt: string | null };
 };
+
+// Block A9: try an address against Google (owner only; counted and cached).
+export type MapsCheck = { exact: boolean | null; cached: boolean; formattedAddress?: string; placeId?: string; lat?: number; lng?: number; reason?: string };
+export function checkMapsAddress(address: string): Promise<MapsCheck> {
+  return fetch("/api/integrations/maps/check", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ address }) }).then(asJson<MapsCheck>);
+}
 
 // Block T1: payments and the delivery location on a booking.
 export function getBookingPayments(bookingId: string): Promise<PaymentsView> {

@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { getIntegrationStatus, getLeadStatuses, type IntegrationStatus } from "../../lib/api";
+import { type FormEvent, useEffect, useState } from "react";
+import { checkMapsAddress, getIntegrationStatus, getLeadStatuses, type IntegrationStatus, type MapsCheck } from "../../lib/api";
 import { stageWarnings, LOST_STAGE, WON_STAGE } from "../../lib/leadStages";
 import { statusLabel } from "../../lib/messages";
 import { DigestSettings } from "../DigestSettings";
@@ -189,6 +189,48 @@ function StatusLine({ label, ok, detail }: { label: string; ok: boolean; detail?
   );
 }
 
+// Block A9: try an address against Google, the way the storefront hold
+// does. One lookup, counted against the day and cached.
+function MapsCheckForm() {
+  const [address, setAddress] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState<MapsCheck | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  async function submit(e: FormEvent) {
+    e.preventDefault();
+    setBusy(true);
+    setError(null);
+    try {
+      setResult(await checkMapsAddress(address));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "That didn't work");
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <form className="add-item-form" onSubmit={submit}>
+      <label>
+        Try an address
+        <input value={address} onChange={(e) => setAddress(e.target.value)} maxLength={300} placeholder="767 New Britain Ave, Farmington, CT" disabled={busy} />
+      </label>
+      <div className="form-actions">
+        <button type="submit" className="btn-secondary" disabled={busy || address.trim() === ""}>
+          Look it up
+        </button>
+      </div>
+      {error && <span className="form-error">{error}</span>}
+      {result && (
+        <span className="muted field-help">
+          {result.exact === true && `Exact: ${result.formattedAddress} (place ${result.placeId}${result.cached ? ", from the cache" : ""}).`}
+          {result.exact === false && `Not exact: ${result.reason}`}
+          {result.exact === null && `Not checked: ${result.reason}`}
+        </span>
+      )}
+    </form>
+  );
+}
+
 // Read only: what is hooked up. No keys or numbers are shown, only yes or no
 // and how the last send went.
 export function IntegrationsPage() {
@@ -291,8 +333,24 @@ export function IntegrationsPage() {
           <section className="panel">
             <h2>Address checking (Google Maps)</h2>
             <ul className="addon-list">
-              <StatusLine label="Server key for Places and Geocoding is set" ok={status.maps.configured} detail={status.maps.configured ? undefined : "delivery addresses are stored but marked not checked"} />
+              <StatusLine label="Maps connected (server key for Places and Geocoding)" ok={status.maps.configured} detail={status.maps.configured ? undefined : "addresses are saved as typed and marked not checked"} />
+              <li className="unit-row">
+                <span>
+                  <strong>Lookups today</strong>
+                  <span className="muted"> · paused for the day at {status.maps.dailyCap}; answers are kept 30 days</span>
+                </span>
+                <span>
+                  {status.maps.todayLookups} of {status.maps.dailyCap}
+                </span>
+              </li>
+              <li className="unit-row">
+                <span>
+                  <strong>Last error</strong>
+                </span>
+                <span>{status.maps.lastError ? `${status.maps.lastError} (${when(status.maps.lastErrorAt ?? "")} ET)` : "None"}</span>
+              </li>
             </ul>
+            <MapsCheckForm />
           </section>
           <section className="panel">
             <h2>Google Calendar</h2>

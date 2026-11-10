@@ -10,6 +10,7 @@ import { canonicalOccasion } from "../../src/lib/occasions.js";
 import { INVALID, normalizeDate, normalizeText, todayEastern } from "../validate.js";
 import { safeInline } from "../sanitize.js";
 import { parseGuestCount } from "../packagePricing.js";
+import { NOT_EXACT_MESSAGE, lookupAddress } from "../addressLookup.js";
 
 // Block T1. POST /api/bookings/tier: which agreement a cart needs. Public
 // (the storefront asks once the cart and date are fixed, and again right
@@ -49,8 +50,21 @@ router.post("/", async (req, res) => {
   const guestCount = parseGuestCount(body.guestCount);
   if (typeof guestCount === "string") return res.status(400).json({ error: guestCount, reason: "guest-count-invalid" });
   const cart = normalizeCart({ itemIds, packageId, addons, eventDate: dateText, eventTime, occasion: normalizeText(occasion), guestCount });
+  // Block A9: the event address, when the storefront sends it with the
+  // quote: a place id from its suggestions, or typed text. A clear "not
+  // exact" answer is refused here so the customer hears early; the hold
+  // asks again (the cache answers) and refuses the same way.
+  if (body.placeId !== undefined && body.placeId !== null && (typeof body.placeId !== "string" || !/^[A-Za-z0-9_-]{1,300}$/.test(body.placeId))) return res.status(400).json({ error: "placeId must be a Google place id" });
+  if (body.address !== undefined && body.address !== null && (typeof body.address !== "string" || body.address.length > 300)) return res.status(400).json({ error: "address must be text up to 300 characters" });
+  const addressQuery = typeof body.placeId === "string" && body.placeId ? { placeId: body.placeId } : typeof body.address === "string" && safeInline(body.address, 300) ? { text: safeInline(body.address, 300) } : null;
 
   const account = await getDefaultAccount();
+  let address: { formattedAddress: string; placeId: string; lat: number; lng: number } | null = null;
+  if (addressQuery) {
+    const o = await lookupAddress(account.id, addressQuery);
+    if (o.kind === "not-exact") return res.status(400).json({ error: NOT_EXACT_MESSAGE, reason: "address-not-exact", field: "address" });
+    if (o.kind === "exact") address = { formattedAddress: o.place.formattedAddress, placeId: o.place.placeId, lat: o.place.lat, lng: o.place.lng };
+  }
   let resolved;
   try {
     resolved = await resolveCart(account.id, cart);
@@ -63,7 +77,7 @@ router.post("/", async (req, res) => {
   const settings = await getSettings(account.id);
   const total = resolved.total;
   if (tier === 3) {
-    return res.json({ tier, reasons, total, retainerPercent: settings.depositPercentage, retainerAmount: total === null ? null : Math.round(total * settings.depositPercentage) / 100, policy: null, contract: null, quoteExpiresAt: null });
+    return res.json({ tier, reasons, total, retainerPercent: settings.depositPercentage, retainerAmount: total === null ? null : Math.round(total * settings.depositPercentage) / 100, policy: null, contract: null, quoteExpiresAt: null, address });
   }
   if (tier === 2) {
     const q = await issueQuote(account.id, cart, resolved);
@@ -76,6 +90,7 @@ router.post("/", async (req, res) => {
       policy: null,
       contract: { quoteId: q.quoteId, contentHash: q.contentHash, termsVersion: q.termsVersion, format: "go-v2", document: q.document },
       quoteExpiresAt: q.quoteExpiresAt,
+      address,
     });
   }
   const policy = publicPolicy(await currentPolicy(account.id));
@@ -89,6 +104,7 @@ router.post("/", async (req, res) => {
     policy: policy ? { version: policy.version, text: policy.text } : null,
     contract: null,
     quoteExpiresAt: null,
+    address,
   });
 });
 
