@@ -218,7 +218,7 @@ export async function askQuestion(token: string, text: unknown, now = new Date()
   return { ok: true as const };
 }
 
-function adminBase(): string {
+export function adminBase(): string {
   return (process.env.PUBLIC_API_URL?.replace(/\/$/, "") ?? (process.env.RAILWAY_PUBLIC_DOMAIN ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN}` : ""));
 }
 

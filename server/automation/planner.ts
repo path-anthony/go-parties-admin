@@ -80,7 +80,7 @@ export type Facts = {
 };
 
 // Identifies which record a blockedReason question is about.
-export type PlanSubject = { kind: "lead" | "booking" | "gig"; id: string };
+export type PlanSubject = { kind: "lead" | "booking" | "gig" | "digest"; id: string };
 
 export type Contact = { phone: string | null; email: string | null };
 
@@ -411,6 +411,27 @@ export function planGig(g: GigInput, f: Facts): Plan {
   return { enrolled: true, items };
 }
 
+// ---- The staff morning digest ------------------------------------------
+
+export const DIGEST_HOUR = 7;
+export const DIGEST_TRIGGER = "staff_daily_digest";
+
+export type DigestInput = { day: string; enabled: boolean; email: string; count: number };
+
+// One email for one Eastern day, due at 7 AM. Nothing is planned ahead of
+// time: until 7 the window is still open and whether there is anything to
+// send is not known. Email only.
+export function planDigest(d: DigestInput, f: Facts): Plan {
+  if (!d.enabled) return { enrolled: false, notEnrolled: "The daily digest is switched off.", items: [] };
+  const dueAt = atEastern(d.day, DIGEST_HOUR);
+  if (f.now < dueAt || d.count === 0) return { enrolled: true, items: [] };
+  const items = planSeries(
+    { id: "digest", subject: { kind: "digest", id: d.day }, milestones: [{ triggerKey: DIGEST_TRIGGER, dueAt, baseKey: `${DIGEST_TRIGGER}:${d.day}` }], recordStart: dueAt, contact: { phone: null, email: d.email }, paused: false },
+    f,
+  );
+  return { enrolled: true, items: items.filter((i) => i.channel === "email") };
+}
+
 // ---- Plain English -------------------------------------------------------
 
 const NAMES: Record<string, string> = {
@@ -421,6 +442,7 @@ const NAMES: Record<string, string> = {
   event_week_reminder: "event week reminder",
   event_eve_reminder: "event eve reminder",
   post_event_thanks: "thank-you",
+  staff_daily_digest: "daily digest",
   crew_reminder_30: "30 day gig reminder",
   crew_reminder_15: "15 day gig reminder",
   crew_reminder_7: "7 day gig reminder",

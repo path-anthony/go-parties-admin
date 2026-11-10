@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { notifyNewLead } from "../notifications.js";
 import { getDefaultAccount } from "../account.js";
 import { prisma } from "../db.js";
 import { getDefaultStatus } from "../leadStatuses.js";
@@ -51,6 +52,7 @@ router.post("/", async (req, res) => {
     },
   });
 
+  await notifyNewLead(lead);
   res.status(201).json(lead);
 });
 

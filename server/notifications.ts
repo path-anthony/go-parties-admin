@@ -1,0 +1,308 @@
+import { getDefaultAccount } from "./account.js";
+import { addDays, atEastern, easternDay, humanDay } from "./automation/time.js";
+import { DIGEST_HOUR } from "./automation/planner.js";
+import { adminBase } from "./bids.js";
+import { prisma } from "./db.js";
+import { safeErr } from "./log.js";
+import { amountsFor } from "./payments.js";
+import { safeInline } from "./sanitize.js";
+import { getSettings } from "./settings.js";
+import { groupsOf } from "../src/lib/occasions.js";
+
+// Staff notifications: the bell in the admin and the morning digest. Each
+// condition has a dedupeKey, and the unique index on it is what makes a
+// condition fire once however many passes see it. New leads fire as they
+// happen; everything timed is worked out by runTimedNotifications, which
+// the hourly scheduler calls on real runs only.
+
+export const NOTIFICATION_TYPES = [
+  { type: "new-lead", label: "New leads" },
+  { type: "contract-unsigned-3d", label: "Needs a push to sign" },
+  { type: "retainer-unpaid-3d", label: "Retainer unpaid" },
+  { type: "balance-due-7d", label: "Balance due soon" },
+  { type: "wedding-details-not-started-60d", label: "Wedding details not started" },
+  { type: "wedding-details-incomplete-35d", label: "Wedding details incomplete" },
+  { type: "wedding-details-submitted", label: "Wedding details submitted" },
+] as const;
+export type NotificationType = (typeof NOTIFICATION_TYPES)[number]["type"];
+export const isNotificationType = (v: unknown): v is NotificationType => NOTIFICATION_TYPES.some((t) => t.type === v);
+
+export type NotificationInput = {
+  accountId: string;
+  type: NotificationType;
+  title: string;
+  body: string;
+  link: string;
+  bookingId?: string | null;
+  leadId?: string | null;
+  customerId?: string | null;
+  dedupeKey: string;
+};
+
+const DAY_MS = 86_400_000;
+const WAIT_DAYS = 3;
+const BALANCE_DAYS_AHEAD = 7;
+// Stages where a booking is still going ahead (Completed, Cancelled and
+// Released are not).
+const LIVE_STAGES = ["Held", "Contract Sent", "Signed"];
+
+export const bookingLink = (id: string) => `/scheduling/bookings?booking=${id}`;
+export const leadLink = (id: string) => `/leads?lead=${id}`;
+const clean = (text: string | null | undefined, fallback: string) => safeInline(text ?? "", 100) || fallback;
+// An event date is a calendar day stored at UTC midnight; noon Eastern reads
+// back as that same day.
+const dayLabel = (day: string) => humanDay(atEastern(day, 12));
+const dayOf = (d: Date) => d.toISOString().slice(0, 10);
+const usd = (cents: number) => `$${(cents / 100).toLocaleString("en-US", { minimumFractionDigits: cents % 100 === 0 ? 0 : 2, maximumFractionDigits: 2 })}`;
+
+// Inserts what is new and ignores what has already fired. Returns how many
+// rows were really added.
+export async function createNotifications(rows: NotificationInput[]): Promise<number> {
+  if (rows.length === 0) return 0;
+  const { count } = await prisma.notification.createMany({ data: rows, skipDuplicates: true });
+  return count;
+}
+
+// ---- Event producers ----------------------------------------------------
+
+const SOURCE_WORD: Record<string, string> = { website: "Website inquiry", concierge: "Concierge request", storefront: "Storefront booking" };
+
+// A lead just arrived from outside (the website form through n8n, a concierge
+// request, a storefront hold). Never throws: a notification must not be able
+// to fail the request that made the lead.
+export async function notifyNewLead(lead: { id: string; accountId: string; source: string; customerName?: string | null; occasion?: string | null; bookingId?: string | null; customerId?: string | null }): Promise<void> {
+  try {
+    const who = clean(lead.customerName, "No name yet");
+    const about = lead.occasion ? safeInline(lead.occasion, 80) : "";
+    await createNotifications([
+      {
+        accountId: lead.accountId,
+        type: "new-lead",
+        title: "New lead",
+        body: `${who}. ${SOURCE_WORD[lead.source] ?? lead.source}${about ? `: ${about}` : ""}.`,
+        link: leadLink(lead.id),
+        leadId: lead.id,
+        bookingId: lead.bookingId ?? null,
+        customerId: lead.customerId ?? null,
+        dedupeKey: `new-lead:${lead.id}`,
+      },
+    ]);
+  } catch (err) {
+    console.warn("[notifications] new lead not recorded:", safeErr(err));
+  }
+}
+
+// ---- Wedding questionnaire checks ---------------------------------------
+
+// TODO(Block A11): these three answer false until the wedding questionnaire
+// exists. A11 replaces the bodies with real checks against it; the producers
+// below, their dedupe keys and their titles are already in place.
+async function weddingDetailsNotStarted(_bookingId: string): Promise<boolean> {
+  return false;
+}
+async function weddingDetailsIncomplete(_bookingId: string): Promise<boolean> {
+  return false;
+}
+async function weddingDetailsSubmitted(_bookingId: string): Promise<boolean> {
+  return false;
+}
+
+export type WeddingChecks = {
+  notStarted: (bookingId: string) => Promise<boolean>;
+  incomplete: (bookingId: string) => Promise<boolean>;
+  submitted: (bookingId: string) => Promise<boolean>;
+};
+const WEDDING_CHECKS: WeddingChecks = { notStarted: weddingDetailsNotStarted, incomplete: weddingDetailsIncomplete, submitted: weddingDetailsSubmitted };
+
+// ---- Timed producers ----------------------------------------------------
+
+// Everything that should have fired by `now`. Reads only, so it can be run
+// to see what a first pass would create.
+export async function findDueNotifications(now: Date, wedding: WeddingChecks = WEDDING_CHECKS): Promise<NotificationInput[]> {
+  const account = await getDefaultAccount();
+  const accountId = account.id;
+  const settings = await getSettings(accountId);
+  const todayText = easternDay(now);
+  const today = new Date(`${todayText}T00:00:00Z`);
+  const cutoff = new Date(now.getTime() - WAIT_DAYS * DAY_MS);
+  const out: NotificationInput[] = [];
+
+  // A contract sent, or a tier 2 hold made, and no signature after 3 days.
+  // A booking staff moved to Signed by hand (a paper contract) is out.
+  const unsigned = await prisma.agreement.findMany({
+    where: {
+      accountId,
+      contractStatus: "Sent",
+      contractSentAt: { lte: cutoff },
+      OR: [{ booking: { is: { status: { in: ["Held", "Contract Sent"] }, eventDate: { gte: today } } } }, { designRequest: { is: { status: "Open", eventDate: { gte: today } } } }],
+    },
+    select: { id: true, contractSentAt: true, customerId: true, booking: { select: { id: true, customerName: true, eventDate: true, leadId: true } }, designRequest: { select: { id: true, customerName: true, eventDate: true } } },
+  });
+  for (const a of unsigned) {
+    const rec = a.booking ?? a.designRequest;
+    if (!rec) continue;
+    const sent = humanDay(a.contractSentAt as Date);
+    out.push({
+      accountId,
+      type: "contract-unsigned-3d",
+      title: "Needs a push to sign",
+      body: `${clean(rec.customerName, "Customer")}, ${dayLabel(dayOf(rec.eventDate))}. Contract sent ${sent}, not signed.`,
+      link: a.booking ? bookingLink(a.booking.id) : "/design-requests",
+      bookingId: a.booking?.id ?? null,
+      leadId: a.booking?.leadId ?? null,
+      customerId: a.customerId,
+      dedupeKey: `contract-unsigned-3d:${a.id}`,
+    });
+  }
+
+  // Signed, retainer still unpaid 3 days later.
+  const signedUnpaid = await prisma.agreement.findMany({
+    where: { accountId, contractStatus: "Signed", contractDocument: { is: { signedAt: { lte: cutoff } } }, booking: { is: { retainerPaid: false, status: { in: LIVE_STAGES }, eventDate: { gte: today } } } },
+    select: { contractDocument: { select: { signedAt: true } }, customerId: true, booking: { select: { id: true, customerName: true, eventDate: true, leadId: true } } },
+  });
+  for (const a of signedUnpaid) {
+    if (!a.booking || !a.contractDocument) continue;
+    out.push({
+      accountId,
+      type: "retainer-unpaid-3d",
+      title: "Retainer unpaid",
+      body: `${clean(a.booking.customerName, "Customer")}, ${dayLabel(dayOf(a.booking.eventDate))}. Signed ${humanDay(a.contractDocument.signedAt)}, retainer not paid.`,
+      link: bookingLink(a.booking.id),
+      bookingId: a.booking.id,
+      leadId: a.booking.leadId,
+      customerId: a.customerId,
+      dedupeKey: `retainer-unpaid-3d:${a.booking.id}`,
+    });
+  }
+
+  // The balance falls due within 7 days (or already has) and is still open.
+  // Keyed by the due day, so moving the event raises it again.
+  const lastEvent = new Date(`${addDays(todayText, settings.balanceDueDays + BALANCE_DAYS_AHEAD)}T00:00:00Z`);
+  const openBalances = await prisma.booking.findMany({
+    where: { accountId, status: { in: LIVE_STAGES }, balancePaid: false, total: { not: null }, eventDate: { gte: today, lte: lastEvent } },
+    include: { agreement: { select: { contractStatus: true, contractDocument: { select: { documentJson: true } } } }, payments: true },
+  });
+  for (const b of openBalances) {
+    const money = amountsFor(b, b.payments, settings);
+    if (money.balancePaid || !money.balanceDueCents) continue;
+    const eventDay = dayOf(b.eventDate);
+    const dueDay = addDays(eventDay, -settings.balanceDueDays);
+    out.push({
+      accountId,
+      type: "balance-due-7d",
+      title: "Balance due soon",
+      body: `${clean(b.customerName, "Customer")}, ${dayLabel(eventDay)}. ${usd(money.balanceDueCents)} ${dueDay < todayText ? "was due" : "due"} ${dayLabel(dueDay)}.`,
+      link: bookingLink(b.id),
+      bookingId: b.id,
+      leadId: b.leadId,
+      customerId: b.customerId,
+      dedupeKey: `balance-due-7d:${b.id}:${dueDay}`,
+    });
+  }
+
+  // Wedding details (the checks are stubs until the questionnaire exists).
+  const upcoming = await prisma.booking.findMany({
+    where: { accountId, status: { in: LIVE_STAGES }, occasion: { not: null }, eventDate: { gte: today } },
+    select: { id: true, customerName: true, eventDate: true, occasion: true, leadId: true, customerId: true },
+  });
+  for (const b of upcoming) {
+    if (!groupsOf(b.occasion as string).includes("Wedding")) continue;
+    const eventDay = dayOf(b.eventDate);
+    const daysOut = Math.round((b.eventDate.getTime() - today.getTime()) / DAY_MS);
+    const base = { accountId, link: bookingLink(b.id), bookingId: b.id, leadId: b.leadId, customerId: b.customerId };
+    const who = `${clean(b.customerName, "Customer")}, ${dayLabel(eventDay)}.`;
+    if (daysOut <= 60 && (await wedding.notStarted(b.id))) {
+      out.push({ ...base, type: "wedding-details-not-started-60d", title: "Wedding details not started", body: `${who} ${daysOut} days out, not started.`, dedupeKey: `wedding-details-not-started-60d:${b.id}:${eventDay}` });
+    }
+    if (daysOut <= 35 && (await wedding.incomplete(b.id))) {
+      out.push({ ...base, type: "wedding-details-incomplete-35d", title: "Wedding details incomplete", body: `${who} ${daysOut} days out, still incomplete.`, dedupeKey: `wedding-details-incomplete-35d:${b.id}:${eventDay}` });
+    }
+    if (await wedding.submitted(b.id)) {
+      out.push({ ...base, type: "wedding-details-submitted", title: "Wedding details submitted", body: `${who} Ready to review.`, dedupeKey: `wedding-details-submitted:${b.id}` });
+    }
+  }
+  return out;
+}
+
+export async function runTimedNotifications(now: Date, wedding: WeddingChecks = WEDDING_CHECKS): Promise<{ due: number; created: number }> {
+  const due = await findDueNotifications(now, wedding);
+  return { due: due.length, created: await createNotifications(due) };
+}
+
+// ---- Listing and reading ------------------------------------------------
+
+export const MAX_PAGE_SIZE = 100;
+
+export async function listNotifications(opts: { page: number; limit: number; type: NotificationType | null }) {
+  const account = await getDefaultAccount();
+  const where = { accountId: account.id, ...(opts.type ? { type: opts.type } : {}) };
+  const [rows, total, unread] = await Promise.all([
+    // Unread first (a null readAt sorts first), newest first within that.
+    prisma.notification.findMany({ where, orderBy: [{ readAt: { sort: "desc", nulls: "first" } }, { createdAt: "desc" }], skip: (opts.page - 1) * opts.limit, take: opts.limit }),
+    prisma.notification.count({ where }),
+    unreadCount(account.id),
+  ]);
+  return {
+    items: rows.map((n) => ({ id: n.id, type: n.type, title: n.title, body: n.body, link: n.link, createdAt: n.createdAt, readAt: n.readAt })),
+    page: opts.page,
+    limit: opts.limit,
+    total,
+    unread,
+    types: NOTIFICATION_TYPES,
+  };
+}
+
+export const unreadCount = (accountId: string) => prisma.notification.count({ where: { accountId, readAt: null } });
+
+// False when there is no such notification. Reading one twice keeps the
+// first time.
+export async function markRead(id: string): Promise<boolean> {
+  const account = await getDefaultAccount();
+  if (!(await prisma.notification.findFirst({ where: { id, accountId: account.id }, select: { id: true } }))) return false;
+  await prisma.notification.updateMany({ where: { id, readAt: null }, data: { readAt: new Date() } });
+  return true;
+}
+
+export async function markAllRead(now = new Date()): Promise<number> {
+  const account = await getDefaultAccount();
+  const { count } = await prisma.notification.updateMany({ where: { accountId: account.id, readAt: null }, data: { readAt: now } });
+  return count;
+}
+
+// ---- The morning digest -------------------------------------------------
+
+const MAX_LINES_PER_TYPE = 25;
+
+type DigestRow = { type: string; body: string; link: string };
+
+// Grouped by type, in the order the types are listed above. Plain text: it
+// fills one merge token in the digest email.
+export function buildDigest(rows: DigestRow[], base: string): { count: number; body: string } {
+  const sections: string[] = [];
+  for (const { type, label } of NOTIFICATION_TYPES) {
+    const mine = rows.filter((r) => r.type === type);
+    if (mine.length === 0) continue;
+    const lines = mine.slice(0, MAX_LINES_PER_TYPE).map((r) => `- ${r.body}\n  ${base}${r.link}`);
+    if (mine.length > MAX_LINES_PER_TYPE) lines.push(`- and ${mine.length - MAX_LINES_PER_TYPE} more`);
+    sections.push(`${label} (${mine.length})\n${lines.join("\n")}`);
+  }
+  return { count: rows.length, body: sections.join("\n\n") };
+}
+
+// The window is fixed to the 24 hours before 7:00 AM Eastern today, so every
+// pass that day sees the same set and a late pass cannot send a different
+// digest. A notification raised at 7:05 is in tomorrow's.
+export function digestWindow(day: string): { start: Date; end: Date } {
+  return { start: atEastern(addDays(day, -1), DIGEST_HOUR), end: atEastern(day, DIGEST_HOUR) };
+}
+
+export async function loadDigest(now: Date) {
+  const account = await getDefaultAccount();
+  const settings = await getSettings(account.id);
+  const day = easternDay(now);
+  const { start, end } = digestWindow(day);
+  const rows = settings.digestEnabled ? await prisma.notification.findMany({ where: { accountId: account.id, readAt: null, createdAt: { gte: start, lt: end } }, orderBy: { createdAt: "asc" }, select: { type: true, body: true, link: true } }) : [];
+  const base = adminBase();
+  const built = buildDigest(rows, base);
+  return { day, enabled: settings.digestEnabled, email: settings.digestEmail, count: built.count, extra: { digestCount: String(built.count), digestBody: built.body, digestLink: `${base}/notifications` } };
+}

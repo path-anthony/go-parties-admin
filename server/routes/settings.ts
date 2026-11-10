@@ -54,7 +54,7 @@ router.get("/", async (_req, res) => {
 // Which fields the Notifications page edits; Staff may change those.
 // Everything else here belongs to Business rules or Contract settings,
 // which only an Owner can change.
-const STAFF_FIELDS = new Set(["staffNotifyPhone", "staffNotifyEmail", "balanceReminderWindowDays"]);
+const STAFF_FIELDS = new Set(["staffNotifyPhone", "staffNotifyEmail", "balanceReminderWindowDays", "digestEmail", "digestEnabled"]);
 
 router.patch("/", async (req, res) => {
   const body = req.body ?? {};
@@ -96,6 +96,8 @@ router.patch("/", async (req, res) => {
     contractHoldReleaseDays?: number;
     tier1Collect?: string;
     saveCardForBalance?: boolean;
+    digestEmail?: string;
+    digestEnabled?: boolean;
     requireCustomerAccount?: boolean;
   } = {};
 
@@ -250,6 +252,15 @@ router.patch("/", async (req, res) => {
       return res.status(400).json({ error: "requireAgreementCheckbox must be true or false" });
     }
     data.requireAgreementCheckbox = body.requireAgreementCheckbox;
+  }
+  if ("digestEmail" in body) {
+    const email = typeof body.digestEmail === "string" ? body.digestEmail.trim() : "";
+    if (email.length > 200 || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return res.status(400).json({ error: "digestEmail must be an email address" });
+    data.digestEmail = email;
+  }
+  if ("digestEnabled" in body) {
+    if (typeof body.digestEnabled !== "boolean") return res.status(400).json({ error: "digestEnabled must be true or false" });
+    data.digestEnabled = body.digestEnabled;
   }
   if (Object.keys(data).length === 0) {
     return res.status(400).json({ error: "no editable fields provided" });

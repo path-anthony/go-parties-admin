@@ -3,6 +3,7 @@ import { prisma } from "../db.js";
 import { safeErr } from "../log.js";
 import { sendTemplatedMessage } from "../sendTemplated.js";
 import { findExpiredHolds, releaseExpiredHolds, type HoldRelease } from "../holds.js";
+import { runTimedNotifications } from "../notifications.js";
 import { reconcileCalendar, type ReconcileResult } from "../google/sync.js";
 import { loadPlans, type Journey, type Planned } from "./loaders.js";
 import { channelWord, itemName, type PlanItem } from "./planner.js";
@@ -44,6 +45,8 @@ export type RunResult = {
   holds: { days: number; released: HoldRelease[]; dryRun: boolean };
   // Google Calendar reconciliation (real runs only; a dry run touches nothing).
   calendar: ReconcileResult | null;
+  // Staff notifications raised by this pass (real runs only).
+  notifications: { due: number; created: number } | null;
 };
 
 const empty = (): Counts => ({ records: 0, due: 0, sent: 0, failed: 0, blocked: 0, skipped: 0, other: 0 });
@@ -68,6 +71,15 @@ export async function countNeedsAttention(): Promise<number> {
 export async function runAutomation(opts: { dryRun: boolean; source: "n8n" | "admin"; now?: Date; windowDays?: number }): Promise<RunResult> {
   const started = Date.now();
   const now = opts.now ?? new Date();
+  // Raised before the plans load; a failure here never stops the messages.
+  let notifications: RunResult["notifications"] = null;
+  if (!opts.dryRun) {
+    try {
+      notifications = await runTimedNotifications(now);
+    } catch (err) {
+      console.warn("[automation] notifications check failed:", safeErr(err));
+    }
+  }
   const planned = await loadPlans({ now, windowDays: opts.windowDays });
   const counts = { lead: empty(), client: empty(), crew: empty(), total: empty() };
   const lines: RunLine[] = [];
@@ -116,7 +128,7 @@ export async function runAutomation(opts: { dryRun: boolean; source: "n8n" | "ad
       console.warn("[automation] calendar reconcile failed:", safeErr(err));
     }
   }
-  const result: RunResult = { dryRun: opts.dryRun, ranAt: now.toISOString(), durationMs: Date.now() - started, counts, lines, needsAttention: await countNeedsAttention(), holds: holdsOut, calendar };
+  const result: RunResult = { dryRun: opts.dryRun, ranAt: now.toISOString(), durationMs: Date.now() - started, counts, lines, needsAttention: await countNeedsAttention(), holds: holdsOut, calendar, notifications };
   if (!opts.dryRun) {
     const account = await getDefaultAccount();
     await prisma.automationRun.create({
@@ -124,7 +136,7 @@ export async function runAutomation(opts: { dryRun: boolean; source: "n8n" | "ad
         accountId: account.id,
         source: opts.source,
         durationMs: result.durationMs,
-        summary: { counts: result.counts, lines: result.lines.length, needsAttention: result.needsAttention, holdsReleased: result.holds.released.length, calendar: result.calendar ? { checked: result.calendar.checked, failed: result.calendar.failed } : null },
+        summary: { counts: result.counts, lines: result.lines.length, needsAttention: result.needsAttention, holdsReleased: result.holds.released.length, calendar: result.calendar ? { checked: result.calendar.checked, failed: result.calendar.failed } : null, notifications: result.notifications },
       },
     });
   }

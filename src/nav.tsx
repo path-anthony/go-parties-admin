@@ -8,6 +8,7 @@ import { InventoryScreen } from "./components/screens/InventoryScreen";
 import { LeadsScreen } from "./components/screens/LeadsScreen";
 import { BidsPage } from "./components/screens/BidsPage";
 import { MessageTemplatesPage, MessagesUpcomingPage, SentLogPage } from "./components/screens/MessagesScreen";
+import { NotificationsScreen } from "./components/screens/NotificationsScreen";
 import { OverviewScreen } from "./components/screens/OverviewScreen";
 import { PackagesScreen } from "./components/screens/PackagesScreen";
 import { SchedulingScreen } from "./components/screens/SchedulingScreen";
@@ -41,6 +42,9 @@ export type NavItem = {
   pages?: NavPage[];
   // Where navigate(key) lands when it isn't the first page.
   landing?: string;
+  // A real page with its own address that is reached from somewhere else
+  // (the bell) and takes no place in the sidebar.
+  hiddenFromSidebar?: boolean;
 };
 
 const num = (v: string | null) => (v && Number.isFinite(Number(v)) ? Number(v) : undefined);
@@ -63,6 +67,7 @@ function GigsRoute() {
 }
 
 export const NAV: NavItem[] = [
+  { key: "notifications", label: "Notifications", icon: MessageSquare, path: "/notifications", element: <NotificationsScreen />, hiddenFromSidebar: true },
   { key: "overview", label: "Overview", icon: ChartBar, path: "/overview", element: <OverviewScreen /> },
   { key: "leads", label: "Leads", icon: Contact, path: "/leads", element: <LeadsRoute /> },
   {

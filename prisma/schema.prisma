@@ -114,6 +114,9 @@ model Account {
   // When on, a Checkout session asks Stripe to keep the card for an
   // off-session balance charge later. Nothing charges automatically yet.
   saveCardForBalance        Boolean   @default(false) @map("save_card_for_balance")
+  // Block A10: the morning digest of unread staff notifications.
+  digestEmail               String    @default("info@thegoeventgroup.com") @map("digest_email")
+  digestEnabled             Boolean   @default(true) @map("digest_enabled")
   // Block A5: when on, the storefront hold needs a signed-in customer.
   // Staff bookings are never affected.
   requireCustomerAccount    Boolean   @default(false) @map("require_customer_account")
@@ -127,6 +130,7 @@ model Account {
   bookings          Booking[]
   customers         Customer[]
   packages          Package[]
+  notifications     Notification[]
   heroSlides        HeroSlide[]
   crewMembers       CrewMember[]
   gigs              Gig[]
@@ -502,6 +506,7 @@ model Booking {
   lead          Lead?          @relation(fields: [leadId], references: [id], onDelete: SetNull)
   customer      Customer?      @relation(fields: [customerId], references: [id], onDelete: SetNull)
   package       Package?       @relation(fields: [packageId], references: [id], onDelete: SetNull)
+  notifications Notification[]
   units         BookingUnit[]
   addons        BookingAddon[]
   gigs          Gig[]
@@ -539,6 +544,7 @@ model Customer {
   updatedAt       DateTime  @default(now()) @updatedAt @map("updated_at")
 
   account    Account     @relation(fields: [accountId], references: [id])
+  notifications Notification[]
   bookings   Booking[]
   sessions   Session[]
   agreements Agreement[]
@@ -570,6 +576,35 @@ model HeroSlide {
 
   @@index([accountId, sortOrder])
   @@map("hero_slides")
+}
+
+// Block A10: one thing staff should know about, shown in the admin's bell
+// and listed in the morning digest. dedupeKey is what makes a condition
+// fire once. link is an admin path. Read state is shared by the team.
+model Notification {
+  id         String    @id @default(cuid())
+  accountId  String    @map("account_id")
+  type       String
+  title      String
+  body       String
+  link       String
+  bookingId  String?   @map("booking_id")
+  leadId     String?   @map("lead_id")
+  customerId String?   @map("customer_id")
+  createdAt  DateTime  @default(now()) @map("created_at")
+  readAt     DateTime? @map("read_at")
+  dedupeKey  String    @unique @map("dedupe_key")
+
+  account  Account   @relation(fields: [accountId], references: [id])
+  booking  Booking?  @relation(fields: [bookingId], references: [id], onDelete: SetNull)
+  lead     Lead?     @relation(fields: [leadId], references: [id], onDelete: SetNull)
+  customer Customer? @relation(fields: [customerId], references: [id], onDelete: SetNull)
+
+  @@index([accountId, readAt, createdAt])
+  @@index([bookingId])
+  @@index([leadId])
+  @@index([customerId])
+  @@map("notifications")
 }
 
 // A Package is a curated bundle of real catalog items with one manual
@@ -792,6 +827,7 @@ model Lead {
   statusRef  LeadStatus     @relation(fields: [accountId, status], references: [accountId, name], onUpdate: Cascade, onDelete: Restrict)
   activities LeadActivity[]
   bookings   Booking[]
+  notifications Notification[]
 
   @@index([accountId])
   @@index([accountId, status])

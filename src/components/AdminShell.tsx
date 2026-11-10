@@ -6,6 +6,7 @@ import { NavigationContext, type ScreenKey, type ScreenParams } from "../lib/nav
 import { LEGACY_REDIRECTS, LEGACY_TABS, NAV, GroupRoot, breadcrumbFor, screenToPath, visiblePages } from "../nav";
 import { AccountMenu } from "./AccountMenu";
 import { AskGoPanel } from "./AskGoPanel";
+import { NotificationBell } from "./NotificationBell";
 import { SideNav } from "./SideNav";
 
 const PIN_KEY = "go-admin-nav-pinned";
@@ -96,6 +97,7 @@ export function AdminShell() {
                 </span>
               ))}
             </nav>
+            <NotificationBell onOpenLink={() => setVisit((v) => v + 1)} />
             <AccountMenu />
           </header>
           <div className="admin-content">

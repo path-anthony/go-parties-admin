@@ -117,7 +117,7 @@ export function SideNav({
         )}
 
         <ul className="nav-list">
-          {NAV.map((item) => {
+          {NAV.filter((item) => !item.hiddenFromSidebar).map((item) => {
             const Icon = item.icon;
             if (!item.pages) {
               return (

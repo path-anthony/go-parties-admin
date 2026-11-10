@@ -635,6 +635,9 @@ export type AccountSettings = {
   contractHoldReleaseDays: number;
   tier1Collect: "retainer" | "full";
   saveCardForBalance: boolean;
+  // Block A10.
+  digestEmail: string;
+  digestEnabled: boolean;
   // Block A5.
   requireCustomerAccount: boolean;
 };
@@ -845,3 +848,7 @@ export type HeroSlide = {
   url: string;
   thumbnailUrl: string;
 };
+
+// Block A10: a staff notification, and a page of them.
+export type NotificationRow = { id: string; type: string; title: string; body: string; link: string; createdAt: string; readAt: string | null };
+export type NotificationList = { items: NotificationRow[]; page: number; limit: number; total: number; unread: number; types: { type: string; label: string }[] };

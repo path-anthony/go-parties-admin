@@ -6,7 +6,7 @@ import { createContext, useContext } from "react";
 // or straight into one gig.
 // The places other screens can send you (Overview's cards, a finished
 // New booking). Each maps to a real address in src/nav.tsx.
-export type ScreenKey = "overview" | "inventory" | "packages" | "leads" | "requests" | "scheduling" | "crew" | "messages" | "settings";
+export type ScreenKey = "overview" | "inventory" | "packages" | "leads" | "requests" | "scheduling" | "crew" | "messages" | "settings" | "notifications";
 
 export type ScreenParams = {
   leadStatus?: string;
