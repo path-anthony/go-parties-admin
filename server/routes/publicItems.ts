@@ -39,6 +39,8 @@ router.get("/public", availabilityLimiter, async (req, res) => {
     prisma.item.findMany({
       where: {
         accountId: account.id,
+        // Block A8: hidden items never reach the store.
+        hidden: false,
         ...(q ? { name: { contains: q, mode: "insensitive" } } : {}),
         ...(category ? { category } : {}),
       },

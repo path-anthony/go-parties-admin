@@ -7,6 +7,7 @@ import { prisma } from "../db.js";
 import { ALL_OCCASIONS } from "../../src/lib/occasions.js";
 import { aiGate } from "../ai.js";
 import { INVALID, isOneOf, normalizePhotoUrl, normalizeText } from "../validate.js";
+import { MAX_GUEST_COUNT, PRICING_MODES } from "../packagePricing.js";
 
 const PACKAGE_STATUSES = ["Draft", "Published"] as const;
 const MAX_ITEMS = 50;
@@ -118,6 +119,31 @@ function shortText(value: unknown, _field: string, max: number): string | null |
   return text.length <= max ? text : INVALID;
 }
 
+// Block A8: the pricing fields as one set. "fixed" clears the per-guest
+// fields; "per_guest" needs a minimum and takes an optional base and
+// maximum. Returns a message when the shape is wrong.
+type Pricing = { pricingMode: string; basePrice: number | null; minGuests: number | null; maxGuests: number | null };
+function pricingFields(body: Record<string, unknown>, existing: Pricing | null): Pricing | string {
+  const mode = body.pricingMode === undefined ? (existing?.pricingMode ?? "fixed") : body.pricingMode;
+  if (typeof mode !== "string" || !(PRICING_MODES as readonly string[]).includes(mode)) return `pricingMode must be one of ${PRICING_MODES.join(", ")}`;
+  if (mode === "fixed") return { pricingMode: "fixed", basePrice: null, minGuests: null, maxGuests: null };
+  const num = (key: "basePrice" | "minGuests" | "maxGuests", integer: boolean, min: number, max: number): number | null | string => {
+    const v = body[key] === undefined ? (existing?.[key] ?? null) : body[key];
+    if (v === null || v === "") return null;
+    if (typeof v !== "number" || !Number.isFinite(v) || (integer && !Number.isInteger(v)) || v < min || v > max) return `${key} must be ${integer ? "a whole number" : "a number"} from ${min} to ${max}, or blank`;
+    return integer ? v : Math.round(v * 100) / 100;
+  };
+  const basePrice = num("basePrice", false, 0, 10_000_000);
+  if (typeof basePrice === "string") return basePrice;
+  const minGuests = num("minGuests", true, 1, MAX_GUEST_COUNT);
+  if (typeof minGuests === "string") return minGuests;
+  if (minGuests === null) return "minGuests is required for a per-guest package";
+  const maxGuests = num("maxGuests", true, 1, MAX_GUEST_COUNT);
+  if (typeof maxGuests === "string") return maxGuests;
+  if (maxGuests !== null && maxGuests < minGuests) return "maxGuests must be at least minGuests";
+  return { pricingMode: "per_guest", basePrice, minGuests, maxGuests };
+}
+
 // New packages are always Draft. Publishing is its own deliberate step.
 router.post("/", async (req, res) => {
   clearPublicPackagesCache();
@@ -143,6 +169,8 @@ router.post("/", async (req, res) => {
   if (tag === INVALID) return res.status(400).json({ error: `tag must be text up to ${MAX_TAG_LENGTH} characters` });
   const guestNote = shortText(body.guestNote, "guestNote", MAX_GUEST_NOTE_LENGTH);
   if (guestNote === INVALID) return res.status(400).json({ error: `guestNote must be text up to ${MAX_GUEST_NOTE_LENGTH} characters` });
+  const pricing = pricingFields(body, null);
+  if (typeof pricing === "string") return res.status(400).json({ error: pricing });
 
   const created = await prisma.package.create({
     data: {
@@ -156,6 +184,7 @@ router.post("/", async (req, res) => {
       keywords,
       occasions,
       photoUrl: cleanPhoto,
+      ...pricing,
       items: { create: items.map((entry) => ({ itemId: entry.itemId, quantity: entry.quantity })) },
     },
     include: WITH_ITEMS,
@@ -183,7 +212,16 @@ router.patch("/:id", async (req, res) => {
     photoUrl?: string | null;
     tag?: string | null;
     guestNote?: string | null;
+    pricingMode?: string;
+    basePrice?: number | null;
+    minGuests?: number | null;
+    maxGuests?: number | null;
   } = {};
+  if ("pricingMode" in body || "basePrice" in body || "minGuests" in body || "maxGuests" in body) {
+    const pricing = pricingFields(body, { pricingMode: existing.pricingMode, basePrice: existing.basePrice === null ? null : Number(existing.basePrice), minGuests: existing.minGuests, maxGuests: existing.maxGuests });
+    if (typeof pricing === "string") return res.status(400).json({ error: pricing });
+    Object.assign(data, pricing);
+  }
   if ("tag" in body) {
     const tag = shortText(body.tag, "tag", MAX_TAG_LENGTH);
     if (tag === INVALID) return res.status(400).json({ error: `tag must be text up to ${MAX_TAG_LENGTH} characters` });

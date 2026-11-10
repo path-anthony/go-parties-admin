@@ -1,3 +1,4 @@
+import { GuestCountError, isPerGuest, packagePrice } from "./packagePricing.js";
 import { prisma } from "./db.js";
 import { getDefaultAccount } from "./account.js";
 import { resolveAddons, type ChosenAddon } from "./addons.js";
@@ -19,6 +20,9 @@ import { decideTier, type Tier, type TierReason } from "./tiers.js";
 // hash of exactly that document; the hold rebuilds it and refuses anything
 // that no longer matches.
 
+// Block A8: what a storefront caller hears about a hidden item.
+export const HIDDEN_MESSAGE = "This item isn't available to book online. Call or text GO about it.";
+
 export type QuoteCart = {
   itemIds: string[];
   packageId: string | null;
@@ -26,6 +30,9 @@ export type QuoteCart = {
   eventDate: string; // YYYY-MM-DD
   eventTime: string | null;
   occasion: string | null;
+  // Block A8: the guest count a per-guest package is priced on; null
+  // otherwise. Part of the cart, so part of the quote hash.
+  guestCount?: number | null;
 };
 
 // The cart in a stable spelling: items and add-on ids sorted, so the same
@@ -40,7 +47,7 @@ export function normalizeCart(cart: QuoteCart): QuoteCart {
           .map(([itemId, ids]) => [itemId, [...new Set(ids)].sort()]),
       )
     : null;
-  return { itemIds, packageId: cart.packageId || null, addons: addons && Object.keys(addons).length > 0 ? addons : null, eventDate: cart.eventDate, eventTime: cart.eventTime?.trim() || null, occasion: cart.occasion?.trim() || null };
+  return { itemIds, packageId: cart.packageId || null, addons: addons && Object.keys(addons).length > 0 ? addons : null, eventDate: cart.eventDate, eventTime: cart.eventTime?.trim() || null, occasion: cart.occasion?.trim() || null, guestCount: cart.guestCount ?? null };
 }
 
 // A quote lives until the end of the day it was made, Eastern.
@@ -60,7 +67,9 @@ export class CartError extends Error {
 
 export type ResolvedCart = {
   items: { id: string; name: string; category: string; price: number | null; skills: string[]; unitCount: number }[];
-  pkg: { id: string; name: string; price: number; occasions: string[] } | null;
+  // price is what the package costs for this cart (the bundle, or the
+  // per-guest total for the count given).
+  pkg: { id: string; name: string; price: number; occasions: string[]; pricingMode: string; guestCount: number | null } | null;
   wanted: { item: ResolvedCart["items"][number]; quantity: number }[];
   addonRows: (ChosenAddon & { quantity: number })[];
   // Dollars, add-ons included. Null when nothing has a price.
@@ -80,6 +89,9 @@ export async function resolveCart(accountId: string, cart: QuoteCart, opts: { en
     prisma.item.findMany({ where: { id: { in: cart.itemIds }, accountId }, include: { _count: { select: { units: true } } } }),
   ]);
   if (cart.packageId && !pkg) throw new CartError(404, "not-found", "package not found or not published");
+  // Block A8: a hidden item cannot be priced or booked from the storefront.
+  const hiddenOne = found.find((i) => i.hidden);
+  if (hiddenOne) throw new CartError(400, "hidden", HIDDEN_MESSAGE);
   if (pkg) {
     const packageIds = new Set(pkg.items.map((row) => row.itemId));
     const same = packageIds.size === cart.itemIds.length && cart.itemIds.every((id) => packageIds.has(id));
@@ -95,15 +107,23 @@ export async function resolveCart(accountId: string, cart: QuoteCart, opts: { en
   const addonRows = chosen.map((a) => ({ ...a, quantity: quantityOf(a.itemId) }));
   const addonsTotal = Math.round(addonRows.reduce((sum, a) => sum + a.priceDelta * a.quantity, 0) * 100) / 100;
   let base: number | null;
-  if (pkg) base = Number(pkg.price);
-  else {
+  let pkgPrice = 0;
+  if (pkg) {
+    try {
+      pkgPrice = packagePrice(pkg, cart.guestCount ?? null);
+    } catch (err) {
+      if (err instanceof GuestCountError) throw new CartError(400, err.reason, err.message);
+      throw err;
+    }
+    base = pkgPrice;
+  } else {
     const priced = wanted.filter(({ item }) => item.price !== null);
     base = priced.length === 0 ? null : Math.round(priced.reduce((sum, { item, quantity }) => sum + (item.price as number) * quantity, 0) * 100) / 100;
   }
   const total = base === null ? null : Math.round((base + addonsTotal) * 100) / 100;
   return {
     items: mapped,
-    pkg: pkg ? { id: pkg.id, name: pkg.name, price: Number(pkg.price), occasions: pkg.occasions } : null,
+    pkg: pkg ? { id: pkg.id, name: pkg.name, price: pkgPrice, occasions: pkg.occasions, pricingMode: pkg.pricingMode, guestCount: isPerGuest(pkg) ? (cart.guestCount ?? null) : null } : null,
     wanted,
     addonRows,
     total,
@@ -197,7 +217,9 @@ export async function composeQuoteDocument(input: QuoteDocumentInput): Promise<{
       date: input.cart.eventDate,
       timeFrom: input.cart.eventTime,
       timeTo: null,
-      expectedGuests: null,
+      // Block A8: the count a per-guest package was priced on, so the quote
+      // hash changes with it.
+      expectedGuests: input.resolved.pkg?.guestCount ?? null,
       ageRange: null,
       venueName: null,
       venueAddress: null,

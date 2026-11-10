@@ -25,7 +25,7 @@ import { requireAuth } from "../auth.js";
 import { runAutomation } from "../automation/runner.js";
 import { addDays, atEastern, easternDay } from "../automation/time.js";
 import { prisma } from "../db.js";
-import { buildDigest, digestWindow, findDueNotifications, notifyNewLead, runTimedNotifications, type WeddingChecks } from "../notifications.js";
+import { buildDigest, digestWindow, findDueNotifications, notifyDesignRequest, notifyNewLead, runTimedNotifications, type WeddingChecks } from "../notifications.js";
 import conciergeLeadsRouter from "../routes/conciergeLeads.js";
 import directBookingsRouter, { staffBookingRouter } from "../routes/directBookings.js";
 import externalLeadsRouter from "../routes/externalLeads.js";
@@ -121,6 +121,7 @@ after(async () => {
   const logs = await prisma.messageLog.deleteMany({ where: { OR: [{ bookingId: { in: made.bookings } }, { triggerKey: "staff_daily_digest" }, { recipient: { startsWith: "+1500555" } }] } });
   const b = await prisma.booking.deleteMany({ where: { OR: [{ id: { in: made.bookings } }, { customerName: { startsWith: ZZ } }] } });
   const l = await prisma.lead.deleteMany({ where: { OR: [{ id: { in: made.leads } }, { customerName: { startsWith: ZZ } }, { source: "concierge" }] } });
+  await prisma.designRequest.deleteMany({ where: { customerName: { startsWith: ZZ } } });
   const i = await prisma.item.deleteMany({ where: { id: itemId } });
   const st = await prisma.leadStatus.deleteMany({ where: { id: { in: made.statuses } } });
   if (madePolicy) await prisma.policyVersion.delete({ where: { id: madePolicy } });
@@ -166,6 +167,21 @@ test("new-lead fires for the website, a concierge request and a storefront hold,
 
   await notifyNewLead({ id: w.json.id as string, accountId, source: "website", customerName: `${ZZ} Web Lead` });
   assert.equal((await ofType("new-lead")).length, 3, "the same lead never fires twice");
+});
+
+test("design-request fires once when a tier 3 request is created, and holds nothing", async () => {
+  const eventDate = addDays(easternDay(NOW), 120);
+  const r = await post("/api/bookings/direct", { itemId, eventDate, eventTime: "5 PM", customerName: `${ZZ} Big Event`, phone: "+15005550404", email: "zz-a10b@example.test", agreedToPolicy: true, delivery: null, address: "9 Event Rd, Avon, CT", occasion: "Wedding" });
+  assert.equal(r.status, 202, JSON.stringify(r.json));
+  const rows = await ofType("design-request");
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].title, "Big event request");
+  assert.equal(rows[0].link, "/design-requests?status=Open");
+  assert.equal(rows[0].bookingId, null, "no booking exists yet");
+  assert.match(rows[0].body, /^ZZTEST Big Event, .*\. Wedding\. \$100\.$/);
+  const request = await prisma.designRequest.findUniqueOrThrow({ where: { id: r.json.designRequestId as string } });
+  await notifyDesignRequest(request);
+  assert.equal((await ofType("design-request")).length, 1, "the same request never fires twice");
 });
 
 test("contract-unsigned-3d picks only live, unsigned, 3-day-old contracts on future events, and fires once", async () => {

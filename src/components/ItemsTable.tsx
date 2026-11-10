@@ -123,7 +123,10 @@ function ItemRow({
             <span className="catalog-thumb catalog-thumb-empty" />
           )}
         </td>
-        <td className="catalog-name">{item.name}</td>
+        <td className="catalog-name">
+          {item.name}
+          {item.hidden && <span className="review-flag" title="Hidden from the store. Staff can still book it.">Hidden</span>}
+        </td>
         <td className="muted">{item.category}</td>
         <td>
           {priceLabel(item)}

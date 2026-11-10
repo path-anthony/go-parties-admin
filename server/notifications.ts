@@ -17,6 +17,7 @@ import { groupsOf } from "../src/lib/occasions.js";
 
 export const NOTIFICATION_TYPES = [
   { type: "new-lead", label: "New leads" },
+  { type: "design-request", label: "Big event requests" },
   { type: "contract-unsigned-3d", label: "Needs a push to sign" },
   { type: "retainer-unpaid-3d", label: "Retainer unpaid" },
   { type: "balance-due-7d", label: "Balance due soon" },
@@ -89,6 +90,29 @@ export async function notifyNewLead(lead: { id: string; accountId: string; sourc
     ]);
   } catch (err) {
     console.warn("[notifications] new lead not recorded:", safeErr(err));
+  }
+}
+
+// A tier 3 request just went to Design Requests. Nothing is held and no
+// booking exists until staff convert it, so the link is the Open list.
+// Never throws, for the same reason as a new lead.
+export async function notifyDesignRequest(request: { id: string; accountId: string; customerName: string; eventDate: Date; total: unknown; occasion: string | null; customerId: string | null }): Promise<void> {
+  try {
+    const total = request.total === null || request.total === undefined ? "" : ` ${usd(Math.round(Number(request.total) * 100))}.`;
+    const about = request.occasion ? ` ${safeInline(request.occasion, 80)}.` : "";
+    await createNotifications([
+      {
+        accountId: request.accountId,
+        type: "design-request",
+        title: "Big event request",
+        body: `${clean(request.customerName, "Customer")}, ${dayLabel(dayOf(request.eventDate))}.${about}${total}`,
+        link: "/design-requests?status=Open",
+        customerId: request.customerId,
+        dedupeKey: `design-request:${request.id}`,
+      },
+    ]);
+  } catch (err) {
+    console.warn("[notifications] design request not recorded:", safeErr(err));
   }
 }
 

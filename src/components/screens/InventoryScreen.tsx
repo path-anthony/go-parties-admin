@@ -18,9 +18,10 @@ import { StatCard, StatGrid } from "../StatCard";
 
 const ALL_CATEGORIES = "";
 
-function matches(item: Item, query: string, category: string, reviewOnly: boolean): boolean {
+function matches(item: Item, query: string, category: string, reviewOnly: boolean, hiddenOnly: boolean): boolean {
   if (category !== ALL_CATEGORIES && item.category !== category) return false;
   if (reviewOnly && !item.needsPriceReview) return false;
+  if (hiddenOnly && !item.hidden) return false;
   if (query === "") return true;
   return item.name.toLowerCase().includes(query) || (item.notes ?? "").toLowerCase().includes(query);
 }
@@ -57,6 +58,7 @@ export function InventoryScreen() {
   const [search, setSearch] = useState("");
   const [category, setCategory] = useState(ALL_CATEGORIES);
   const [reviewOnly, setReviewOnly] = useState(false);
+  const [hiddenOnly, setHiddenOnly] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [bulkOpen, setBulkOpen] = useState(false);
   // The usage report for a pending bulk delete, fetched when the button is
@@ -172,9 +174,9 @@ export function InventoryScreen() {
   }
 
   const query = search.trim().toLowerCase();
-  const filtering = query !== "" || category !== ALL_CATEGORIES || reviewOnly;
+  const filtering = query !== "" || category !== ALL_CATEGORIES || reviewOnly || hiddenOnly;
   const categories = items ? [...new Set(items.map((item) => item.category))].sort((a, b) => a.localeCompare(b)) : [];
-  const visible = items ? items.filter((item) => matches(item, query, category, reviewOnly)) : [];
+  const visible = items ? items.filter((item) => matches(item, query, category, reviewOnly, hiddenOnly)) : [];
   const modalItem = modal?.mode === "edit" ? items?.find((item) => item.id === modal.id) : undefined;
   const unitCounts = new Map<string, number>();
   for (const unit of units) unitCounts.set(unit.itemId, (unitCounts.get(unit.itemId) ?? 0) + 1);
@@ -230,6 +232,10 @@ export function InventoryScreen() {
               <input type="checkbox" checked={reviewOnly} onChange={(e) => setReviewOnly(e.target.checked)} />
               Needs price review only
             </label>
+            <label className="checkbox-label filter-check">
+              <input type="checkbox" checked={hiddenOnly} onChange={(e) => setHiddenOnly(e.target.checked)} />
+              Hidden
+            </label>
             {filtering && (
               <>
                 <span className="filter-count">
@@ -242,6 +248,7 @@ export function InventoryScreen() {
                     setSearch("");
                     setCategory(ALL_CATEGORIES);
                     setReviewOnly(false);
+                    setHiddenOnly(false);
                   }}
                 >
                   Clear

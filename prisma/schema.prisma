@@ -499,6 +499,8 @@ model Booking {
   // Block A5: the customer said the event address is their home address.
   // For the record only; delivery, crew and the calendar read `address`.
   eventAddressSameAsHome   Boolean   @default(false) @map("event_address_same_as_home")
+  // Block A8: the guest count a per-guest package was priced on.
+  guestCount               Int?      @map("guest_count")
   createdAt                DateTime  @default(now()) @map("created_at")
   updatedAt                DateTime  @default(now()) @updatedAt @map("updated_at")
 
@@ -629,6 +631,12 @@ model Package {
   // ("Up to 25 kids").
   tag         String?
   guestNote   String?  @map("guest_note")
+  // Block A8: "fixed" (price is the bundle) or "per_guest" (price is per
+  // guest, basePrice a flat part, minGuests and maxGuests the range).
+  pricingMode String   @default("fixed") @map("pricing_mode")
+  basePrice   Decimal? @map("base_price") @db.Decimal(10, 2)
+  minGuests   Int?     @map("min_guests")
+  maxGuests   Int?     @map("max_guests")
   createdAt   DateTime @default(now()) @map("created_at")
   updatedAt   DateTime @default(now()) @updatedAt @map("updated_at")
 
@@ -693,6 +701,9 @@ model Item {
   // Block A7: one or two customer-facing lines, up to 240 characters.
   // notes stay internal; this is what the storefront prints.
   description      String?
+  // Block A8: hidden from the store. Stays in the admin and on existing
+  // bookings; left out of every public response and refused at the hold.
+  hidden           Boolean  @default(false)
   photoUrl         String?  @map("photo_url")
   // The crew skills this item needs to run, from the fixed list in
   // server/skills.ts (plain strings, like CrewMember.skills). Empty for

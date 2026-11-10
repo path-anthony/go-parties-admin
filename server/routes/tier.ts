@@ -9,6 +9,7 @@ import { tier1Amount } from "../tiers.js";
 import { canonicalOccasion } from "../../src/lib/occasions.js";
 import { INVALID, normalizeDate, normalizeText, todayEastern } from "../validate.js";
 import { safeInline } from "../sanitize.js";
+import { parseGuestCount } from "../packagePricing.js";
 
 // Block T1. POST /api/bookings/tier: which agreement a cart needs. Public
 // (the storefront asks once the cart and date are fixed, and again right
@@ -44,7 +45,10 @@ router.post("/", async (req, res) => {
   const selections = parseAddonSelections(body.addons, itemIds);
   if (typeof selections === "string") return res.status(400).json({ error: selections, reason: "addon-invalid" });
   const addons = selections.size > 0 ? Object.fromEntries(selections.entries()) : null;
-  const cart = normalizeCart({ itemIds, packageId, addons, eventDate: dateText, eventTime, occasion: normalizeText(occasion) });
+  // Block A8: the guest count for a per-guest package (optional otherwise).
+  const guestCount = parseGuestCount(body.guestCount);
+  if (typeof guestCount === "string") return res.status(400).json({ error: guestCount, reason: "guest-count-invalid" });
+  const cart = normalizeCart({ itemIds, packageId, addons, eventDate: dateText, eventTime, occasion: normalizeText(occasion), guestCount });
 
   const account = await getDefaultAccount();
   let resolved;
