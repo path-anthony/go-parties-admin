@@ -46,6 +46,8 @@ export async function getSettings(accountId: string) {
       contractHoldReleaseDays: true,
       tier1Collect: true,
       saveCardForBalance: true,
+      digestEmail: true,
+      digestEnabled: true,
       requireCustomerAccount: true,
     },
   });
@@ -86,6 +88,9 @@ export async function getSettings(accountId: string) {
     contractHoldReleaseDays: account.contractHoldReleaseDays,
     tier1Collect: account.tier1Collect,
     saveCardForBalance: account.saveCardForBalance,
+    // Block A10: the morning digest of unread notifications.
+    digestEmail: account.digestEmail,
+    digestEnabled: account.digestEnabled,
     // Block A5: whether a storefront hold needs a signed-in customer.
     requireCustomerAccount: account.requireCustomerAccount,
   };

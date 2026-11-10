@@ -9,7 +9,8 @@ import { renderChannel } from "../sendTemplated.js";
 import { effectiveFrom, loadTemplateRows } from "../templates.js";
 import { mustGetTrigger, TRIGGERS, type Channel } from "../triggers.js";
 import { todayEastern } from "../validate.js";
-import { CREW_STEPS, NURTURE_SOURCES, planBooking, planGig, planLead, type Contact, type Facts, type LogFact, type Plan, type PlanSubject } from "./planner.js";
+import { CREW_STEPS, DIGEST_TRIGGER, NURTURE_SOURCES, planBooking, planDigest, planGig, planLead, type Contact, type Facts, type LogFact, type Plan, type PlanSubject } from "./planner.js";
+import { loadDigest } from "../notifications.js";
 import { addDays } from "./time.js";
 
 // Loads records and facts from the database and hands them to the planner.
@@ -19,7 +20,7 @@ export type Journey = "lead" | "client" | "crew";
 
 export type Planned = {
   journey: Journey;
-  kind: "lead" | "booking" | "gig";
+  kind: "lead" | "booking" | "gig" | "digest";
   recordId: string;
   // Who or what it is, in plain English.
   name: string;
@@ -42,6 +43,7 @@ const SCHEDULED = new Set<string>([
   "event_week_reminder",
   "event_eve_reminder",
   "post_event_thanks",
+  DIGEST_TRIGGER,
   ...CREW_STEPS.map((s) => s.key),
 ]);
 
@@ -226,6 +228,16 @@ export async function loadPlans(scope: PlanScope = {}): Promise<Planned[]> {
         send: { context: { crewMemberId: o.crewMemberId, gigId: o.gig.id, offerId: o.id } },
       });
     }
+  }
+
+  // The staff digest belongs to the whole account, so a view of one record
+  // or one kind never asks about it.
+  if (!specific && !scope.kinds) {
+    const digest = await loadDigest(now);
+    const subject: PlanSubject = { kind: "digest", id: digest.day };
+    base.valuesFor(subject, { extra: digest.extra });
+    const contact: Contact = { phone: null, email: digest.email };
+    out.push({ journey: "client", kind: "digest", recordId: digest.day, name: "Staff daily digest", href: "/notifications", contact, plan: planDigest(digest, base.facts), send: { context: { extra: digest.extra } } });
   }
   return out;
 }

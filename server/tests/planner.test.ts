@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { atEastern, easternDay, skipSunday } from "../automation/time.js";
-import { planBooking, planGig, planLead, type BookingInput, type Facts, type GigInput, type LeadInput, type LogFact, type PlanItem } from "../automation/planner.js";
+import { planBooking, planDigest, planGig, planLead, type BookingInput, type Facts, type GigInput, type LeadInput, type LogFact, type PlanItem } from "../automation/planner.js";
 import type { Channel } from "../triggers.js";
 
 const START = new Date("2026-01-01T00:00:00Z");
@@ -12,7 +12,7 @@ function facts(now: Date, opts: { logs?: Record<string, LogFact>; off?: string[]
     automationStartedAt: START,
     log: (k, c) => opts.logs?.[`${k}:${c}`],
     // Text on for everything; email only where the registry defaults it on.
-    channelOn: (t, c) => !opts.off?.includes(`${t}:${c}`) && (c === "sms" || ["contract_unsigned_nudge", "balance_due_reminder", "event_week_reminder", "event_eve_reminder", "post_event_thanks"].includes(t)),
+    channelOn: (t, c) => !opts.off?.includes(`${t}:${c}`) && (c === "sms" || ["staff_daily_digest", "contract_unsigned_nudge", "balance_due_reminder", "event_week_reminder", "event_eve_reminder", "post_event_thanks"].includes(t)),
     optedOut: (p) => opts.optedOut?.includes(p) ?? false,
     blockedReason: (t, c) => opts.blocked?.[`${t}:${c}`] ?? null,
   };
@@ -279,5 +279,31 @@ describe("running twice", () => {
     const logs = { "lead_nurture_day3:L1:sms": { status: "sent", attempts: 1, sentAt: now, error: null } };
     const p = planLead(lead(), facts(new Date(now.getTime() + 3_600_000), { logs }));
     assert.equal(p.items.filter((i) => i.state === "due").length, 0);
+  });
+});
+
+describe("staff daily digest", () => {
+  const d = { day: "2026-11-11", enabled: true, email: "digest@example.test", count: 2 };
+  it("plans nothing before 7 AM Eastern", () => {
+    assert.deepEqual(planDigest(d, facts(et("2026-11-11", 6, 59))).items, []);
+  });
+  it("is due at 7 AM, email only, keyed by the day", () => {
+    const { items } = planDigest(d, facts(et("2026-11-11", 7)));
+    assert.deepEqual(items.map((i) => [i.channel, i.state, i.baseKey]), [["email", "due", "staff_daily_digest:2026-11-11"]]);
+    assert.equal(items[0].dueAt.toISOString(), et("2026-11-11", 7).toISOString());
+  });
+  it("goes on a late pass, but only once", () => {
+    assert.equal(planDigest(d, facts(et("2026-11-11", 15))).items[0].state, "due");
+    const logs = { "staff_daily_digest:2026-11-11:email": { status: "sent", attempts: 1, sentAt: et("2026-11-11", 7, 5), error: null } };
+    assert.equal(planDigest(d, facts(et("2026-11-11", 8), { logs })).items[0].state, "sent");
+  });
+  it("sends nothing when there is nothing unread or it is switched off", () => {
+    assert.deepEqual(planDigest({ ...d, count: 0 }, facts(et("2026-11-11", 8))).items, []);
+    const off = planDigest({ ...d, enabled: false }, facts(et("2026-11-11", 8)));
+    assert.equal(off.enrolled, false);
+    assert.deepEqual(off.items, []);
+  });
+  it("stops if staff switch the digest email off in Templates", () => {
+    assert.deepEqual(planDigest(d, facts(et("2026-11-11", 8), { off: ["staff_daily_digest:email"] })).items, []);
   });
 });

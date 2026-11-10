@@ -14,6 +14,7 @@ import { stripControl } from "./sanitize.js";
 import { loadGoSigner, signContractFromQuote, token } from "./contracts.js";
 import { deliveryColumns, verifyBookingAddress, type Delivery } from "./delivery.js";
 import { queueGoogleSync } from "./google/sync.js";
+import { notifyDesignRequest, notifyNewLead } from "./notifications.js";
 import { notifyContractSigned } from "./notify.js";
 import { createPaymentSession, type PaymentOffer } from "./payments.js";
 import { customerStage } from "./portal.js";
@@ -269,6 +270,7 @@ export async function createDirectBooking(input: DirectBookingInput): Promise<{ 
       // Tell the customer a person will be in touch. Storefront requests only:
       // when staff enter one they are already talking to the customer.
       if (!staff) void sendDesignRequestAck(request.id);
+      await notifyDesignRequest(request);
       return out(202, {
         reviewRequired: true,
         designRequestId: request.id,
@@ -537,6 +539,8 @@ export async function createDirectBooking(input: DirectBookingInput): Promise<{ 
     // calendar follows a signed contract.
     if (delivery) void verifyBookingAddress(result.booking.id).catch(() => undefined);
     if (contract?.signed) queueGoogleSync(result.booking.id);
+    // Staff made this one themselves, so only a storefront hold is news.
+    if (!staff) await notifyNewLead({ ...result.lead, bookingId: result.booking.id, customerId: result.booking.customerId });
 
     // One entry per unit held and one per gig, so an item wanted twice
     // appears twice. A gig has no unit; its entry says so with null.

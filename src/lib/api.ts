@@ -54,6 +54,7 @@ import type {
   NewUnit,
   Package,
   PackageInput,
+  NotificationList,
   RecommendResponse,
   SkillRow,
   Unit,
@@ -605,4 +606,29 @@ export function moveHeroSlide(id: string, direction: "up" | "down"): Promise<Her
 
 export function deleteHeroSlide(id: string): Promise<HeroSlide[]> {
   return fetch(`/api/hero/${id}`, jsonRequest("DELETE")).then(asJson<HeroSlide[]>);
+}
+
+// Block A10: the bell. Anything that changes read state says so, so the bell
+// and the Notifications page stay in step.
+export const NOTIFICATIONS_CHANGED = "notifications:changed";
+const changed = <T,>(value: T) => {
+  window.dispatchEvent(new Event(NOTIFICATIONS_CHANGED));
+  return value;
+};
+
+export function getNotifications(opts: { page?: number; limit?: number; type?: string } = {}): Promise<NotificationList> {
+  const q = new URLSearchParams();
+  if (opts.page) q.set("page", String(opts.page));
+  if (opts.limit) q.set("limit", String(opts.limit));
+  if (opts.type) q.set("type", opts.type);
+  const qs = q.toString();
+  return fetch(`/api/notifications${qs ? `?${qs}` : ""}`).then(asJson<NotificationList>);
+}
+
+export function markNotificationRead(id: string): Promise<{ ok: boolean }> {
+  return fetch(`/api/notifications/${encodeURIComponent(id)}/read`, jsonRequest("POST")).then(asJson<{ ok: boolean }>).then(changed);
+}
+
+export function markAllNotificationsRead(): Promise<{ marked: number }> {
+  return fetch("/api/notifications/read-all", jsonRequest("POST")).then(asJson<{ marked: number }>).then(changed);
 }

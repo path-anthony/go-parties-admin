@@ -63,3 +63,10 @@ test("the pages that were on the old Settings screen and its tabs all have a hom
   const want = ["/settings/business-rules", "/settings/policies", "/settings/contract-terms", "/settings/contract-settings", "/settings/lead-pipeline", "/settings/notifications", "/settings/integrations", "/messages/upcoming", "/messages/templates", "/messages/sent-log", "/crew/skills", "/scheduling/bookings", "/scheduling/inventory-status", "/crew/gigs", "/crew/bids", "/crew/members"];
   for (const w of want) assert.ok(pages.includes(w), w);
 });
+
+test("the Notifications page has its own address and stays out of the sidebar", () => {
+  assert.ok(pages.includes("/notifications"));
+  assert.equal(NAV.find((n) => n.key === "notifications")?.hiddenFromSidebar, true);
+  assert.deepEqual(breadcrumbFor("/notifications").map((c) => c.label), ["Notifications"]);
+  assert.equal(NAV.filter((n) => n.hiddenFromSidebar).length, 1);
+});

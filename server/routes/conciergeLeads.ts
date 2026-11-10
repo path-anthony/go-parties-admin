@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { notifyNewLead } from "../notifications.js";
 import { getDefaultAccount } from "../account.js";
 import { botCheck } from "../botCheck.js";
 import { prisma } from "../db.js";
@@ -69,6 +70,7 @@ router.post("/", botCheck("concierge"), async (req, res) => {
     data: { leadId: lead.id, text: `Concierge request from ${from}${context ? `, about ${context}` : ""}. Sent to Calendly.` },
   });
 
+  await notifyNewLead(lead);
   res.status(201).json({ ok: true, leadId: lead.id });
 });
 

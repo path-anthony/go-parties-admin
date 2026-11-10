@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { getIntegrationStatus, getLeadStatuses, type IntegrationStatus } from "../../lib/api";
 import { stageWarnings, LOST_STAGE, WON_STAGE } from "../../lib/leadStages";
 import { statusLabel } from "../../lib/messages";
+import { DigestSettings } from "../DigestSettings";
 import { GoSignerSettings } from "../GoSignerSettings";
 import { LeadColumnsEditor } from "../LeadColumnsEditor";
 import { NotificationSettings } from "../NotificationSettings";
@@ -159,6 +160,11 @@ export function NotificationsPage() {
           emails through the email webhook; Messages, Sent log shows what actually went.
         </p>
         <NotificationSettings />
+      </section>
+      <section className="panel">
+        <h2>Daily digest</h2>
+        <p className="muted settings-help">One morning email listing the notifications from the bell that nobody has read yet, grouped by type with links.</p>
+        <DigestSettings />
       </section>
     </Page>
   );
