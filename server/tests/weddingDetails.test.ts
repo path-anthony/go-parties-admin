@@ -148,6 +148,22 @@ after(async () => {
   await prisma.$disconnect();
 });
 
+test("the template: no em dashes anywhere in its copy", () => {
+  const strings: string[] = [TEMPLATE_V1.title, TEMPLATE_V1.subtitle, TEMPLATE_V1.tagline, TEMPLATE_V1.preparedFor, TEMPLATE_V1.note.text, TEMPLATE_V1.thanks];
+  for (const h of TEMPLATE_V1.howTo) strings.push(h.title, h.text);
+  for (const f of allFields(TEMPLATE_V1)) strings.push(f.label, f.help ?? "", ...(f.options ?? []).map((o) => o.label));
+  for (const s of TEMPLATE_V1.sections) {
+    strings.push(s.title, s.subtitle);
+    for (const it of s.items) {
+      if (it.kind === "note") strings.push(it.text, it.tag ?? "");
+      if (it.kind === "heading") strings.push(it.text, it.help ?? "");
+      if (it.kind === "group") strings.push(it.title, it.note ?? "");
+    }
+  }
+  assert.ok(strings.length > 300);
+  for (const text of strings) assert.doesNotMatch(text, /[\u2014\u2013]/, text);
+});
+
 test("the template: 14 sections, 10 required, unique keys, and the item counts printed on the form", () => {
   assert.equal(TEMPLATE_V1.version, 1);
   assert.deepEqual(TEMPLATE_V1.sections.map((s) => s.number), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14]);
@@ -166,8 +182,15 @@ test("wedding detection: occasion, package, and the staff override both ways", (
   assert.equal(wed({ occasion: "Wedding" }), true, "the group itself");
   assert.equal(wed({ occasion: "Birthday" }), false);
   assert.equal(wed({}), false);
-  assert.equal(wed({ package: { occasions: ["Holiday party", "Ceremony + reception"] } }), true, "a package offered under a wedding sub-occasion");
+  assert.equal(wed({ package: { occasions: ["Holiday party", "Ceremony + reception"] } }), true, "no occasion on the booking, so the package's wedding occasion counts");
   assert.equal(wed({ package: { occasions: ["Holiday party"] } }), false);
+  const both = { occasions: ["Ceremony + reception", "Holiday party"] };
+  assert.equal(wed({ occasion: "Holiday party", package: both }), false, "the booking's own non-wedding occasion beats the package");
+  assert.equal(wed({ occasion: "Birthday", package: both }), false);
+  assert.equal(wed({ occasion: "Reception only", package: { occasions: ["Holiday party"] } }), true, "and its own wedding occasion wins over a non-wedding package");
+  assert.equal(wed({ occasion: "  ", package: both }), true, "a blank occasion is no occasion");
+  assert.equal(wed({ occasion: "Holiday party", package: both, weddingOverride: true }), true, "the staff switch beats both, on");
+  assert.equal(wed({ occasion: "Reception only", package: both, weddingOverride: false }), false, "and off");
   assert.equal(wed({ occasion: "Birthday", weddingOverride: true }), true, "staff turned it on");
   assert.equal(wed({ occasion: "Reception only", weddingOverride: false }), false, "staff turned it off");
   assert.equal(automaticWedding({ occasion: "Reception only", package: null }), true);

@@ -1,6 +1,7 @@
 // The wedding details questionnaire, version 1: the client's form
 // (docs/wedding-details-form.pdf, "Videography Details & Shot List") as data.
-// The wording is the client's, verbatim, including its punctuation. Every
+// The wording is the client's, with one change: where the form used an em
+// dash, the copy here uses a comma, colon or period (the house style). Every
 // field has a stable key, "<section>.<field>" or "<section>.<group>.<item>";
 // answers are stored against those keys, so a key must never be renamed or
 // reused. A change of wording or fields is a new version: add TEMPLATE_V2,
@@ -107,16 +108,16 @@ export const TEMPLATE_V1: Template = {
   howTo: [
     { title: "Check boxes", text: "Tap every moment you'd love on film. Unchecked = we'll use our judgment." },
     { title: "Rank & choose", text: "Number your priorities and pick your songs so your film feels like you." },
-    { title: "Special requests", text: "Be very specific — names, places, surprises, and must-have moments." },
+    { title: "Special requests", text: "Be very specific: names, places, surprises, and must-have moments." },
   ],
-  note: note("NOTE", "Please fill out, keep a copy, and return to Go! Event Group no later than 30 days before your event. Works on computer or phone — press Tab (or Next on mobile) to move field to field."),
+  note: note("NOTE", "Please fill out, keep a copy, and return to Go! Event Group no later than 30 days before your event. Works on computer or phone. Press Tab (or Next on mobile) to move field to field."),
   sections: [
     section("couple", 1, "THE COUPLE", "the guests of honor", true, [
       heading("BRIDE"),
       ...person("bride", "BRIDE'S FULL NAME"),
       heading("GROOM"),
       ...person("groom", "GROOM'S FULL NAME"),
-      heading("DAY-OF CONTACT", "someone helping with details who can be reached on the day — a parent or relative"),
+      heading("DAY-OF CONTACT", "someone helping with details who can be reached on the day, such as a parent or relative"),
       text("day_of_name", "THIRD PERSON CONTACT NAME"),
       text("day_of_relationship", "RELATIONSHIP"),
       text("day_of_cell", "CELL PHONE"),
@@ -201,7 +202,7 @@ export const TEMPLATE_V1: Template = {
       text("location", "LOCATION & ADDRESS"),
       choice("full_mass", "Full mass ceremony?", YES_NO),
       choice("balcony", "Balcony access available?", [["yes", "Yes"], ["no", "No"], ["not_sure", "Not sure"]]),
-      note("AUDIO", "A microphone will be placed on the groom ONLY — to capture vows, readings, and the officiant."),
+      note("AUDIO", "A microphone will be placed on the groom ONLY, to capture vows, readings, and the officiant."),
       group("scene", "SETTING THE SCENE", [
         ["signage", "Wedding signage"],
         ["overview", "Full overview of ceremony location (inside & out)"],
@@ -227,12 +228,12 @@ export const TEMPLATE_V1: Template = {
     section("family_party", 7, "FAMILY & BRIDAL PARTY", "candid in-betweens", true, [
       time("time", "TIME"),
       text("location", "LOCATION"),
-      note("NOTE", "Your videographer captures the laid-back, in-between moments while your photographer takes formal photos — have fun with your spouse, family & bridal party! These are some of the best reaction shots for your trailer. The videographer does NOT stay for all formal photos; they'll head to cocktail hour or the venue once they have these moments."),
+      note("NOTE", "Your videographer captures the laid-back, in-between moments while your photographer takes formal photos, so have fun with your spouse, family & bridal party! These are some of the best reaction shots for your trailer. The videographer does NOT stay for all formal photos; they'll head to cocktail hour or the venue once they have these moments."),
       area("special_requests", SPECIAL),
     ]),
     section("bride_groom", 8, "BRIDE & GROOM", "just the two of you", true, [
       choice("first_look", "Are you doing a first look?", [["yes", "Yes"], ["no", "No"], ["undecided", "Undecided"]]),
-      note("FIRST LOOK", "A first look includes the bride & groom, wedding party, and immediate family — please coordinate the start time with your photographer. Your videographer may pose a few scenes but mostly films behind-the-scenes and real interaction."),
+      note("FIRST LOOK", "A first look includes the bride & groom, wedding party, and immediate family. Please coordinate the start time with your photographer. Your videographer may pose a few scenes but mostly films behind-the-scenes and real interaction."),
       time("time", "TIME"),
       text("location", "LOCATION"),
       group("moments", "COUPLE MOMENTS", [
@@ -278,9 +279,9 @@ export const TEMPLATE_V1: Template = {
       area("special_requests", SPECIAL),
     ]),
     section("content_creation", 11, "CONTENT CREATION", "social-ready moments", false, [
-      note(null, "Want your day on your feed fast? A content creator films vertical, phone-ready clips alongside your videographer — so you can relive (and post!) the highlights before the film is even edited."),
+      note(null, "Want your day on your feed fast? A content creator films vertical, phone-ready clips alongside your videographer, so you can relive (and post!) the highlights before the film is even edited."),
       choice("interested", "Interested in content creation?", [["yes", "Yes, add it"], ["maybe", "Maybe, tell me more"], ["no", "No thanks"]]),
-      group("capture", "CAPTURE OPTIONS  (ADDITIONAL FEES MAY APPLY — SEE YOUR CONTRACT)", [
+      group("capture", "CAPTURE OPTIONS  (ADDITIONAL FEES MAY APPLY: SEE YOUR CONTRACT)", [
         ["dedicated_creator", "Dedicated content creator (phone-shot, vertical 9:16)"],
         ["teaser", "Sneak-peek teaser reel delivered within 24-48 hours"],
         ["same_night", "Same-night clip & photo dump (raw, unedited)"],
@@ -322,14 +323,14 @@ export const TEMPLATE_V1: Template = {
       text("contact_name", "DAY-OF POINT OF CONTACT FOR THE CONTENT CREATOR"),
       text("contact_cell", "THEIR CELL PHONE"),
     ]),
-    section("trends", 12, "TRENDS", "optional — for the feed", false, [
+    section("trends", 12, "TRENDS", "optional, for the feed", false, [
       choice("want_trends", "Want trend-featured videos?", YES_NO),
       text("trend_1", "IF YES, TELL US ABOUT SOMETHING YOU SAW OR LIKED (DESCRIBE IT OR PASTE A LINK)", { keepLinks: true }),
       text("trend_2", "IF YES, TELL US ABOUT SOMETHING YOU SAW OR LIKED (DESCRIBE IT OR PASTE A LINK)", { keepLinks: true }),
       text("trend_3", "IF YES, TELL US ABOUT SOMETHING YOU SAW OR LIKED (DESCRIBE IT OR PASTE A LINK)", { keepLinks: true }),
     ]),
     section("additional_notes", 13, "ADDITIONAL NOTES", "anything else?", false, [
-      note("TELL US", "Surprises, family dynamics, names we should know, special heirlooms, or moments that matter most to you — tell us here."),
+      note("TELL US", "Surprises, family dynamics, names we should know, special heirlooms, or moments that matter most to you. Tell us here."),
       area("notes", "ADDITIONAL NOTES", { max: NOTES_MAX }),
     ]),
     section("social_media", 14, "SOCIAL MEDIA", "tag the team", false, [

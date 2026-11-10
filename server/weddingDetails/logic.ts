@@ -15,9 +15,12 @@ type WeddingFacts = { weddingOverride: boolean | null; occasion: string | null; 
 
 const isWeddingOccasion = (occasion: string) => groupsOf(occasion).includes("Wedding");
 
-// What the booking itself says, before any staff override.
+// What the booking itself says, before any staff override. The occasion the
+// booking was made for decides when it has one: a corporate booking of a
+// package that is also sold for weddings is not a wedding. The package's
+// occasions count only when the booking has none.
 export function automaticWedding(b: Pick<WeddingFacts, "occasion" | "package">): boolean {
-  if (b.occasion && isWeddingOccasion(b.occasion)) return true;
+  if (b.occasion && b.occasion.trim() !== "") return isWeddingOccasion(b.occasion);
   return (b.package?.occasions ?? []).some(isWeddingOccasion);
 }
 
