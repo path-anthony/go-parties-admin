@@ -2,6 +2,10 @@ import { type FormEvent, useEffect, useState } from "react";
 import { changeTeamRole, getTeam, getTeamAudit, inviteTeamMember, removeTeamMember, resendTeamInvite, revokeTeamInvite } from "../../lib/api";
 import { useMe } from "../../lib/me";
 import type { AdminRole, AuditRow, TeamUser } from "../../lib/types";
+import { pageById } from "../../settingsCopy";
+
+const team = pageById("team");
+const section = (id: string) => team.sections.find((x) => x.id === id)!;
 
 const when = (iso: string | null) => (iso ? new Date(iso).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZone: "America/New_York" }) : "never");
 
@@ -54,16 +58,17 @@ export function TeamPage() {
   }
 
   return (
-    <div className="screen">
+    <div className="screen" data-setting="panel:team">
       <div className="screen-head">
-        <h2>Team</h2>
-        <p className="muted">Who can sign in to the admin. Owners can do everything, including this page and the business-critical settings. Staff can do everything else.</p>
+        <h2>{team.title}</h2>
+        <p className="muted">{team.intro}</p>
       </div>
       {notice && <p className="bulk-result" role="status">{notice}</p>}
       {error && <p className="form-error">{error}</p>}
 
       <section className="panel">
-        <h2>People</h2>
+        <h2>{section("people").title}</h2>
+        <p className="muted settings-help">{section("people").blurb}</p>
         {!users && !error && <p className="muted">Loading…</p>}
         {users && (
           <div className="table-wrap">
@@ -127,8 +132,8 @@ export function TeamPage() {
       </section>
 
       <section className="panel">
-        <h2>Invite someone</h2>
-        <p className="muted settings-help">They get an email with a link to set their own password. The link works once and expires after 72 hours.</p>
+        <h2>{section("invite").title}</h2>
+        <p className="muted settings-help">{section("invite").blurb} The link works once and expires after 72 hours.</p>
         <form className="add-item-form" onSubmit={invite}>
           <div className="field-row">
             <label>
@@ -156,8 +161,8 @@ export function TeamPage() {
       </section>
 
       <section className="panel">
-        <h2>Recent changes</h2>
-        <p className="muted settings-help">Settings and team changes, by name. Messages, contracts, bids and lead activity carry the name in their own logs.</p>
+        <h2>{section("recent").title}</h2>
+        <p className="muted settings-help">{section("recent").blurb} Messages, contracts, bids and lead activity keep the name in their own logs.</p>
         {audit.length === 0 ? (
           <p className="muted">Nothing yet.</p>
         ) : (

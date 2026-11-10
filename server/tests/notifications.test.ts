@@ -85,8 +85,8 @@ async function clearBookings() {
 before(async () => {
   accountId = (await getDefaultAccount()).id;
   const a = await prisma.account.findUniqueOrThrow({ where: { id: accountId } });
-  settingsBefore = { balanceDueDays: a.balanceDueDays, depositPercentage: a.depositPercentage, tier1Collect: a.tier1Collect, digestEmail: a.digestEmail, digestEnabled: a.digestEnabled, directBookingDailyCap: a.directBookingDailyCap, requireCustomerAccount: a.requireCustomerAccount };
-  await prisma.account.update({ where: { id: accountId }, data: { balanceDueDays: 30, depositPercentage: 20, tier1Collect: "retainer", digestEmail: "digest@example.test", digestEnabled: true, directBookingDailyCap: 1000, requireCustomerAccount: false } });
+  settingsBefore = { balanceDueDays: a.balanceDueDays, depositPercentage: a.depositPercentage, tier1Collect: a.tier1Collect, digestEmail: a.digestEmail, digestEnabled: a.digestEnabled, directBookingDailyCap: a.directBookingDailyCap, requireCustomerAccount: a.requireCustomerAccount, balanceReminderWindowDays: a.balanceReminderWindowDays };
+  await prisma.account.update({ where: { id: accountId }, data: { balanceDueDays: 30, depositPercentage: 20, tier1Collect: "retainer", digestEmail: "digest@example.test", digestEnabled: true, directBookingDailyCap: 1000, requireCustomerAccount: false, balanceReminderWindowDays: 7 } });
   if ((await prisma.leadStatus.count({ where: { accountId } })) === 0) made.statuses.push((await prisma.leadStatus.create({ data: { accountId, name: "New", position: 0 } })).id);
   const existingPolicy = await prisma.policyVersion.findFirst({ where: { accountId }, orderBy: { version: "desc" } });
   const policy = existingPolicy ?? (await prisma.policyVersion.create({ data: { accountId, version: 1, text: `${ZZ} rental policy.` } }));
@@ -244,6 +244,18 @@ test("balance-due-7d picks balances due within 7 days or already overdue, skips 
   await prisma.booking.update({ where: { id: in5 }, data: { eventDate: dayFromNow(34) } });
   await runTimedNotifications(NOW);
   assert.equal((await ofType("balance-due-7d")).length, 3);
+});
+
+test("balance-due alerts follow the balance reminder window setting, not a fixed 7 days", async () => {
+  await clearBookings();
+  // Balance is due 30 days before the event, so an event 40 days out has its balance due in 10 days.
+  const due10 = await mkBooking({ eventIn: 40, total: 1000, status: "Signed", retainerPaid: true });
+  await runTimedNotifications(NOW);
+  assert.equal((await ofType("balance-due-7d")).filter((r) => r.bookingId === due10).length, 0, "10 days out is past a 7 day window");
+  await prisma.account.update({ where: { id: accountId }, data: { balanceReminderWindowDays: 14 } });
+  await runTimedNotifications(NOW);
+  assert.equal((await ofType("balance-due-7d")).filter((r) => r.bookingId === due10).length, 1, "inside a 14 day window");
+  await prisma.account.update({ where: { id: accountId }, data: { balanceReminderWindowDays: 7 } });
 });
 
 test("the routes page unread first, count unread, filter by type, mark one and all read, and need the admin session", async () => {

@@ -4,7 +4,7 @@ import { prisma } from "./db.js";
 import { getSettings } from "./settings.js";
 
 // Optional hold expiry. When "Release unpaid storefront holds after N days" is
-// set (Settings > Business rules; 0 = never), the hourly automation run
+// set (Settings > Booking rules; 0 = never), the hourly automation run
 // releases a booking that a customer made on the storefront and left unpaid:
 // still at Held, retainer not paid, older than N days. Bookings staff made are
 // never touched: a storefront booking is told apart by its lead, whose source

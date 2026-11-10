@@ -3,12 +3,12 @@
 // The only edits are the business numbers, which are tokens bound to
 // Settings so a change there changes the contract without retyping it:
 //
-//   {{retainerPercent}}              Settings > Business rules, retainer percentage
-//   {{lateCancellationDays}}         Settings > Business rules, cancellation window
-//   {{balanceDueDays}}               Contract settings
-//   {{rescheduleFeePercent}}         Contract settings
-//   {{outsidePlannerChargePercent}}  Contract settings
-//   {{returnedCheckFee}}             Contract settings (whole dollars, "$50")
+//   {{retainerPercent}}              Settings > Booking rules, retainer
+//   {{lateCancellationDays}}         Settings > Booking rules, cancellation window
+//   {{balanceDueDays}}               Settings > Booking rules
+//   {{rescheduleFeePercent}}         Settings > Contract and policy
+//   {{outsidePlannerChargePercent}}  Settings > Contract and policy
+//   {{returnedCheckFee}}             Settings > Contract and policy (whole dollars, "$50")
 //
 // server/tests/goContract.test.ts proves that, at the reference's numbers,
 // this renders character for character as the reference reads.

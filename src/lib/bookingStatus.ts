@@ -10,7 +10,7 @@ export const BOOKING_STAGES = ["Held", "Contract Sent", "Signed", "Completed", "
 export type BookingStage = (typeof BOOKING_STAGES)[number];
 
 // Released is set only by the system: an unpaid storefront hold that lapsed
-// (Settings > Business rules, "Release unpaid storefront holds after"). It
+// (Settings > Booking rules, "Small rentals" under unpaid holds). It
 // behaves like Cancelled everywhere (items freed, no reminders, nothing to
 // sign) but says why. Staff cannot choose it from the stage menu.
 export const DISPLAY_STATUSES = ["Held", "Contract Sent", "Signed", "Retainer Paid", "Confirmed", "Completed", "Cancelled", "Released"] as const;
