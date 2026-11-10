@@ -36,6 +36,7 @@ import publicItemsRouter from "./routes/publicItems.js";
 import publicPackagesRouter from "./routes/publicPackages.js";
 import settingsRouter, { publicSettingsRouter } from "./routes/settings.js";
 import notificationsRouter from "./routes/notifications.js";
+import { adminWeddingRouter } from "./routes/weddingDetails.js";
 import { heroAdminRouter, publicHeroRouter, publicMediaRouter } from "./routes/hero.js";
 import tierRouter from "./routes/tier.js";
 import { adminPaymentsRouter, publicPaymentsRouter } from "./routes/payments.js";
@@ -101,6 +102,8 @@ app.use("/api/recommend", express.json({ limit: "20kb" }));
 app.use("/api/bookings/direct", express.json({ limit: "50kb" }));
 app.use("/api/bookings/tier", express.json({ limit: "20kb" }));
 app.use("/api/leads/concierge", express.json({ limit: "10kb" }));
+// Block A11: a whole wedding details form can be saved at once.
+app.use("/api/customer/bookings/:id/wedding-details", express.json({ limit: "128kb" }));
 app.use("/api/customer", express.json({ limit: "20kb" }));
 app.use("/api/contracts", express.json({ limit: "20kb" }));
 app.use("/api/bids", express.json({ limit: "20kb" }));
@@ -186,6 +189,7 @@ app.use("/api/bookings/direct", directBookingLimiter, directBookingsRouter);
 app.use("/api/bookings/tier", tierLimiter, tierRouter);
 app.use("/api/bookings/staff", requireAuth, staffBookingRouter);
 app.use("/api/bookings", requireAuth, adminPaymentsRouter);
+app.use("/api/bookings", requireAuth, adminWeddingRouter);
 app.use("/api/bookings", requireAuth, bookingsRouter);
 // Customer accounts: signup and login are public (strictly rate limited
 // inside the router), everything else there requires the customer cookie,

@@ -55,6 +55,7 @@ import type {
   Package,
   PackageInput,
   NotificationList,
+  WeddingStaffView,
   RecommendResponse,
   SkillRow,
   Unit,
@@ -632,3 +633,18 @@ export function markNotificationRead(id: string): Promise<{ ok: boolean }> {
 export function markAllNotificationsRead(): Promise<{ marked: number }> {
   return fetch("/api/notifications/read-all", jsonRequest("POST")).then(asJson<{ marked: number }>).then(changed);
 }
+
+// Block A11: the wedding details panel.
+export function getWeddingDetails(bookingId: string): Promise<WeddingStaffView> {
+  return fetch(`/api/bookings/${bookingId}/wedding-details`).then(asJson<WeddingStaffView>);
+}
+
+export function unlockWeddingDetails(bookingId: string, reason: string): Promise<WeddingStaffView> {
+  return fetch(`/api/bookings/${bookingId}/wedding-details/unlock`, jsonRequest("POST", { reason })).then(asJson<WeddingStaffView>);
+}
+
+export function setWeddingOverride(bookingId: string, weddingOverride: boolean | null): Promise<WeddingStaffView> {
+  return fetch(`/api/bookings/${bookingId}/wedding`, jsonRequest("PATCH", { weddingOverride })).then(asJson<WeddingStaffView>);
+}
+
+export const weddingPrintUrl = (bookingId: string) => `/api/bookings/${bookingId}/wedding-details/print`;

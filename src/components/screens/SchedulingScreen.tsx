@@ -64,6 +64,7 @@ export function SchedulingScreen({ view = "bookings", openBookingId }: { view?: 
   const [units, setUnits] = useState<Unit[] | null>(null);
   const [bookings, setBookings] = useState<Booking[] | null>(null);
   const [leads, setLeads] = useState<Lead[] | null>(null);
+  const [weddingMissingOnly, setWeddingMissingOnly] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // The booking popup, by id: looked up in bookings on each render so a
   // save inside the popup shows in it and in the row behind it.
@@ -205,8 +206,17 @@ export function SchedulingScreen({ view = "bookings", openBookingId }: { view?: 
                   </button>
                   <span className="muted">For a customer booking by phone or in person. Same availability and locks as the storefront.</span>
                 </div>
+                <div className="filter-row">
+                  <label className="checkbox-label filter-check">
+                    <input type="checkbox" checked={weddingMissingOnly} onChange={(e) => setWeddingMissingOnly(e.target.checked)} />
+                    Wedding details missing, event within 45 days
+                  </label>
+                  {weddingMissingOnly && <span className="filter-count">{bookings.filter((b) => b.weddingDetailsMissing).length} of {bookings.length} bookings</span>}
+                </div>
                 {bookings.length === 0 ? (
                   <p className="muted">Nothing here yet.</p>
+                ) : weddingMissingOnly && !bookings.some((b) => b.weddingDetailsMissing) ? (
+                  <p className="muted">Every wedding within 45 days has its details in.</p>
                 ) : (
                   <div className="table-scroll">
                     <table className="items-table scheduling-table">
@@ -222,7 +232,7 @@ export function SchedulingScreen({ view = "bookings", openBookingId }: { view?: 
                         </tr>
                       </thead>
                       <tbody>
-                        {bookings.map((booking) => (
+                        {bookings.filter((b) => !weddingMissingOnly || b.weddingDetailsMissing).map((booking) => (
                           <BookingSummaryRow
                             key={booking.id}
                             booking={booking}

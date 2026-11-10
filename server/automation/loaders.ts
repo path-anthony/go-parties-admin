@@ -11,6 +11,7 @@ import { mustGetTrigger, TRIGGERS, type Channel } from "../triggers.js";
 import { todayEastern } from "../validate.js";
 import { CREW_STEPS, DIGEST_TRIGGER, NURTURE_SOURCES, planBooking, planDigest, planGig, planLead, type Contact, type Facts, type LogFact, type Plan, type PlanSubject } from "./planner.js";
 import { loadDigest } from "../notifications.js";
+import { isWeddingBooking } from "../weddingDetails/logic.js";
 import { addDays } from "./time.js";
 
 // Loads records and facts from the database and hands them to the planner.
@@ -44,6 +45,8 @@ const SCHEDULED = new Set<string>([
   "event_eve_reminder",
   "post_event_thanks",
   DIGEST_TRIGGER,
+  "wedding_details_reminder_60",
+  "wedding_details_reminder_35",
   ...CREW_STEPS.map((s) => s.key),
 ]);
 
@@ -151,7 +154,7 @@ export async function loadPlans(scope: PlanScope = {}): Promise<Planned[]> {
   if (want("booking")) {
     const bookings = await prisma.booking.findMany({
       where: { accountId: base.accountId, ...(scope.bookingId ? { id: scope.bookingId } : { eventDate: { gte: cutoff }, status: { notIn: ["Cancelled", "Released"] } }) },
-      include: { agreement: true, designRequest: { include: { agreement: true } }, lead: { select: { source: true } } },
+      include: { agreement: true, designRequest: { include: { agreement: true } }, lead: { select: { source: true } }, package: { select: { occasions: true } }, weddingDetails: { select: { status: true } } },
     });
     for (const b of bookings) {
       const agreement = b.agreement ?? b.designRequest?.agreement ?? null;
@@ -175,6 +178,7 @@ export async function loadPlans(scope: PlanScope = {}): Promise<Planned[]> {
           contract: agreement ? { sentAt: agreement.contractSentAt, signed: agreement.contractStatus === "Signed" } : null,
           balanceWindowDays: base.balanceWindowDays,
           storefrontHeldUnsigned: b.lead?.source === "storefront" && b.status === "Held" && agreement?.contractStatus !== "Signed",
+          wedding: isWeddingBooking(b) ? { status: b.weddingDetails?.status ?? "not_started", hasAccount: b.customerId !== null } : null,
         },
         base.facts,
       );

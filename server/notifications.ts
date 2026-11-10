@@ -7,7 +7,7 @@ import { safeErr } from "./log.js";
 import { amountsFor } from "./payments.js";
 import { safeInline } from "./sanitize.js";
 import { getSettings } from "./settings.js";
-import { groupsOf } from "../src/lib/occasions.js";
+import { dueDateFor, isWeddingBooking } from "./weddingDetails/logic.js";
 
 // Staff notifications: the bell in the admin and the morning digest. Each
 // condition has a dedupeKey, and the unique index on it is what makes a
@@ -24,6 +24,8 @@ export const NOTIFICATION_TYPES = [
   { type: "wedding-details-not-started-60d", label: "Wedding details not started" },
   { type: "wedding-details-incomplete-35d", label: "Wedding details incomplete" },
   { type: "wedding-details-submitted", label: "Wedding details submitted" },
+  { type: "wedding-details-change-request", label: "Wedding details change requests" },
+  { type: "content-creation-interest", label: "Upsell: content creation" },
 ] as const;
 export type NotificationType = (typeof NOTIFICATION_TYPES)[number]["type"];
 export const isNotificationType = (v: unknown): v is NotificationType => NOTIFICATION_TYPES.some((t) => t.type === v);
@@ -42,6 +44,8 @@ export type NotificationInput = {
 
 const DAY_MS = 86_400_000;
 const WAIT_DAYS = 3;
+const WEDDING_NOT_STARTED_DAYS = 60;
+const WEDDING_INCOMPLETE_DAYS = 35;
 const BALANCE_DAYS_AHEAD = 7;
 // Stages where a booking is still going ahead (Completed, Cancelled and
 // Released are not).
@@ -116,33 +120,11 @@ export async function notifyDesignRequest(request: { id: string; accountId: stri
   }
 }
 
-// ---- Wedding questionnaire checks ---------------------------------------
-
-// TODO(Block A11): these three answer false until the wedding questionnaire
-// exists. A11 replaces the bodies with real checks against it; the producers
-// below, their dedupe keys and their titles are already in place.
-async function weddingDetailsNotStarted(_bookingId: string): Promise<boolean> {
-  return false;
-}
-async function weddingDetailsIncomplete(_bookingId: string): Promise<boolean> {
-  return false;
-}
-async function weddingDetailsSubmitted(_bookingId: string): Promise<boolean> {
-  return false;
-}
-
-export type WeddingChecks = {
-  notStarted: (bookingId: string) => Promise<boolean>;
-  incomplete: (bookingId: string) => Promise<boolean>;
-  submitted: (bookingId: string) => Promise<boolean>;
-};
-const WEDDING_CHECKS: WeddingChecks = { notStarted: weddingDetailsNotStarted, incomplete: weddingDetailsIncomplete, submitted: weddingDetailsSubmitted };
-
 // ---- Timed producers ----------------------------------------------------
 
 // Everything that should have fired by `now`. Reads only, so it can be run
 // to see what a first pass would create.
-export async function findDueNotifications(now: Date, wedding: WeddingChecks = WEDDING_CHECKS): Promise<NotificationInput[]> {
+export async function findDueNotifications(now: Date): Promise<NotificationInput[]> {
   const account = await getDefaultAccount();
   const accountId = account.id;
   const settings = await getSettings(accountId);
@@ -224,32 +206,28 @@ export async function findDueNotifications(now: Date, wedding: WeddingChecks = W
     });
   }
 
-  // Wedding details (the checks are stubs until the questionnaire exists).
-  const upcoming = await prisma.booking.findMany({
-    where: { accountId, status: { in: LIVE_STAGES }, occasion: { not: null }, eventDate: { gte: today } },
-    select: { id: true, customerName: true, eventDate: true, occasion: true, leadId: true, customerId: true },
+  // Wedding details: nothing started by 60 days out, not submitted by 35.
+  const lastWedding = new Date(`${addDays(todayText, WEDDING_NOT_STARTED_DAYS)}T00:00:00Z`);
+  const weddings = await prisma.booking.findMany({
+    where: { accountId, status: { in: LIVE_STAGES }, eventDate: { gte: today, lte: lastWedding } },
+    select: { id: true, customerName: true, eventDate: true, occasion: true, weddingOverride: true, leadId: true, customerId: true, package: { select: { occasions: true } }, weddingDetails: { select: { status: true } } },
   });
-  for (const b of upcoming) {
-    if (!groupsOf(b.occasion as string).includes("Wedding")) continue;
+  for (const b of weddings) {
+    if (!isWeddingBooking(b)) continue;
     const eventDay = dayOf(b.eventDate);
+    const status = b.weddingDetails?.status ?? "not_started";
     const daysOut = Math.round((b.eventDate.getTime() - today.getTime()) / DAY_MS);
     const base = { accountId, link: bookingLink(b.id), bookingId: b.id, leadId: b.leadId, customerId: b.customerId };
     const who = `${clean(b.customerName, "Customer")}, ${dayLabel(eventDay)}.`;
-    if (daysOut <= 60 && (await wedding.notStarted(b.id))) {
-      out.push({ ...base, type: "wedding-details-not-started-60d", title: "Wedding details not started", body: `${who} ${daysOut} days out, not started.`, dedupeKey: `wedding-details-not-started-60d:${b.id}:${eventDay}` });
-    }
-    if (daysOut <= 35 && (await wedding.incomplete(b.id))) {
-      out.push({ ...base, type: "wedding-details-incomplete-35d", title: "Wedding details incomplete", body: `${who} ${daysOut} days out, still incomplete.`, dedupeKey: `wedding-details-incomplete-35d:${b.id}:${eventDay}` });
-    }
-    if (await wedding.submitted(b.id)) {
-      out.push({ ...base, type: "wedding-details-submitted", title: "Wedding details submitted", body: `${who} Ready to review.`, dedupeKey: `wedding-details-submitted:${b.id}` });
-    }
+    const due = `Due ${dayLabel(dueDateFor(eventDay))}.`;
+    if (status === "not_started") out.push({ ...base, type: "wedding-details-not-started-60d", title: "Wedding details not started", body: `${who} ${daysOut} days out, not started. ${due}`, dedupeKey: `wedding-details-not-started-60d:${b.id}:${eventDay}` });
+    if (status !== "submitted" && daysOut <= WEDDING_INCOMPLETE_DAYS) out.push({ ...base, type: "wedding-details-incomplete-35d", title: "Wedding details incomplete", body: `${who} ${daysOut} days out, not submitted. ${due}`, dedupeKey: `wedding-details-incomplete-35d:${b.id}:${eventDay}` });
   }
   return out;
 }
 
-export async function runTimedNotifications(now: Date, wedding: WeddingChecks = WEDDING_CHECKS): Promise<{ due: number; created: number }> {
-  const due = await findDueNotifications(now, wedding);
+export async function runTimedNotifications(now: Date): Promise<{ due: number; created: number }> {
+  const due = await findDueNotifications(now);
   return { due: due.length, created: await createNotifications(due) };
 }
 

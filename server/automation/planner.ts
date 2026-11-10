@@ -290,6 +290,9 @@ export type BookingInput = {
   // emailed to it: a stranger's number typed into the form must not receive
   // automated messages from us.
   storefrontHeldUnsigned?: boolean;
+  // A wedding booking's questionnaire. hasAccount: the form is behind the
+  // customer's sign-in, so without an account there is nothing to link to.
+  wedding?: { status: string; hasAccount: boolean } | null;
 };
 
 export const STOREFRONT_HOLD_REASON = "Storefront hold: nothing is sent automatically while a storefront booking is Held and unsigned.";
@@ -372,6 +375,21 @@ export function planBooking(b: BookingInput, f: Facts): Plan {
       f,
     ),
   );
+  // Wedding details reminders: email only, to fill in the form.
+  if (b.wedding) {
+    const key = (t: string) => `${t}:${b.id}:${b.eventDate}`;
+    const milestones: Milestone[] = [
+      { triggerKey: "wedding_details_reminder_60", dueAt: at10(-60), baseKey: key("wedding_details_reminder_60"), skip: b.wedding.status === "not_started" ? null : "The details are already started." },
+      { triggerKey: "wedding_details_reminder_35", dueAt: at10(-35), baseKey: key("wedding_details_reminder_35") },
+    ];
+    const stopped = cancelled ? "Booking cancelled" : completed ? "Booking completed" : b.wedding.status === "submitted" ? "Stopped: details submitted" : hold;
+    items.push(
+      ...planSeries(
+        { id: "wedding_details", subject, milestones, recordStart: b.createdAt, contact: b.contact, paused: b.paused, stopped, waiting: b.wedding.hasAccount ? null : "The customer has no account, so there is no form to link to.", eventStart },
+        f,
+      ).filter((i) => i.channel === "email"),
+    );
+  }
   return { enrolled: true, items };
 }
 
@@ -443,6 +461,8 @@ const NAMES: Record<string, string> = {
   event_eve_reminder: "event eve reminder",
   post_event_thanks: "thank-you",
   staff_daily_digest: "daily digest",
+  wedding_details_reminder_60: "wedding details reminder",
+  wedding_details_reminder_35: "wedding details reminder",
   crew_reminder_30: "30 day gig reminder",
   crew_reminder_15: "15 day gig reminder",
   crew_reminder_7: "7 day gig reminder",

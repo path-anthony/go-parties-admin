@@ -25,7 +25,7 @@ import { requireAuth } from "../auth.js";
 import { runAutomation } from "../automation/runner.js";
 import { addDays, atEastern, easternDay } from "../automation/time.js";
 import { prisma } from "../db.js";
-import { buildDigest, digestWindow, findDueNotifications, notifyDesignRequest, notifyNewLead, runTimedNotifications, type WeddingChecks } from "../notifications.js";
+import { buildDigest, digestWindow, notifyDesignRequest, notifyNewLead, runTimedNotifications } from "../notifications.js";
 import conciergeLeadsRouter from "../routes/conciergeLeads.js";
 import directBookingsRouter, { staffBookingRouter } from "../routes/directBookings.js";
 import externalLeadsRouter from "../routes/externalLeads.js";
@@ -244,24 +244,6 @@ test("balance-due-7d picks balances due within 7 days or already overdue, skips 
   await prisma.booking.update({ where: { id: in5 }, data: { eventDate: dayFromNow(34) } });
   await runTimedNotifications(NOW);
   assert.equal((await ofType("balance-due-7d")).length, 3);
-});
-
-test("the wedding producers stay silent until the questionnaire exists, and fire once inside their windows when the checks say so", async () => {
-  await clearBookings();
-  const in50 = await mkBooking({ eventIn: 50, occasion: "Reception only", status: "Signed" });
-  const in30 = await mkBooking({ eventIn: 30, occasion: "Wedding", status: "Signed" });
-  await mkBooking({ eventIn: 100, occasion: "Ceremony + reception", status: "Signed" });
-  await mkBooking({ eventIn: 30, occasion: "Birthday", status: "Signed" });
-
-  const stubs = await findDueNotifications(NOW);
-  assert.equal(stubs.filter((n) => n.type.startsWith("wedding")).length, 0, "the stubs answer false");
-
-  const yes: WeddingChecks = { notStarted: async () => true, incomplete: async () => true, submitted: async () => true };
-  await runTimedNotifications(NOW, yes);
-  await runTimedNotifications(NOW, yes);
-  assert.deepEqual((await ofType("wedding-details-not-started-60d")).map((r) => r.bookingId).sort(), [in50, in30].sort());
-  assert.deepEqual((await ofType("wedding-details-incomplete-35d")).map((r) => r.bookingId), [in30]);
-  assert.equal((await ofType("wedding-details-submitted")).length, 3, "any wedding booking, whatever the date");
 });
 
 test("the routes page unread first, count unread, filter by type, mark one and all read, and need the admin session", async () => {

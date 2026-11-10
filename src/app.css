@@ -2865,3 +2865,10 @@ a.nav-item {
   .notif-bell { position: static; }
   .notif-panel { left: 12px; right: 12px; top: 50px; width: auto; max-width: none; }
 }
+
+/* Block A11: wedding details in the booking popup. */
+.wedding-answers summary { cursor: pointer; font-size: 13px; font-weight: 700; padding: 4px 0; }
+.wedding-section { margin-top: 8px; }
+.wedding-section h4 { margin: 0 0 3px; font-size: 13px; }
+.wedding-section ul { margin: 0; padding-left: 16px; font-size: 13px; }
+.wedding-value { white-space: pre-wrap; overflow-wrap: anywhere; }

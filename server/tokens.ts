@@ -93,6 +93,8 @@ export const TOKEN_CATALOG: TokenInfo[] = [
   { key: "bidAmount", label: "Bid amount", example: "$300" },
   { key: "questionText", label: "Crew question", example: "Is there parking on site?" },
   { key: "adminLink", label: "Link to the gig in admin", example: "https://example.com/crew/gigs?gig=abc" },
+  { key: "weddingDetailsDueDate", label: "When the wedding details are due", example: "Thu, Nov 12" },
+  { key: "weddingDetailsLink", label: "Link to the customer's wedding details form", example: "https://example.com/party/abc/wedding-details" },
   { key: "digestCount", label: "How many notifications are in the digest", example: "3" },
   { key: "digestBody", label: "The digest, grouped by type with links", example: "New leads (1)\n- Sarah Miller. Website inquiry.\n  https://example.com/leads?lead=abc" },
   { key: "digestLink", label: "Link to Notifications in admin", example: "https://example.com/notifications" },
