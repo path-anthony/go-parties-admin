@@ -46,3 +46,22 @@ export function publicPolicy(policy: PolicyVersionRow) {
   if (policy.text.trim() === "") return null;
   return { id: policy.id, version: policy.version, text: policy.text, updatedAt: policy.createdAt.toISOString() };
 }
+
+// Block F1. The policy text with its {{numbers}} filled in, for places where
+// the admin hands a customer the wording to read and accept (the cancellation
+// terms, the pay link). The storefront fills the same tokens itself from
+// GET /api/settings/public for the policy it shows at checkout; this is the
+// same rule: a token is the name of a number setting, case does not matter,
+// and a token that names nothing is left as written.
+const POLICY_NUMBERS = ["depositPercentage", "cancellationWindowDays", "minBookingNoticeHours", "rescheduleFeePercent", "balanceDueDays", "requestResponseDays"] as const;
+export function fillPolicyText(text: string, settings: Partial<Record<(typeof POLICY_NUMBERS)[number], number>>): string {
+  const byName = new Map<string, number>();
+  for (const k of POLICY_NUMBERS) {
+    const v = settings[k];
+    if (typeof v === "number" && Number.isFinite(v)) byName.set(k.toLowerCase(), v);
+  }
+  return text.replace(/\{\{\s*([A-Za-z]+)\s*\}\}/g, (whole, name: string) => {
+    const v = byName.get(name.toLowerCase());
+    return v === undefined ? whole : String(v);
+  });
+}

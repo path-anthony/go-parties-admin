@@ -215,7 +215,7 @@ A store screen would let the customer see the booking, review the rental policy 
   - `sign`: a contract booking that is not signed. `contractLink` is the signing page; send the customer there first. `amount` is the retainer they will owe after signing.
   - `retainer` or `balance`: `amount` is what to collect now, in dollars. Never compute it in the browser.
   - `nothing`: all paid up. `closed`: cancelled, released or finished.
-- `policy` is the current rental policy for a booking with no contract (null for a contract booking, or when no policy text exists). Show it above the pay button on the policy path: a booking staff made on the phone was agreed to out loud, and this is where the customer reads it.
+- `policy` is the current rental policy for a booking with no contract (null for a contract booking, or when no policy text exists). Its numbers are already filled in (no `{{tokens}}` to merge); show `text` as it is. Show it above the pay button on the policy path: a booking staff made on the phone was agreed to out loud, and this is where the customer reads it.
 - 404 `{ "error": "That pay link isn't known.", "reason": "not-found" }` for a wrong token.
 - Nothing else about the booking is returned: no surname, phone, email, address or items.
 
@@ -252,6 +252,7 @@ Call it when the customer opens "Cancel", to know what to show.
 ```
 
 - `termsRequired` is true when anything has been paid. Show `terms.title` and `terms.text` in full with a checkbox ("I have read and accept these terms") before the customer can send the request.
+- `terms.text` is finished wording: the policy's numbers are already filled in, so do not run it through the store's token merge.
 - `terms.source` is `contract` when the text comes from the customer's own signed contract (its retainer and cancellation clauses), otherwise `policy` (the rental policy from Settings > Contract and policy). `terms` can be null when no text exists; the customer can still ask.
 - `pendingRequest` is set when a request is already waiting: show "We're reviewing your request to cancel" instead of the form.
 - 409 with a sentence in `error` for a booking that is already cancelled, released or finished.

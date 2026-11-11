@@ -31,6 +31,7 @@ import { prisma } from "../db.js";
 import { findDueNotifications } from "../notifications.js";
 import { markOptedOut } from "../optOuts.js";
 import { settlePayment } from "../payments.js";
+import { fillPolicyText } from "../policy.js";
 import { customerWriteGuard } from "../security.js";
 import { setStripeFetch, signWebhookPayload } from "../stripe/client.js";
 import customerRouter from "../routes/customer.js";
@@ -175,7 +176,7 @@ before(async () => {
   await prisma.customer.deleteMany({ where: { accountId, email: { startsWith: "zz-f1-" } } });
   if ((await prisma.leadStatus.count({ where: { accountId } })) === 0) made.statuses.push((await prisma.leadStatus.create({ data: { accountId, name: "New", position: 0 } })).id);
   const policy = await prisma.policyVersion.findFirst({ where: { accountId }, orderBy: { version: "desc" } });
-  if (!policy || policy.text.trim() === "") made.policies.push((await prisma.policyVersion.create({ data: { accountId, version: (policy?.version ?? 0) + 1, text: `${ZZ} rental policy: the retainer is 20% and non-refundable.` } })).id);
+  if (!policy || policy.text.trim() === "") made.policies.push((await prisma.policyVersion.create({ data: { accountId, version: (policy?.version ?? 0) + 1, text: `${ZZ} rental policy: the retainer is {{depositPercentage}}% and non-refundable.` } })).id);
   const mk = async (name: string, category: string, price: number) => {
     const item = await prisma.item.create({ data: { accountId, name: `${ZZ} F1 ${name}`, category, price, units: { create: Array.from({ length: 30 }, (_, i) => ({ label: String(i + 1) })) } } });
     made.items.push(item.id);
@@ -563,7 +564,7 @@ test("a cancellation request with a paid retainer returns the terms, needs them 
   const noTerms = await post(`/api/customer/bookings/${id}/cancel`, { reason: "We moved the party" }, cookie);
   assert.equal(noTerms.status, 409);
   assert.equal(noTerms.json.reason, "terms-required");
-  assert.match((noTerms.json.terms as { text: string }).text, /non-refundable/);
+  assert.match((noTerms.json.terms as { text: string }).text, /the retainer is 20% and non-refundable/, "the numbers are filled in, not left as tokens");
   assert.equal(await prisma.cancellationRequest.count({ where: { bookingId: id } }), 0);
 
   emails.length = 0;
@@ -580,7 +581,7 @@ test("a cancellation request with a paid retainer returns the terms, needs them 
   const req = await prisma.cancellationRequest.findFirstOrThrow({ where: { bookingId: id } });
   assert.equal(req.customerId, customerId);
   assert.equal(req.paidCents, 4500);
-  assert.ok(req.termsAcceptedAt && req.termsText?.includes("non-refundable"), "what they accepted is kept");
+  assert.ok(req.termsAcceptedAt && req.termsText?.includes("20% and non-refundable") && !req.termsText.includes("{{"), "what they accepted is kept, as they read it");
   assert.equal(req.reason?.includes("http"), false, "links are stripped from the reason");
   // Asking again returns the same request.
   const twice = await post(`/api/customer/bookings/${id}/cancel`, { reason: "again", acceptTerms: true }, cookie);
@@ -665,4 +666,9 @@ test("Overview: Money in lists the week's payments with a total; Waiting on paym
   const bal = waiting.balances.find((x) => x.bookingId === soon.json.bookingId);
   assert.ok(bal, "a balance on an event 20 days out is due within 14 days (30 days before the event)");
   assert.equal(bal.amountCents, 18000);
+});
+
+test("policy text handed to a customer has its numbers filled in", () => {
+  const text = "A retainer of {{depositPercentage}}% holds the date. Cancel {{ CancellationWindowDays }} days out. {{somethingElse}} stays.";
+  assert.equal(fillPolicyText(text, { depositPercentage: 20, cancellationWindowDays: 30 }), "A retainer of 20% holds the date. Cancel 30 days out. {{somethingElse}} stays.");
 });

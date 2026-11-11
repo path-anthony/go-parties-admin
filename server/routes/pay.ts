@@ -6,7 +6,7 @@ import { safeErr } from "../log.js";
 import { COMPANY_NAME, prettyPhone } from "../messageContext.js";
 import { owedFor, payLinkFor, usd } from "../payLink.js";
 import { PaymentError, createPaymentSession, paymentStatus } from "../payments.js";
-import { currentPolicy } from "../policy.js";
+import { currentPolicy, fillPolicyText } from "../policy.js";
 import { customerStage } from "../portal.js";
 import { StripeError } from "../stripe/client.js";
 
@@ -129,7 +129,8 @@ payApiRouter.get("/:token", async (req, res) => {
     retainerPaid: owed.money.retainerPaid,
     balancePaid: owed.money.balancePaid,
     contractLink,
-    policy: policy && policy.text.trim() !== "" ? { id: policy.id, version: policy.version, text: policy.text } : null,
+    // The numbers in the text are already filled in; show it as it is.
+    policy: policy && policy.text.trim() !== "" ? { id: policy.id, version: policy.version, text: fillPolicyText(policy.text, owed.settings) } : null,
     hasAccount: b.customer !== null,
   });
 });

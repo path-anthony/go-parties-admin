@@ -5,7 +5,7 @@ import { queueGoogleSync } from "./google/sync.js";
 import { safeErr } from "./log.js";
 import { clearCancellationAlert, notifyCancellationRequest } from "./notifications.js";
 import { amountsFor } from "./payments.js";
-import { currentPolicy } from "./policy.js";
+import { currentPolicy, fillPolicyText } from "./policy.js";
 import { safeInline } from "./sanitize.js";
 import { sendTemplatedMessage } from "./sendTemplated.js";
 import { getSettings } from "./settings.js";
@@ -44,11 +44,14 @@ export async function retainerTermsFor(b: TermsBooking): Promise<RetainerTerms |
       return { source: "contract", title: "From your signed contract", text: picked.map((c) => `${c.title as string}. ${c.body as string}`).join("\n\n"), policyVersionId: null };
     }
   }
+  // The policy's numbers are filled in here, so what the customer reads and
+  // accepts, and what is stored, is the finished wording.
+  const settings = await getSettings(b.accountId);
   const own = b.agreement?.policyVersion;
-  if (own && own.text.trim() !== "") return { source: "policy", title: "Cancellation and retainer policy", text: own.text, policyVersionId: own.id };
+  if (own && own.text.trim() !== "") return { source: "policy", title: "Cancellation and retainer policy", text: fillPolicyText(own.text, settings), policyVersionId: own.id };
   const current = await currentPolicy(b.accountId);
   if (current.text.trim() === "") return null;
-  return { source: "policy", title: "Cancellation and retainer policy", text: current.text, policyVersionId: current.id };
+  return { source: "policy", title: "Cancellation and retainer policy", text: fillPolicyText(current.text, settings), policyVersionId: current.id };
 }
 
 const REQUEST_BOOKING = {
