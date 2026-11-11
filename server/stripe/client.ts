@@ -88,6 +88,8 @@ export async function stripeRequest<T>(method: "GET" | "POST", path: string, par
 export type CheckoutSession = {
   id: string;
   client_secret: string | null;
+  // Stripe's own payment page, for a hosted session (the pay link).
+  url?: string | null;
   status: "open" | "complete" | "expired";
   payment_status: "paid" | "unpaid" | "no_payment_required";
   payment_intent: string | null;
@@ -105,16 +107,21 @@ export type CreateSessionInput = {
   metadata: Record<string, string>;
   idempotencyKey: string;
   saveCard: boolean;
+  // Block F1, the pay link: Stripe's own hosted page instead of the form
+  // embedded in the storefront. Stripe sends the customer back to one of
+  // these addresses afterwards.
+  hosted?: { successUrl: string; cancelUrl: string };
 };
 
-// An embedded Checkout Session in payment mode with one one-off line item
-// built here (no Stripe Products or Prices). The page never redirects: the
-// storefront's onComplete fires and it asks the admin whether it is paid.
+// A Checkout Session in payment mode with one one-off line item built here
+// (no Stripe Products or Prices). Embedded (the storefront): the page never
+// redirects; the storefront's onComplete fires and it asks the admin whether
+// it is paid. Hosted (the pay link): the customer pays on Stripe's page and
+// comes back to successUrl.
 export function createCheckoutSession(input: CreateSessionInput): Promise<CheckoutSession> {
   const params: Record<string, unknown> = {
-    ui_mode: "embedded",
+    ...(input.hosted ? { success_url: input.hosted.successUrl, cancel_url: input.hosted.cancelUrl } : { ui_mode: "embedded", redirect_on_completion: "never" }),
     mode: "payment",
-    redirect_on_completion: "never",
     line_items: [{ quantity: 1, price_data: { currency: "usd", unit_amount: input.amountCents, product_data: { name: input.name, ...(input.description ? { description: input.description } : {}) } } }],
     metadata: input.metadata,
     payment_intent_data: { metadata: input.metadata, ...(input.saveCard ? { setup_future_usage: "off_session" } : {}) },
@@ -132,9 +139,8 @@ export function createStripeCustomer(input: { email: string | null; name: string
   return stripeRequest<{ id: string }>("POST", "/v1/customers", { ...(input.email ? { email: input.email } : {}), ...(input.name ? { name: input.name } : {}), metadata: input.metadata }, { idempotencyKey: input.idempotencyKey });
 }
 
-export function createRefund(input: { paymentIntentId: string; amountCents: number; idempotencyKey: string; reason?: string }): Promise<{ id: string; amount: number; status: string }> {
-  return stripeRequest<{ id: string; amount: number; status: string }>("POST", "/v1/refunds", { payment_intent: input.paymentIntentId, amount: input.amountCents, metadata: { reason: input.reason ?? "" } }, { idempotencyKey: input.idempotencyKey });
-}
+// Block F1: there is no refund call here on purpose. This app never sends
+// money out; a refund is made by a person in Stripe.
 
 // ---- webhooks ------------------------------------------------------------------
 

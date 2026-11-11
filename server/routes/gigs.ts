@@ -18,7 +18,7 @@ const router = Router();
 // Everything a gig row or the gig popup shows: the booking it came from,
 // who filled it, and every offer with the person it went to.
 const GIG_DETAIL = {
-  booking: { select: { id: true, customerName: true, eventDate: true, eventTime: true, address: true, occasion: true, status: true, leadId: true, rush: true, retainerPaid: true, balancePaymentPreference: true, agreement: AGREEMENT_SELECT } },
+  booking: { select: { id: true, customerName: true, eventDate: true, eventTime: true, address: true, occasion: true, status: true, leadId: true, rush: true, retainerPaid: true, confirmedAt: true, balancePaymentPreference: true, agreement: AGREEMENT_SELECT } },
   filledBy: { select: { id: true, name: true } },
   offers: {
     include: { crewMember: { select: { id: true, name: true, phone: true, email: true, active: true, smsConsent: true } }, questions: { orderBy: { createdAt: "asc" as const } } },

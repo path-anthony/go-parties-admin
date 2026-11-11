@@ -18,8 +18,11 @@ export type PortalBooking = {
   tier: number | null;
   total: unknown;
   retainerPaid: boolean;
+  confirmedAt: Date | null;
   balancePaid: boolean;
   eventDate: Date;
+  // Block F1: a cancellation request still waiting on staff, if any.
+  cancellationRequests?: { id: string; reason: string | null; createdAt: Date }[];
   agreement?: {
     id: string;
     format: string | null;
@@ -49,7 +52,7 @@ const inactive = (s: string) => s === "Cancelled" || s === "Released" || s === "
 // Completed, Cancelled, Released. A tier 2 booking reads Requested until its
 // retainer is paid: the contract was signed at checkout, the date is held,
 // and the retainer confirms it.
-export function customerStage(b: Pick<PortalBooking, "status" | "tier" | "retainerPaid">): string {
+export function customerStage(b: Pick<PortalBooking, "status" | "tier" | "retainerPaid" | "confirmedAt">): string {
   const shown = displayStatus(b);
   if (b.tier === 2 && !b.retainerPaid && (shown === "Held" || shown === "Contract Sent" || shown === "Signed")) return "Requested";
   return shown;
@@ -122,7 +125,9 @@ export function portalFields(b: PortalBooking, settings: PortalSettings) {
     retainer,
     balance,
     rescheduleMode: b.tier === 2 || b.tier === 3 ? ("request" as const) : ("self" as const),
-    pendingRequest: null,
+    // Block F1: set while a cancellation request waits on staff. The booking
+    // itself is unchanged until they decide.
+    pendingRequest: b.cancellationRequests?.[0] ? { type: "cancellation" as const, id: b.cancellationRequests[0].id, status: "open" as const, requestedAt: b.cancellationRequests[0].createdAt.toISOString(), reason: b.cancellationRequests[0].reason } : null,
     delivery: customerDelivery(b),
     // Block A9: a Google Maps link to the exact event address, when known.
     mapsUrl: bookingMapsUrl(b),

@@ -150,6 +150,16 @@ export const PAGES: PageSpec[] = [
         ],
       },
       {
+        id: "retainer-reminders",
+        title: "Retainer reminders",
+        blurb: "When a customer has been asked for the retainer and hasn't paid, they get up to three reminders by text and email, each with their pay link and the amount. The days count from the first time they were asked. Reminders stop the moment the retainer is paid or the booking is cancelled. The day after the last one, you get a bell alert, \"Retainer still unpaid\". The wording is in Messages, Templates. A change applies to reminders that haven't gone yet.",
+        fields: [
+          { key: "retainerReminderDay1", label: "First reminder (days after)", kind: "number", min: 0, max: 60, step: "1", required: true, row: "rr", help: "1 means the day after they were first asked, at 10 AM. 0 switches this reminder off." },
+          { key: "retainerReminderDay2", label: "Second reminder (days after)", kind: "number", min: 0, max: 60, step: "1", required: true, row: "rr", help: "3 means three days after they were first asked. 0 switches this reminder off." },
+          { key: "retainerReminderDay3", label: "Last reminder (days after)", kind: "number", min: 0, max: 60, step: "1", required: true, row: "rr", help: "7 means a week after they were first asked. 0 switches this reminder off." },
+        ],
+      },
+      {
         id: "cancellation-holds",
         title: "Cancellation and unpaid holds",
         blurb: "How long a customer can cancel for free, and when a held date with nothing paid is let go. The cancellation window shows at checkout and in contracts. Unpaid holds are checked every hour.",

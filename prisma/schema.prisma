@@ -40,6 +40,11 @@ model Account {
   // went to review. Shown to the customer; an open request older than this
   // raises a daily alert.
   requestResponseDays       Int      @default(3) @map("request_response_days")
+  // Block F1: how many days after the retainer was first asked for each
+  // reminder goes out. 0 switches that reminder off.
+  retainerReminderDay1      Int      @default(1) @map("retainer_reminder_day_1")
+  retainerReminderDay2      Int      @default(3) @map("retainer_reminder_day_2")
+  retainerReminderDay3      Int      @default(7) @map("retainer_reminder_day_3")
   // Share of the total taken as the deposit. One global value for now.
   depositPercentage         Decimal  @default(20) @map("deposit_percentage") @db.Decimal(5, 2)
   // Days before the event after which a cancellation is no longer free. One
@@ -521,6 +526,20 @@ model Booking {
   // Block A11: staff say this is (true) or is not (false) a wedding; null
   // means the automatic rule decides.
   weddingOverride          Boolean?  @map("wedding_override")
+  // Block F1. When the booking became Confirmed on the policy path: the
+  // retainer was paid and no contract is needed. (A contract booking is
+  // Confirmed when it is Signed and paid, as before.) Null on bookings paid
+  // before Block F1, which stay as they were until staff decide.
+  confirmedAt              DateTime? @map("confirmed_at")
+  // The private pay link: one unguessable token per booking, so a customer
+  // without an account can still pay. Same pattern as the contract link.
+  payToken                 String?   @unique @default(dbgenerated("replace(((gen_random_uuid())::text || (gen_random_uuid())::text), '-'::text, ''::text)")) @map("pay_token")
+  // When the customer was first asked for the retainer (the pay screen at
+  // checkout, or the pay link). The retainer reminders count from here.
+  retainerRequestedAt      DateTime? @map("retainer_requested_at")
+  // The last time staff or the system sent the pay link, and who.
+  payLinkSentAt            DateTime? @map("pay_link_sent_at")
+  payLinkSentByName        String?   @map("pay_link_sent_by_name")
   createdAt                DateTime  @default(now()) @map("created_at")
   updatedAt                DateTime  @default(now()) @updatedAt @map("updated_at")
 
@@ -536,6 +555,8 @@ model Booking {
   agreement     Agreement?
   designRequest DesignRequest?
   payments      Payment[]
+  cancellationRequests CancellationRequest[]
+  refundRecords RefundRecord[]
 
   @@index([accountId, eventDate])
   @@index([leadId])
@@ -1288,6 +1309,55 @@ model AddressLookup {
 
   @@index([expiresAt])
   @@map("address_lookups")
+}
+
+// Block F1. A customer asked to cancel. Nothing is cancelled and nothing is
+// freed until staff approve it. When a retainer was paid the customer was
+// shown the retainer terms and accepted them; what they saw is kept.
+model CancellationRequest {
+  id                   String    @id @default(cuid())
+  accountId            String    @map("account_id")
+  bookingId            String    @map("booking_id")
+  customerId           String?   @map("customer_id")
+  // Open, Approved or Declined.
+  status               String    @default("Open")
+  reason               String?
+  // What had been paid when they asked, in cents.
+  paidCents            Int       @default(0) @map("paid_cents")
+  termsAcceptedAt      DateTime? @map("terms_accepted_at")
+  termsPolicyVersionId String?   @map("terms_policy_version_id")
+  termsText            String?   @map("terms_text")
+  decidedAt            DateTime? @map("decided_at")
+  decidedByName        String?   @map("decided_by_name")
+  decisionNote         String?   @map("decision_note")
+  customerToldAt       DateTime? @map("customer_told_at")
+  createdAt            DateTime  @default(now()) @map("created_at")
+
+  booking Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+
+  @@index([accountId, status])
+  @@index([bookingId])
+  @@map("cancellation_requests")
+}
+
+// Block F1. A refund staff made in Stripe (or by check, or cash), written
+// down here. A record only: saving one moves no money and changes no payment.
+model RefundRecord {
+  id                    String   @id @default(cuid())
+  accountId             String   @map("account_id")
+  bookingId             String   @map("booking_id")
+  cancellationRequestId String?  @map("cancellation_request_id")
+  amountCents           Int      @map("amount_cents")
+  refundedOn            DateTime @map("refunded_on") @db.Date
+  method                String
+  note                  String?
+  recordedByName        String?  @map("recorded_by_name")
+  createdAt             DateTime @default(now()) @map("created_at")
+
+  booking Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+
+  @@index([bookingId])
+  @@map("refund_records")
 }
 
 model UsageCounter {

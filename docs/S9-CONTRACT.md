@@ -1,6 +1,6 @@
-# S9 contract: what the storefront needs from Block F2
+# S9 contract: what the storefront needs from Blocks F2 and F1
 
-Written 2026-11-12 with admin Block F2. Everything here is live on the admin API (`https://admin.thegoeventgroup.com`, and the old Railway address). Nothing in this file requires the storefront to change before it keeps working: every change is an added field or a new refusal with a plain sentence in `error`. The list under "What the storefront should build" is what makes the new behaviour visible to customers.
+Sections 1 to 5 were written 2026-11-12 with admin Block F2. Sections 6 to 9 were added 2026-11-13 with admin Block F1 (the money path). Everything here is live on the admin API (`https://admin.thegoeventgroup.com`, and the old Railway address). Nothing in this file requires the storefront to change before it keeps working: every change is an added field or a new refusal with a plain sentence in `error`. The list under "What the storefront should build" is what makes the new behaviour visible to customers.
 
 ## 1. Review rules result
 
@@ -146,7 +146,7 @@ For a review request the admin now keeps, from the same hold body: `delivery.pla
 - **"Talk to us instead"**, `POST /api/leads/concierge`: accepts optional `name`, `email` and `phone`, and uses the signed-in customer's details when the session cookie is sent. A lead is made only when there is at least one of the three. With none, the answer is HTTP 200 `{ "ok": true, "leadId": null }` and the customer should still be sent to Calendly. With one or more it is HTTP 201 `{ "ok": true, "leadId": "..." }` as before.
 - **Ask GO**, `POST /api/recommend`: accepts the same optional `name`, `email` and `phone`, and reads the session cookie when sent (`credentials: "include"`). The response is unchanged. A chat with none of the three is not saved as a lead.
 - **"We got your request" email and text** now say "a person will contact you within N business days" with the same N.
-- **Converted requests**: staff turning a request into a booking no longer always sends a contract. Over $1,000 or with a crewed item the customer gets the contract link as before. At $1,000 or less with no crew the booking appears in My party at "Held" with "Pay your retainer", and nothing is emailed (see "Open with Block F1" below).
+- **Converted requests**: staff turning a request into a booking no longer always sends a contract. Over $1,000 or with a crewed item the customer gets the contract link as before. At $1,000 or less with no crew the booking appears in My party at "Held" with "Pay your retainer", and since Block F1 the customer is texted and emailed their pay link with the amount (section 6).
 
 ## What the storefront should build
 
@@ -158,7 +158,194 @@ For a review request the admin now keeps, from the same hold body: `delivery.pla
 6. On the crew gig page, show `setupNotes` when present.
 7. Optional: a guest count field at checkout, sent as `guestCount`.
 
-## Open with Block F1 (money), not built here
+# Block F1: the money path
 
-- A request converted on the policy path (small price, no crew) sends the customer nothing. They only learn of it by opening My party.
-- A request converted on the contract path sends the contract link; after signing, nothing sends a way to pay.
+Everything below is live on the admin API. Two things change behaviour the storefront already uses and need a look before the next storefront release: the cancel call (section 7) and the stage of a paid small rental (section 8). The rest is new and additive.
+
+## 6. The pay link
+
+Every booking has one private pay link: `https://admin.thegoeventgroup.com/pay/<token>`. The token is unguessable and belongs to one booking, the same pattern as the contract link, so a customer with no account can use it. The admin sends it by text and email with the dollar amount:
+
+- right after staff turn a request into a booking, or create a booking themselves (policy path: the pay link; contract path: the contract link first, saying the retainer amount);
+- right after a contract is signed from a link or from My party with the retainer unpaid;
+- as reminders 1, 3 and 7 days after the retainer was first asked for (the days are a setting);
+- in every balance reminder, with the amount and the due date;
+- whenever staff press "Send pay link" on a booking.
+
+A contract signed at checkout is not sent a link that minute, because the pay step is the next screen. If the customer leaves without paying, the reminders carry the link.
+
+### What the link does today (no storefront work needed)
+
+`GET /pay/<token>` on the admin host looks at what is owed and sends the customer there:
+
+| What is owed | Where the link goes |
+|---|---|
+| A contract booking, not signed yet | the signing page, `<store>/sign/<signingToken>` (works without an account) |
+| The retainer | Stripe's own hosted payment page for the retainer amount |
+| The balance (retainer paid) | Stripe's own hosted payment page for the balance |
+| Nothing, or the booking is cancelled or finished | a plain page that says so, with a link to My party |
+
+After paying, Stripe returns the customer to `/pay/<token>/done`, a plain admin page: "Payment received. Thank you." with a link to My party. Leaving Stripe without paying lands on `/pay/<token>/back`: "No payment was made", with the link again. These pages are plain on purpose and are not styled like the store.
+
+### What the storefront should build: a pay screen at `<store>/pay/:token`
+
+A store screen would let the customer see the booking, review the rental policy (policy path) and pay in the embedded form they already know from checkout. When it exists, tell the admin and the links in messages will point at it instead. It needs two calls. Neither uses the session cookie.
+
+#### `GET /api/pay/:token`
+
+```json
+{
+  "step": "retainer",
+  "amount": 45,
+  "kind": "retainer",
+  "stage": "Held",
+  "eventDate": "2026-12-26",
+  "customerFirstName": "Sarah",
+  "total": 225,
+  "paid": 0,
+  "retainerPaid": false,
+  "balancePaid": false,
+  "contractLink": null,
+  "policy": { "id": "cmw...", "version": 4, "text": "Cancellation and retainer policy ..." },
+  "hasAccount": false
+}
+```
+
+- `step` is one of `sign`, `retainer`, `balance`, `nothing`, `closed`.
+  - `sign`: a contract booking that is not signed. `contractLink` is the signing page; send the customer there first. `amount` is the retainer they will owe after signing.
+  - `retainer` or `balance`: `amount` is what to collect now, in dollars. Never compute it in the browser.
+  - `nothing`: all paid up. `closed`: cancelled, released or finished.
+- `policy` is the current rental policy for a booking with no contract (null for a contract booking, or when no policy text exists). Show it above the pay button on the policy path: a booking staff made on the phone was agreed to out loud, and this is where the customer reads it.
+- 404 `{ "error": "That pay link isn't known.", "reason": "not-found" }` for a wrong token.
+- Nothing else about the booking is returned: no surname, phone, email, address or items.
+
+#### `POST /api/pay/:token/session`
+
+No body. Returns the same shape as `POST /api/customer/bookings/:id/payments/session`, for the embedded Stripe form:
+
+```json
+{ "clientSecret": "cs_test_..._secret_...", "sessionId": "cs_test_...", "amount": 45, "kind": "retainer" }
+```
+
+Refusals, HTTP 409: `{ "reason": "not-payable", "error": "Sign the contract first, then the retainer." }` and `{ "reason": "nothing-due", "error": "Nothing is due right now." }`. After the form reports completion, poll `GET /api/payments/status?sessionId=...` exactly as checkout does.
+
+## 7. Cancellation requests (changed behaviour)
+
+**A customer can no longer cancel a booking.** `POST /api/customer/bookings/:id/cancel` now asks GO to cancel it. The booking, its date and its items stay exactly as they were until staff approve or decline, and the customer is emailed the outcome. This applies to every booking, including contract bookings, which used to answer `call-go`.
+
+### `GET /api/customer/bookings/:id/cancel` (new)
+
+Call it when the customer opens "Cancel", to know what to show.
+
+```json
+{
+  "paid": 45,
+  "retainerPaid": true,
+  "termsRequired": true,
+  "terms": {
+    "source": "policy",
+    "title": "Cancellation and retainer policy",
+    "text": "The retainer is 20% of the total and is non-refundable ..."
+  },
+  "pendingRequest": null
+}
+```
+
+- `termsRequired` is true when anything has been paid. Show `terms.title` and `terms.text` in full with a checkbox ("I have read and accept these terms") before the customer can send the request.
+- `terms.source` is `contract` when the text comes from the customer's own signed contract (its retainer and cancellation clauses), otherwise `policy` (the rental policy from Settings > Contract and policy). `terms` can be null when no text exists; the customer can still ask.
+- `pendingRequest` is set when a request is already waiting: show "We're reviewing your request to cancel" instead of the form.
+- 409 with a sentence in `error` for a booking that is already cancelled, released or finished.
+
+### `POST /api/customer/bookings/:id/cancel`
+
+Request:
+
+```json
+{ "reason": "We moved the party to another weekend", "acceptTerms": true }
+```
+
+- `reason` is optional text, up to 1000 characters. Ask for it; staff read it. Links are stripped.
+- `acceptTerms` must be `true` when `termsRequired` was true. The admin records the time and the exact text accepted.
+
+When terms are required and `acceptTerms` is missing, HTTP 409. Nothing is created:
+
+```json
+{
+  "error": "A retainer has been paid on this booking. Read and accept the retainer terms to ask to cancel, or call or text GO.",
+  "reason": "terms-required",
+  "paid": 45,
+  "terms": { "source": "policy", "title": "Cancellation and retainer policy", "text": "..." }
+}
+```
+
+**The storefront as deployed today sends no body.** For an unpaid booking its Cancel button still "works", but the booking is not cancelled: it becomes a request. For a paid booking it now gets the 409 above. Update the screen before customers find this.
+
+When the request is made, HTTP 202. The body is the customer booking as `GET /api/customer/bookings` returns it (unchanged, so the screen can redraw from it) plus:
+
+```json
+{
+  "id": "cmw...",
+  "stage": "Confirmed",
+  "pendingRequest": { "type": "cancellation", "id": "cmx...", "status": "open", "requestedAt": "2026-11-13T15:04:11.000Z", "reason": "We moved the party to another weekend" },
+  "cancellationRequested": true,
+  "cancellationRequest": { "id": "cmx...", "status": "open", "requestedAt": "2026-11-13T15:04:11.000Z", "reason": "We moved the party to another weekend", "termsAccepted": true },
+  "paid": 45,
+  "terms": { "source": "policy", "title": "Cancellation and retainer policy", "text": "..." },
+  "message": "We got your request to cancel. Your booking is still in place until our team reviews it, and we will email you with the outcome."
+}
+```
+
+Asking again while one is open answers HTTP 200 with the same request. A booking already cancelled or released answers 200 with the booking, as before. A finished booking answers 409.
+
+### What the customer sees afterwards
+
+- While staff decide: the booking is unchanged and `pendingRequest` is set on it in `GET /api/customer/bookings`. Show "Cancellation requested, we're reviewing it" and hide Cancel, Reschedule and Change.
+- Approved: the booking's `stage` becomes `Cancelled`, `pendingRequest` goes back to null, and the customer gets the "Cancellation approved" email.
+- Declined: the booking is unchanged, `pendingRequest` goes back to null, and the customer gets the "Cancellation not approved" email asking them to call.
+- The admin never refunds automatically. Do not promise a refund anywhere on this screen.
+
+## 8. Booking states (changed behaviour)
+
+`stage` on a customer booking is one of: `Held`, `Requested`, `Contract Sent`, `Signed`, `Retainer Paid`, `Confirmed`, `Completed`, `Cancelled`, `Released`.
+
+What changed: **a small rental (tier 1, no contract) is now `Confirmed` the moment its retainer is paid.** It used to read `Retainer Paid` and never move on. The customer also gets the "Booking confirmed" text and email, and the calendar invite, at that moment.
+
+| Booking | Before paying | After the retainer is paid |
+|---|---|---|
+| Tier 1 (rental policy) | `Held` | `Confirmed` (was `Retainer Paid`) |
+| Tier 2, signed at checkout | `Requested` | `Confirmed` (unchanged) |
+| Tier 2, contract sent by staff | `Requested`, then still `Requested` once signed | `Confirmed` (unchanged) |
+| Any, cancelled by staff or an approved request | | `Cancelled` |
+| Tier 1 hold that lapsed unpaid | `Released` | |
+
+`Retainer Paid` can still appear, for a contract booking whose retainer staff recorded before the contract was signed. Treat it as "paid, waiting on the signature". A small rental paid before 2026-11-13 can also still read `Retainer Paid`.
+
+A tier 1 booking, as `GET /api/customer/bookings` returns its Block T1 fields after paying:
+
+```json
+{
+  "tier": 1,
+  "stage": "Confirmed",
+  "steps": [
+    { "key": "retainer", "state": "done", "at": "2026-11-13T15:02:40.000Z" },
+    { "key": "balance", "state": "next" }
+  ],
+  "contract": { "agreementId": "cmw...", "status": "none", "signedAt": null, "pdfUrl": null },
+  "retainer": { "amount": 45, "paid": true, "paidAt": "2026-11-13T15:02:40.000Z", "payable": false },
+  "balance": { "amount": 180, "dueDate": "2026-11-26", "paid": false, "payable": true },
+  "rescheduleMode": "self",
+  "pendingRequest": null
+}
+```
+
+`pendingRequest` was always null before; it is now `{ "type": "cancellation", "id", "status": "open", "requestedAt", "reason" }` while a cancellation request waits.
+
+The store's own promise, "We'll email you a secure payment link", is now kept: balance reminders carry the pay link, the amount and the due date.
+
+## 9. What the storefront should build for Block F1
+
+1. **Cancel becomes "Ask to cancel"** (section 7): call the GET, show the terms with a checkbox when `termsRequired`, ask for a reason, POST with `acceptTerms`, then show the pending state. This one is needed soon: today's Cancel button no longer cancels.
+2. **Show `pendingRequest`** on a booking in My party and hide the self-serve actions while it is set.
+3. **Treat `Confirmed` as the paid state for small rentals** (section 8). Anything keyed on `Retainer Paid` for tier 1 should also accept `Confirmed`.
+4. **A pay screen at `/pay/:token`** (section 6), with the policy shown on the policy path and the embedded Stripe form. Until it exists the admin's plain pages do the job.
+5. Optional: on the checkout "pay your retainer" step, say that a reminder with a payment link will follow if they leave.

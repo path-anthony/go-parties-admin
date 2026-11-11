@@ -19,6 +19,7 @@ import { Prisma } from "../../src/generated/prisma/client.js";
 import { BALANCE_PREFERENCES, BOOKING_STAGES, displayStatus } from "../../src/lib/bookingStatus.js";
 import { AGREEMENT_SELECT } from "../agreements.js";
 import { notifyStageChange, sendContract } from "../notify.js";
+import { confirmIfPaid } from "../confirm.js";
 import { queueGoogleSync } from "../google/sync.js";
 import { checkBookingAddress } from "../addressLookup.js";
 import { rushFor } from "../settings.js";
@@ -43,7 +44,7 @@ const WITH_UNITS = {
 const ORDER = [{ eventDate: "asc" as const }, { createdAt: "asc" as const }];
 
 // The join rows are an implementation detail; clients see a flat unitIds.
-function serialize<T extends { units: { unitId: string }[]; status: string; eventDate: Date; occasion: string | null; weddingOverride: boolean | null; package: { occasions: string[] } | null; weddingDetails: { status: string } | null; retainerPaid: boolean; tier?: number | null; agreement?: { confirmByDate?: string | null } | null }>(booking: T) {
+function serialize<T extends { units: { unitId: string }[]; status: string; eventDate: Date; occasion: string | null; weddingOverride: boolean | null; package: { occasions: string[] } | null; weddingDetails: { status: string } | null; retainerPaid: boolean; confirmedAt: Date | null; tier?: number | null; agreement?: { confirmByDate?: string | null } | null }>(booking: T) {
   const { units, ...rest } = booking;
   // status is the stage set by hand; displayStatus is what it reads as
   // (Confirmed only when Signed and the retainer is paid).
@@ -416,6 +417,9 @@ router.patch("/:id", async (req, res) => {
     throw err;
   }
 
+  // Block F1: staff ticking Retainer paid confirms a booking that needs no
+  // contract, the same as a payment does.
+  if (data.retainerPaid === true && !existing.retainerPaid) await confirmIfPaid(id);
   const booking = await prisma.booking.findUniqueOrThrow({ where: { id }, include: WITH_UNITS });
   res.json(serialize(booking));
   // If the status the customer would read changed (a stage, or the

@@ -4,7 +4,6 @@ import type { Customer } from "../../src/generated/prisma/client.js";
 import { getDefaultAccount } from "../account.js";
 import {
   NoFreeUnit,
-  cancelBooking,
   changeBookingItem,
   rescheduleBooking,
   serializeCustomerBooking,
@@ -32,6 +31,8 @@ import { contractView, parseSignBody } from "./contracts.js";
 import { notifyContractSigned } from "../notify.js";
 import { PaymentError, createPaymentSession } from "../payments.js";
 import { SELF_SERVE_REFUSAL, portalFields, selfServeAllowed } from "../portal.js";
+import { MAX_REASON, cancellationPreview, requestCancellation, type RetainerTerms } from "../cancellations.js";
+import { sendPayLink } from "../payLink.js";
 import { getSettings } from "../settings.js";
 import { bookingMapsUrl } from "../delivery.js";
 import { StripeError } from "../stripe/client.js";
@@ -57,6 +58,8 @@ const WITH_UNIT_DETAILS = {
   // Block T1: the contract and the money, for the portal's steps.
   agreement: { select: { id: true, format: true, signingToken: true, contractStatus: true, contractSentAt: true, contractUrl: true, contractDocument: { select: { signedAt: true, documentJson: true } } } },
   payments: { select: { kind: true, status: true, amountCents: true, refundedCents: true, paidAt: true }, orderBy: { createdAt: "asc" as const } },
+  // Block F1: a cancellation request waiting on staff.
+  cancellationRequests: { where: { status: "Open" }, select: { id: true, reason: true, createdAt: true }, orderBy: { createdAt: "desc" as const }, take: 1 },
 } as const;
 
 type PortalRow = Parameters<typeof serializeCustomerBooking>[0] & Parameters<typeof portalFields>[0];
@@ -303,6 +306,32 @@ function notChangeable(status: string): string | null {
   return null;
 }
 
+// Block F1. A customer cannot cancel a booking themselves any more. This
+// call asks GO to cancel it: a cancellation request with their reason. The
+// booking, its date and its items stay held until staff decide. When a
+// retainer has been paid the retainer terms come back and must be accepted
+// (acceptTerms: true) before the request is made.
+const termsJson = (t: RetainerTerms | null) => (t ? { source: t.source, title: t.title, text: t.text } : null);
+
+// What the store shows before asking: what was paid, the terms, and a request
+// that is already waiting.
+router.get("/bookings/:id/cancel", requireCustomer, async (req, res) => {
+  const customer = res.locals.customer as Customer;
+  const booking = await ownBooking(customer, String(req.params.id));
+  if (!booking) return res.status(404).json({ error: "booking not found" });
+  const why = notChangeable(booking.status);
+  if (why) return res.status(409).json({ error: why });
+  const preview = await cancellationPreview(booking.id);
+  res.setHeader("Cache-Control", "no-store");
+  res.json({
+    paid: preview.money.paidCents / 100,
+    retainerPaid: preview.money.retainerPaid,
+    termsRequired: preview.termsRequired,
+    terms: termsJson(preview.terms),
+    pendingRequest: preview.open ? { id: preview.open.id, status: "open", requestedAt: preview.open.createdAt.toISOString(), reason: preview.open.reason } : null,
+  });
+});
+
 router.post("/bookings/:id/cancel", requireCustomer, customerActionLimiter, async (req, res) => {
   const customer = res.locals.customer as Customer;
   const booking = await ownBooking(customer, String(req.params.id));
@@ -315,13 +344,29 @@ router.post("/bookings/:id/cancel", requireCustomer, customerActionLimiter, asyn
   if (booking.status === "Completed") {
     return res.status(409).json({ error: "This booking already happened." });
   }
-  // Block T1: a contract booking (tier 2) or a reviewed one (tier 3) is
-  // changed with GO, not from the portal.
-  if (!selfServeAllowed(booking)) return res.status(409).json({ error: SELF_SERVE_REFUSAL, reason: "call-go" });
-
-  await cancelBooking(booking.id, "Cancelled by the customer from their account.");
-  res.json(await portalBooking((await ownBooking(customer, booking.id)) as PortalRow));
-  queueGoogleSync(booking.id);
+  const body = (req.body ?? {}) as Record<string, unknown>;
+  if (body.reason !== undefined && body.reason !== null && (typeof body.reason !== "string" || body.reason.length > MAX_REASON)) {
+    return res.status(400).json({ error: `reason must be text up to ${MAX_REASON} characters`, reason: "reason-invalid", field: "reason" });
+  }
+  const asked = await requestCancellation(booking.id, { reason: typeof body.reason === "string" ? body.reason : null, acceptTerms: body.acceptTerms === true, customerId: customer.id });
+  if (!asked.ok) {
+    return res.status(409).json({
+      error: "A retainer has been paid on this booking. Read and accept the retainer terms to ask to cancel, or call or text GO.",
+      reason: "terms-required",
+      paid: asked.paidCents / 100,
+      terms: termsJson(asked.terms),
+    });
+  }
+  // The booking as it stands (unchanged, with pendingRequest set), plus the
+  // request and the terms that were accepted.
+  res.status(asked.created ? 202 : 200).json({
+    ...(await portalBooking((await ownBooking(customer, booking.id)) as PortalRow)),
+    cancellationRequested: true,
+    cancellationRequest: { id: asked.request.id, status: "open", requestedAt: asked.request.createdAt.toISOString(), reason: asked.request.reason, termsAccepted: asked.request.termsAcceptedAt !== null },
+    paid: asked.paidCents / 100,
+    terms: termsJson(asked.terms),
+    message: "We got your request to cancel. Your booking is still in place until our team reviews it, and we will email you with the outcome.",
+  });
 });
 
 router.post("/bookings/:id/reschedule", requireCustomer, customerActionLimiter, async (req, res) => {
@@ -476,7 +521,7 @@ router.post("/bookings/:id/sign", requireCustomer, customerActionLimiter, async 
       userAgent: req.get("user-agent") ?? null,
       baseRequest: req,
     });
-    void notifyContractSigned({ bookingId: booking.id, designRequestId: null }, signed);
+    void notifyContractSigned({ bookingId: booking.id, designRequestId: null }, signed).then(() => sendPayLink(booking.id, "signed"));
     queueGoogleSync(booking.id);
     res.status(201).json({
       signed: true,

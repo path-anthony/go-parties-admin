@@ -115,7 +115,9 @@ test("existing sends keep their exact wording", () => {
   assert.equal(sms("contract_signed"), "Thanks {{customerFirstName}}, your {{companyName}} contract for {{eventDate}} is signed. Your copy: {{contractPdfLink}}");
   assert.equal(sms("contract_signed_recorded"), "Thanks {{customerFirstName}}, we have your signed contract for {{eventDate}}. The next step is the retainer payment to confirm your date.");
   assert.equal(sms("booking_cancelled"), "Hi {{customerFirstName}}, your {{companyName}} booking for {{eventDate}} has been cancelled. If that doesn't look right, please call or text us.");
-  assert.equal(sms("balance_due_reminder"), "Hi {{customerFirstName}}, a reminder that the remaining balance of {{balanceDue}} for your {{companyName}} event on {{eventDate}} is coming due. Please call or text us to arrange payment.");
+  // Replaced in Block F1: the balance reminder carries the pay link, the amount and the due date.
+  assert.equal(sms("balance_due_reminder"), "Hi {{customerFirstName}}, the balance of {{balanceDue}} for your {{companyName}} event on {{eventDate}} is due {{balanceDueDate}}. Pay securely here: {{payLink}}");
+  assert.equal(TRIGGERS.some((t) => /call or text us to arrange payment/i.test(t.sms + t.emailBody)), false, "no message tells a customer to call to pay");
   // Replaced in Block 3: the invite now carries the bid link.
   assert.equal(sms("gig_bid_invite"), "Hi {{crewFirstName}}, {{companyName}} needs a {{gigRole}} on {{gigDate}} in {{gigTown}}. Pay range {{bidRange}}. Send your bid by {{bidDeadline}}: {{bidLink}}");
   assert.equal(sms("staff_contract_signed"), "Signed: {{customerName}} signed the contract for {{eventDate}}. {{contractPdfLink}}");

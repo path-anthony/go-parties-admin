@@ -40,6 +40,8 @@ import { adminWeddingRouter } from "./routes/weddingDetails.js";
 import { heroAdminRouter, publicHeroRouter, publicMediaRouter } from "./routes/hero.js";
 import tierRouter from "./routes/tier.js";
 import { adminPaymentsRouter, publicPaymentsRouter } from "./routes/payments.js";
+import { payApiRouter, payPagesRouter } from "./routes/pay.js";
+import { bookingMoneyRouter, cancellationRequestsRouter, moneyRouter } from "./routes/money.js";
 import stripeWebhookRouter from "./routes/stripeWebhook.js";
 import { availabilityLimiter } from "./rateLimit.js";
 import teamRouter from "./routes/team.js";
@@ -170,6 +172,13 @@ app.use("/api/webhooks/n8n", externalLeadLimiter, requireWebhookSecret, n8nWebho
 app.use("/api/webhooks/stripe", stripeWebhookRouter);
 // The storefront's payment status poll: public, by session id, rate limited.
 app.use("/api/payments", availabilityLimiter, publicPaymentsRouter);
+// Block F1: the pay link. The pages a customer lands on from a text or an
+// email (no session, the token is the key), and the same as JSON for a
+// storefront screen. Rate limited per address.
+app.use("/pay", availabilityLimiter, payPagesRouter);
+app.use("/api/pay", availabilityLimiter, payApiRouter);
+app.use("/api/cancellation-requests", requireAuth, cancellationRequestsRouter);
+app.use("/api/money", requireAuth, moneyRouter);
 app.use("/api/design-requests", requireAuth, designRequestsRouter);
 app.use("/api/settings", publicSettingsRouter);
 app.use("/api/settings", requireAuth, settingsRouter);
@@ -189,6 +198,7 @@ app.use("/api/bookings/direct", directBookingLimiter, directBookingsRouter);
 app.use("/api/bookings/tier", tierLimiter, tierRouter);
 app.use("/api/bookings/staff", requireAuth, staffBookingRouter);
 app.use("/api/bookings", requireAuth, adminPaymentsRouter);
+app.use("/api/bookings", requireAuth, bookingMoneyRouter);
 app.use("/api/bookings", requireAuth, adminWeddingRouter);
 app.use("/api/bookings", requireAuth, bookingsRouter);
 // Customer accounts: signup and login are public (strictly rate limited

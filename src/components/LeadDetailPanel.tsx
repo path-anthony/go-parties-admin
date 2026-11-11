@@ -12,6 +12,7 @@ import { RecordMessages } from "./RecordMessages";
 import { SendMessageControls } from "./SendMessageControls";
 import { AgreementChip, BalanceLabel } from "./AgreementChip";
 import { BookingStatusTag } from "./BookingStatusTag";
+import { CancellationRequests } from "./MoneyControls";
 import { RushTag } from "./RushTag";
 
 const usd = (n: number) => n.toLocaleString("en-US", { style: "currency", currency: "USD" });
@@ -227,6 +228,8 @@ function LeadDetailBody({
           )}
         </div>
       )}
+
+      <CancellationRequests leadId={lead.id} />
 
       <div className="detail-section">
         <SendMessageControls target={{ leadId: lead.id }} contract={!!lead.bookings && lead.bookings.length > 0} label="Text the customer" />

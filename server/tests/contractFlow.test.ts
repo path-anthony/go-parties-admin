@@ -19,6 +19,26 @@ import { prisma } from "../db.js";
 import { createDirectBooking } from "../directBooking.js";
 import { sendContract } from "../notify.js";
 
+
+// Block F1: this suite writes bookings and leads, so it runs only against a
+// throwaway database, and it makes what a fresh one lacks (a lead column
+// named "New", a policy with text) instead of assuming production's rows.
+if (!/zz_scratch/.test(process.env.DATABASE_URL ?? "")) throw new Error("contractFlow.test.ts runs only against a throwaway database (name containing zz_scratch)");
+const fixtures = { statuses: [] as string[], policies: [] as string[], items: [] as string[] };
+async function ensureFixtures(accountId: string, needItem: boolean) {
+  if ((await prisma.leadStatus.count({ where: { accountId, name: "New" } })) === 0) fixtures.statuses.push((await prisma.leadStatus.create({ data: { accountId, name: "New", position: 0 } })).id);
+  const policy = await prisma.policyVersion.findFirst({ where: { accountId }, orderBy: { version: "desc" } });
+  if (!policy || policy.text.trim() === "") fixtures.policies.push((await prisma.policyVersion.create({ data: { accountId, version: (policy?.version ?? 0) + 1, text: "ZZTEST rental policy: the retainer is {{depositPercentage}}% and non-refundable." } })).id);
+  if (needItem && (await prisma.item.count({ where: { accountId, price: { not: null }, units: { some: {} } } })) === 0) {
+    fixtures.items.push((await prisma.item.create({ data: { accountId, name: "ZZTEST Contract Item", category: "Tents", price: 100, units: { create: [{ label: "1" }, { label: "2" }, { label: "3" }, { label: "4" }, { label: "5" }, { label: "6" }] } } })).id);
+  }
+}
+async function removeFixtures() {
+  await prisma.item.deleteMany({ where: { id: { in: fixtures.items } } });
+  await prisma.policyVersion.deleteMany({ where: { id: { in: fixtures.policies } } }).catch(() => undefined);
+  await prisma.leadStatus.deleteMany({ where: { id: { in: fixtures.statuses } } }).catch(() => undefined);
+}
+
 const realFetch = globalThis.fetch;
 let texts: string[] = [];
 let accountId = "";
@@ -44,6 +64,7 @@ const stageOf = async (id: string) => (await prisma.booking.findUniqueOrThrow({ 
 
 before(async () => {
   accountId = (await getDefaultAccount()).id;
+  await ensureFixtures(accountId, true);
   globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
     if (String(url).includes("twilio")) {
       texts.push(decodeURIComponent(String(init?.body ?? "")).replace(/\+/g, " "));
@@ -59,6 +80,7 @@ after(async () => {
   const r = await prisma.designRequest.deleteMany({ where: { id: { in: made.requests } } });
   const b = await prisma.booking.deleteMany({ where: { id: { in: made.bookings } } });
   const l = await prisma.lead.deleteMany({ where: { id: { in: made.leads } } });
+  await removeFixtures();
   const left = {
     bookings: await prisma.booking.count({ where: { customerName: { startsWith: ZZ } } }),
     leads: await prisma.lead.count({ where: { customerName: { startsWith: ZZ } } }),
@@ -138,7 +160,11 @@ test("a signed contract is never resent by a stage change; the button sends the 
 });
 
 test("a storefront design request records the agreement and texts the acknowledgement once", async () => {
-  const item = await prisma.item.findFirstOrThrow({ where: { accountId, price: { not: null } }, select: { id: true } });
+  // Since Block F2 an order goes to review by amount, not by occasion alone:
+  // this one is a wedding priced over the Wedding review amount.
+  const rules = await prisma.account.findUniqueOrThrow({ where: { id: accountId }, select: { reviewAmountWedding: true, requestResponseDays: true } });
+  const item = await prisma.item.create({ data: { accountId, name: `${ZZ} Review Item`, category: "Tents", price: Number(rules.reviewAmountWedding) + 1000, units: { create: [{ label: "1" }, { label: "2" }] } }, select: { id: true } });
+  fixtures.items.push(item.id);
   texts = [];
   const input = {
     staff: false,
@@ -168,7 +194,8 @@ test("a storefront design request records the agreement and texts the acknowledg
   // The acknowledgement is sent after the reply; give it a moment.
   for (let i = 0; i < 40 && texts.length === 0; i++) await new Promise((r) => setTimeout(r, 250));
   assert.equal(texts.length, 1);
-  assert.match(texts[0], /Hi ZZTEST, this is GO! Event Group\. Big events get a personal look\. We'll reach out within one business day\./);
+  // The wording since Block F2: the promise in business days, from Settings.
+  assert.ok(texts[0].includes(`Hi ZZTEST, this is GO! Event Group. We got your request and a person will contact you within ${rules.requestResponseDays} business days.`), texts[0]);
   const log = await prisma.messageLog.findFirstOrThrow({ where: { designRequestId: body.designRequestId, channel: "sms" } });
   assert.deepEqual([log.triggerKey, log.status, log.journey], ["design_request_received", "sent", "client"]);
   // A request staff enter gets no acknowledgement and no agreement of its own.

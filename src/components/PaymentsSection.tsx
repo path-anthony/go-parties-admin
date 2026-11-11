@@ -1,7 +1,6 @@
 import { type FormEvent, useEffect, useState } from "react";
-import { getBookingPayments, recordPayment, refundPayment } from "../lib/api";
-import type { PaymentRow, PaymentsView } from "../lib/types";
-import { useIsOwner } from "../lib/me";
+import { getBookingPayments, recordPayment } from "../lib/api";
+import type { PaymentsView } from "../lib/types";
 
 const usd = (cents: number) => `$${(cents / 100).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const when = (iso: string) => new Date(iso).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZone: "America/New_York" });
@@ -16,11 +15,11 @@ const STATUS: Record<string, string> = {
   disputed: "Disputed",
 };
 
-// Block T1. Money on a booking: what came in, what is still due, a cash or
-// check payment recorded by hand, and (owners only) a partial refund of a
-// card payment through Stripe.
+// Block T1. Money on a booking: what came in, what is still due, and a cash
+// or check payment recorded by hand. Block F1: this app sends no money out,
+// so there is no refund button; a refund is made in Stripe and written in the
+// refund log (MoneyControls).
 export function PaymentsSection({ bookingId, onChanged }: { bookingId: string; onChanged?: () => void }) {
-  const isOwner = useIsOwner();
   const [view, setView] = useState<PaymentsView | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -29,9 +28,6 @@ export function PaymentsSection({ bookingId, onChanged }: { bookingId: string; o
   const [method, setMethod] = useState<"cash" | "check" | "other">("cash");
   const [amount, setAmount] = useState("");
   const [note, setNote] = useState("");
-  const [refunding, setRefunding] = useState<PaymentRow | null>(null);
-  const [refundAmount, setRefundAmount] = useState("");
-  const [refundNote, setRefundNote] = useState("");
 
   const refresh = () =>
     getBookingPayments(bookingId)
@@ -68,22 +64,6 @@ export function PaymentsSection({ bookingId, onChanged }: { bookingId: string; o
       setRecording(false);
       setAmount("");
       setNote("");
-    });
-  }
-
-  function submitRefund(e: FormEvent) {
-    e.preventDefault();
-    if (!refunding) return;
-    const cents = Math.round(Number(refundAmount) * 100);
-    if (!Number.isFinite(cents) || cents <= 0) {
-      setError("Enter the refund in dollars.");
-      return;
-    }
-    const p = refunding;
-    void act(() => refundPayment(bookingId, p.id, { amountCents: cents, note: refundNote.trim() || null })).then(() => {
-      setRefunding(null);
-      setRefundAmount("");
-      setRefundNote("");
     });
   }
 
@@ -125,11 +105,6 @@ export function PaymentsSection({ bookingId, onChanged }: { bookingId: string; o
               <span>
                 <span className={`msg-status ${p.status === "succeeded" ? "msg-sent" : p.status === "failed" || p.status === "disputed" ? "msg-failed" : "msg-skipped"}`}>{STATUS[p.status] ?? p.status}</span>
                 {p.paidAt ? <span className="muted"> {when(p.paidAt)} ET</span> : null}
-                {isOwner && p.refundable && (
-                  <button type="button" className="btn-secondary" disabled={busy} onClick={() => setRefunding(p)} style={{ marginLeft: 8 }}>
-                    Refund
-                  </button>
-                )}
               </span>
             </li>
           ))}
@@ -181,31 +156,6 @@ export function PaymentsSection({ bookingId, onChanged }: { bookingId: string; o
         </form>
       )}
 
-      {refunding && (
-        <form className="add-item-form" onSubmit={submitRefund}>
-          <p className="stage-warning" role="note">
-            The retainer is non-refundable under the contract. Refund only what GO has agreed to give back. Up to {usd(refunding.amountCents - refunding.refundedCents)} on this payment.
-          </p>
-          <div className="field-row">
-            <label>
-              Refund ($)
-              <input type="number" min={0.01} step="0.01" max={(refunding.amountCents - refunding.refundedCents) / 100} value={refundAmount} onChange={(e) => setRefundAmount(e.target.value)} disabled={busy} required />
-            </label>
-            <label>
-              Reason
-              <input value={refundNote} onChange={(e) => setRefundNote(e.target.value)} maxLength={300} disabled={busy} />
-            </label>
-          </div>
-          <div className="form-actions">
-            <button type="submit" className="btn-primary" disabled={busy}>
-              {busy ? "Refunding…" : "Refund through Stripe"}
-            </button>
-            <button type="button" className="btn-secondary" disabled={busy} onClick={() => setRefunding(null)}>
-              Cancel
-            </button>
-          </div>
-        </form>
-      )}
     </div>
   );
 }

@@ -281,7 +281,8 @@ test("a $5,000 wedding goes to review with everything the customer typed; conver
   assert.equal(b.occasion, "Reception only");
   await new Promise((r2) => setTimeout(r2, 500));
   assert.equal(await prisma.notification.count({ where: { dedupeKey: `design-request:${id}`, readAt: null } }), 0, "the bell alert is cleared");
-  const sent = await prisma.messageLog.findMany({ where: { bookingId: b.id, triggerKey: "contract_sent" } });
+  // Block F1: the contract message now states the retainer amount.
+  const sent = await prisma.messageLog.findMany({ where: { bookingId: b.id, triggerKey: { in: ["contract_sent", "contract_sent_pay"] } } });
   assert.ok(sent.length > 0, "the contract path sends the contract link");
   mine = await get("/api/customer/requests", cookie);
   req0 = (mine.json.requests as Record<string, unknown>[])[0];
@@ -307,7 +308,9 @@ test("a request converted at a small price takes the policy path: no contract is
   assert.equal(c.status, 201, JSON.stringify(c.json));
   assert.equal(c.json.tier, 1, "$800 with no crew is the policy path");
   await new Promise((r2) => setTimeout(r2, 400));
-  assert.equal(await prisma.messageLog.count({ where: { bookingId: c.json.bookingId as string } }), 0, "nothing is sent on the policy path");
+  // Block F1: no contract on the policy path, and the customer is sent the pay link with the amount.
+  assert.equal(await prisma.messageLog.count({ where: { bookingId: c.json.bookingId as string, triggerKey: { in: ["contract_sent", "contract_sent_pay"] } } }), 0, "no contract is sent on the policy path");
+  assert.ok((await prisma.messageLog.count({ where: { bookingId: c.json.bookingId as string, triggerKey: "retainer_requested", status: "sent" } })) > 0, "the pay link is sent");
   const b = await prisma.booking.findUniqueOrThrow({ where: { id: c.json.bookingId as string } });
   assert.equal(b.status, "Held");
 });

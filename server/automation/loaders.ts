@@ -5,6 +5,9 @@ import { composeValues, type LoadedRecords } from "../messageContext.js";
 import { toE164 } from "../messaging.js";
 import { optedOutSet } from "../optOuts.js";
 import { getSettings } from "../settings.js";
+import { amountsFor } from "../payments.js";
+import { ensurePayToken, owedStep, payValues } from "../payLink.js";
+import { displayStatus } from "../../src/lib/bookingStatus.js";
 import { renderChannel } from "../sendTemplated.js";
 import { effectiveFrom, loadTemplateRows } from "../templates.js";
 import { mustGetTrigger, TRIGGERS, type Channel } from "../triggers.js";
@@ -41,6 +44,7 @@ const SCHEDULED = new Set<string>([
   "lead_nurture_day10",
   "contract_unsigned_nudge",
   "balance_due_reminder",
+  "retainer_reminder",
   "event_week_reminder",
   "event_eve_reminder",
   "post_event_thanks",
@@ -154,14 +158,20 @@ export async function loadPlans(scope: PlanScope = {}): Promise<Planned[]> {
   if (want("booking")) {
     const bookings = await prisma.booking.findMany({
       where: { accountId: base.accountId, ...(scope.bookingId ? { id: scope.bookingId } : { eventDate: { gte: cutoff }, status: { notIn: ["Cancelled", "Released"] } }) },
-      include: { agreement: true, designRequest: { include: { agreement: true } }, lead: { select: { source: true } }, package: { select: { occasions: true } }, weddingDetails: { select: { status: true } } },
+      include: { agreement: { include: { contractDocument: { select: { documentJson: true } } } }, payments: true, designRequest: { include: { agreement: true } }, lead: { select: { source: true } }, package: { select: { occasions: true } }, weddingDetails: { select: { status: true } } },
     });
     for (const b of bookings) {
       const agreement = b.agreement ?? b.designRequest?.agreement ?? null;
       const contact = asContact(b.phone, b.email);
       const subject: PlanSubject = { kind: "booking", id: b.id };
       const contractLink = agreement?.signingToken ? signingLink(agreement.signingToken) : undefined;
-      base.valuesFor(subject, { booking: b, extra: contractLink ? { contractLink } : undefined });
+      // Block F1: what is owed, the real balance, its due day and the pay
+      // link, worked out the one way (amountsFor) for every money message.
+      const money = amountsFor(b, b.payments, base.settings);
+      const owed = owedStep(b, money);
+      const payToken = b.payToken ?? (b.retainerRequestedAt || b.retainerPaid ? await ensurePayToken(b.id) : null);
+      const extra = { ...(contractLink ? { contractLink } : {}), ...payValues({ ...b, payToken }, money, base.settings.balanceDueDays) };
+      base.valuesFor(subject, { booking: b, extra });
       const plan = planBooking(
         {
           id: b.id,
@@ -177,7 +187,13 @@ export async function loadPlans(scope: PlanScope = {}): Promise<Planned[]> {
           contact,
           contract: agreement ? { sentAt: agreement.contractSentAt, signed: agreement.contractStatus === "Signed" } : null,
           balanceWindowDays: base.balanceWindowDays,
-          storefrontHeldUnsigned: b.lead?.source === "storefront" && b.status === "Held" && agreement?.contractStatus !== "Signed",
+          storefrontHeldUnsigned: b.lead?.source === "storefront" && b.status === "Held" && agreement?.contractStatus !== "Signed" && displayStatus(b) !== "Confirmed",
+          retainer: {
+            requestedAt: b.retainerRequestedAt,
+            days: [base.settings.retainerReminderDay1, base.settings.retainerReminderDay2, base.settings.retainerReminderDay3],
+            owed: owed.step === "retainer" || owed.step === "sign",
+            waitingOnSignature: owed.step === "sign",
+          },
           wedding: isWeddingBooking(b) ? { status: b.weddingDetails?.status ?? "not_started", hasAccount: b.customerId !== null } : null,
         },
         base.facts,
@@ -190,7 +206,7 @@ export async function loadPlans(scope: PlanScope = {}): Promise<Planned[]> {
         href: `/scheduling/bookings?booking=${b.id}`,
         contact,
         plan,
-        send: { context: { bookingId: b.id, extra: contractLink ? { contractLink } : undefined } },
+        send: { context: { bookingId: b.id, extra } },
       });
     }
   }
