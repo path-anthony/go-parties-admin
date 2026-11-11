@@ -349,6 +349,7 @@ export function IntegrationsPage() {
       {page.sections.map((s) => (
         <SectionView key={s.id} section={s}>
           {s.panel && panels[s.panel]}
+          {s.fields && <SettingsForm fields={s.fields} />}
         </SectionView>
       ))}
     </Page>

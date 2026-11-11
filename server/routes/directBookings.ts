@@ -447,6 +447,8 @@ staffBookingRouter.post("/", async (req, res) => {
     eventAddressSameAsHome: carried.eventAddressSameAsHome === true,
     // Block F1: on unless staff unticked "Send it now".
     sendPayLink: body.sendPayLink !== false,
+    // Block F3a: the lead this booking was built from, if any.
+    leadId: typeof body.leadId === "string" && body.leadId !== "" ? body.leadId : null,
   });
   res.status(result.status).json(result.body);
 });

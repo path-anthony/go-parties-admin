@@ -1,6 +1,6 @@
 # S9 contract: what the storefront needs from Blocks F2 and F1
 
-Sections 1 to 5 were written 2026-11-12 with admin Block F2. Sections 6 to 9 were added 2026-11-13 with admin Block F1 (the money path). Everything here is live on the admin API (`https://admin.thegoeventgroup.com`, and the old Railway address). Nothing in this file requires the storefront to change before it keeps working: every change is an added field or a new refusal with a plain sentence in `error`. The list under "What the storefront should build" is what makes the new behaviour visible to customers.
+Sections 1 to 5 were written 2026-11-12 with admin Block F2. Sections 6 to 9 were added 2026-11-13 with admin Block F1 (the money path). Block F3a (2026-11-14) changed nothing the store calls; it added the pay link switch described in section 6 and one new email, the unpaid hold reminder: a signed-in customer who holds a date on a small rental and does not pay is emailed their pay link 1 and 3 days later. Everything here is live on the admin API (`https://admin.thegoeventgroup.com`, and the old Railway address). Nothing in this file requires the storefront to change before it keeps working: every change is an added field or a new refusal with a plain sentence in `error`. The list under "What the storefront should build" is what makes the new behaviour visible to customers.
 
 ## 1. Review rules result
 
@@ -189,7 +189,7 @@ After paying, Stripe returns the customer to `/pay/<token>/done`, a plain admin 
 
 ### What the storefront should build: a pay screen at `<store>/pay/:token`
 
-A store screen would let the customer see the booking, review the rental policy (policy path) and pay in the embedded form they already know from checkout. When it exists, tell the admin and the links in messages will point at it instead. It needs two calls. Neither uses the session cookie.
+A store screen would let the customer see the booking, review the rental policy (policy path) and pay in the embedded form they already know from checkout. Since admin Block F3a there is a switch for this: Settings > Integrations > "Pay links open the storefront pay page", off by default. When the screen is deployed the owner turns it on, and every pay link in a new text or email is `<store>/pay/<token>` instead of the admin address. The admin address keeps working, so links already sent are not broken. The route must exist on the store before the switch is turned on. It needs two calls. Neither uses the session cookie.
 
 #### `GET /api/pay/:token`
 

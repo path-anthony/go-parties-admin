@@ -2,7 +2,7 @@ import { type FormEvent, useState } from "react";
 import { createLead } from "../lib/api";
 import type { Lead, LeadStatus, NewLead } from "../lib/types";
 
-const EMPTY_FIELDS = { customerName: "", contact: "", occasion: "", dateOfInterest: "", notes: "" };
+const EMPTY_FIELDS = { customerName: "", contact: "", occasion: "", dateOfInterest: "", notes: "", source: "phone" as const };
 
 export function AddLeadForm({
   statuses,
@@ -63,7 +63,14 @@ export function AddLeadForm({
           <input type="date" value={form.dateOfInterest} onChange={(e) => set("dateOfInterest", e.target.value)} />
         </label>
         <label>
-          Status
+          How they reached us
+          <select value={form.source ?? "phone"} onChange={(e) => set("source", e.target.value as "phone" | "manual")}>
+            <option value="phone">Phone or in person</option>
+            <option value="manual">Other (added by staff)</option>
+          </select>
+        </label>
+        <label>
+          Column
           <select value={form.status} onChange={(e) => set("status", e.target.value)}>
             {statuses.map((status) => (
               <option key={status} value={status}>

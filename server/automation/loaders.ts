@@ -45,6 +45,7 @@ const SCHEDULED = new Set<string>([
   "contract_unsigned_nudge",
   "balance_due_reminder",
   "retainer_reminder",
+  "hold_unpaid_reminder",
   "event_week_reminder",
   "event_eve_reminder",
   "post_event_thanks",
@@ -129,6 +130,10 @@ export type PlanScope = {
 
 const dayText = (d: Date) => d.toISOString().slice(0, 10);
 
+// Block F3a: a booking says where it was made (origin). One made before F3a
+// has none and still reads its lead's source, as it always did.
+export const madeInStore = (b: { origin: string | null; lead?: { source: string } | null }): boolean => (b.origin ? b.origin === "storefront" : b.lead?.source === "storefront");
+
 export async function loadPlans(scope: PlanScope = {}): Promise<Planned[]> {
   const now = scope.now ?? new Date();
   const base = await loadBase(now, { windowDays: scope.windowDays });
@@ -170,7 +175,7 @@ export async function loadPlans(scope: PlanScope = {}): Promise<Planned[]> {
       const money = amountsFor(b, b.payments, base.settings);
       const owed = owedStep(b, money);
       const payToken = b.payToken ?? (b.retainerRequestedAt || b.retainerPaid ? await ensurePayToken(b.id) : null);
-      const extra = { ...(contractLink ? { contractLink } : {}), ...payValues({ ...b, payToken }, money, base.settings.balanceDueDays) };
+      const extra = { ...(contractLink ? { contractLink } : {}), ...payValues({ ...b, payToken }, money, base.settings.balanceDueDays, base.settings.payLinksOpenStorefront) };
       base.valuesFor(subject, { booking: b, extra });
       const plan = planBooking(
         {
@@ -187,7 +192,15 @@ export async function loadPlans(scope: PlanScope = {}): Promise<Planned[]> {
           contact,
           contract: agreement ? { sentAt: agreement.contractSentAt, signed: agreement.contractStatus === "Signed" } : null,
           balanceWindowDays: base.balanceWindowDays,
-          storefrontHeldUnsigned: b.lead?.source === "storefront" && b.status === "Held" && agreement?.contractStatus !== "Signed" && displayStatus(b) !== "Confirmed",
+          storefrontHeldUnsigned: madeInStore(b) && b.status === "Held" && agreement?.contractStatus !== "Signed" && displayStatus(b) !== "Confirmed",
+          // Block F3a: a signed-in customer's own unpaid hold on the policy
+          // path. (When staff or a signature already asked for the retainer,
+          // the retainer reminders above cover it instead.)
+          holdReminder: {
+            enabled: base.settings.holdReminderEmails,
+            eligible: madeInStore(b) && b.customerId !== null && b.tier === 1 && b.status === "Held" && b.retainerRequestedAt === null,
+            owed: owed.step === "retainer",
+          },
           retainer: {
             requestedAt: b.retainerRequestedAt,
             days: [base.settings.retainerReminderDay1, base.settings.retainerReminderDay2, base.settings.retainerReminderDay3],
@@ -203,7 +216,7 @@ export async function loadPlans(scope: PlanScope = {}): Promise<Planned[]> {
         kind: "booking",
         recordId: b.id,
         name: b.customerName,
-        href: `/scheduling/bookings?booking=${b.id}`,
+        href: `/bookings?booking=${b.id}`,
         contact,
         plan,
         send: { context: { bookingId: b.id, extra } },

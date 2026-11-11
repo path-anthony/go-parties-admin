@@ -258,7 +258,7 @@ Every line below is the text on the screen, listed straight from `src/settingsCo
 
 - **Short-notice window (hours).** An event starting sooner than this is marked RUSH. It still goes through. 72 means anything within 3 days is rush. 0 turns it off.
 
-**Review rules.** An order at or over the amount for its occasion goes to your team in Design requests before a date is held. The customer pays nothing yet and is told you'll be in touch. Under the amount, they check out and pay as normal. Applies to new orders right away.
+**Review rules.** An order at or over the amount for its occasion goes to your team in Leads, under Storefront requests, before a date is held. The customer pays nothing yet and is told you'll be in touch. Under the amount, they check out and pay as normal. Applies to new orders right away.
 
 - **Wedding ($).** 5000 means a wedding order of $5,000 or more is reviewed, and a $4,999 one checks out online. Counts any Wedding occasion or a wedding package.
 - **Corporate ($).** 5000 means a corporate order of $5,000 or more is reviewed. Smaller ones check out online.
@@ -284,6 +284,7 @@ Every line below is the text on the screen, listed straight from `src/settingsCo
 - **First reminder (days after).** 1 means the day after they were first asked, at 10 AM. 0 switches this reminder off.
 - **Second reminder (days after).** 3 means three days after they were first asked. 0 switches this reminder off.
 - **Last reminder (days after).** 7 means a week after they were first asked. 0 switches this reminder off.
+- **Email customers who hold a date in the store and don't pay.** On: a signed-in customer who holds a date for a small rental and leaves without paying the retainer gets an email with their pay link 1 day and 3 days later. Email only, never a text, and only for customers with an account. Off: they get nothing. The wording is "Unpaid hold reminder" in Messages, Templates.
 
 **Cancellation and unpaid holds.** How long a customer can cancel for free, and when a held date with nothing paid is let go. The cancellation window shows at checkout and in contracts. Unpaid holds are checked every hour.
 
@@ -393,6 +394,10 @@ Every line below is the text on the screen, listed straight from `src/settingsCo
 - *Add bookings when they are.* Bookings go on the calendar at this stage. A booking that falls back below it (cancelled, released or moved back) is removed, and the customer gets Google's cancellation.
 
 **Storefront.** The address of the store. Links in contracts and messages point here.
+
+**Pay links.** Where the pay link in a text or an email takes the customer. Leave this off until the store's own pay page is live.
+
+- **Pay links open the storefront pay page.** Off: a pay link opens this admin's address and goes straight to the secure Stripe payment page. On: pay links in new messages open the store's own page at /pay instead. Links already sent keep working either way. Applies to the next message sent.
 
 ### Team (`/settings/team`)
 

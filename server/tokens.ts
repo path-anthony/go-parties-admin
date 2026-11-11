@@ -79,6 +79,7 @@ export const TOKEN_CATALOG: TokenInfo[] = [
   { key: "contractLink", label: "Contract signing link", example: "https://example.com/sign/abc" },
   { key: "contractPdfLink", label: "Signed contract PDF link", example: "https://example.com/contract.pdf" },
   { key: "portalLink", label: "Customer portal link", example: "https://example.com/party" },
+  { key: "storeLink", label: "Link to the store", example: "https://example.com" },
   { key: "cartLink", label: "Saved cart link", example: "https://example.com/cart/abc", unavailable: "The storefront doesn't save carts on the server yet." },
   { key: "holdExpiresAt", label: "When the hold ends", example: "Fri 5 PM", unavailable: "Holds don't expire in the app yet." },
   { key: "companyName", label: "Company name", example: "GO! Event Group" },

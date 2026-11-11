@@ -119,7 +119,7 @@ export const PAGES: PageSpec[] = [
       {
         id: "review-rules",
         title: "Review rules",
-        blurb: "An order at or over the amount for its occasion goes to your team in Design requests before a date is held. The customer pays nothing yet and is told you'll be in touch. Under the amount, they check out and pay as normal. Applies to new orders right away.",
+        blurb: "An order at or over the amount for its occasion goes to your team in Leads, under Storefront requests, before a date is held. The customer pays nothing yet and is told you'll be in touch. Under the amount, they check out and pay as normal. Applies to new orders right away.",
         fields: [
           { key: "reviewAmountWedding", label: "Wedding ($)", kind: "number", min: 0, step: "0.01", required: true, row: "r1", help: "5000 means a wedding order of $5,000 or more is reviewed, and a $4,999 one checks out online. Counts any Wedding occasion or a wedding package." },
           { key: "reviewAmountCorporate", label: "Corporate ($)", kind: "number", min: 0, step: "0.01", required: true, row: "r1", help: "5000 means a corporate order of $5,000 or more is reviewed. Smaller ones check out online." },
@@ -157,6 +157,7 @@ export const PAGES: PageSpec[] = [
           { key: "retainerReminderDay1", label: "First reminder (days after)", kind: "number", min: 0, max: 60, step: "1", required: true, row: "rr", help: "1 means the day after they were first asked, at 10 AM. 0 switches this reminder off." },
           { key: "retainerReminderDay2", label: "Second reminder (days after)", kind: "number", min: 0, max: 60, step: "1", required: true, row: "rr", help: "3 means three days after they were first asked. 0 switches this reminder off." },
           { key: "retainerReminderDay3", label: "Last reminder (days after)", kind: "number", min: 0, max: 60, step: "1", required: true, row: "rr", help: "7 means a week after they were first asked. 0 switches this reminder off." },
+          { key: "holdReminderEmails", label: "Email customers who hold a date in the store and don't pay", kind: "checkbox", help: "On: a signed-in customer who holds a date for a small rental and leaves without paying the retainer gets an email with their pay link 1 day and 3 days later. Email only, never a text, and only for customers with an account. Off: they get nothing. The wording is \"Unpaid hold reminder\" in Messages, Templates." },
         ],
       },
       {
@@ -308,6 +309,14 @@ export const PAGES: PageSpec[] = [
       { id: "maps", title: "Address checking (Google Maps)", blurb: "Checks that an address a customer types is a real street address. You can test one here.", panel: "statusMaps" },
       { id: "calendar", title: "Google Calendar", blurb: "Puts every booking on your calendar, and can send the customer an invite. Only an Owner can connect it.", panel: "googleCalendar" },
       { id: "storefront", title: "Storefront", blurb: "The address of the store. Links in contracts and messages point here.", panel: "statusStorefront" },
+      {
+        id: "pay-links",
+        title: "Pay links",
+        blurb: "Where the pay link in a text or an email takes the customer. Leave this off until the store's own pay page is live.",
+        fields: [
+          { key: "payLinksOpenStorefront", label: "Pay links open the storefront pay page", kind: "checkbox", help: "Off: a pay link opens this admin's address and goes straight to the secure Stripe payment page. On: pay links in new messages open the store's own page at /pay instead. Links already sent keep working either way. Applies to the next message sent." },
+        ],
+      },
     ],
   },
   {

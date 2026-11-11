@@ -37,7 +37,7 @@ async function payLinkView(bookingId: string) {
     amountCents: owed.amountCents,
     explain: WORD[owed.step],
     canSend: owed.step === "sign" || owed.step === "retainer" || owed.step === "balance",
-    link: payLinkFor(await ensurePayToken(bookingId)),
+    link: payLinkFor(await ensurePayToken(bookingId), owed.settings.payLinksOpenStorefront),
     hasPhone: Boolean(b.phone),
     hasEmail: Boolean(b.email),
     lastSentAt: b.payLinkSentAt?.toISOString() ?? null,

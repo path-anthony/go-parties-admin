@@ -2,10 +2,11 @@ import type { Lead, LeadSource } from "./types";
 
 export const SOURCE_LABEL: Record<LeadSource, string> = {
   "ask-go": "Ask GO",
-  manual: "Manual",
-  website: "Website",
+  manual: "Staff",
+  phone: "Phone or in person",
+  website: "Website form",
   storefront: "Storefront",
-  concierge: "Concierge",
+  concierge: "Talk to us",
 };
 
 // A concierge lead has no name (Calendly takes it), so it reads by what

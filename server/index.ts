@@ -42,6 +42,7 @@ import tierRouter from "./routes/tier.js";
 import { adminPaymentsRouter, publicPaymentsRouter } from "./routes/payments.js";
 import { payApiRouter, payPagesRouter } from "./routes/pay.js";
 import { bookingMoneyRouter, cancellationRequestsRouter, moneyRouter } from "./routes/money.js";
+import { inboxRouter, leadActionsRouter, todayRouter } from "./routes/inbox.js";
 import stripeWebhookRouter from "./routes/stripeWebhook.js";
 import { availabilityLimiter } from "./rateLimit.js";
 import teamRouter from "./routes/team.js";
@@ -148,6 +149,10 @@ app.use("/api/items", publicItemsRouter);
 app.use("/api/items", requireAuth, itemsRouter);
 app.use("/api/leads/external", externalLeadLimiter, requireWebhookSecret, externalLeadsRouter);
 app.use("/api/leads/concierge", conciergeLeadLimiter, conciergeLeadsRouter);
+// Block F3a: the Leads inbox, the Today view and the actions on one lead.
+app.use("/api/inbox", requireAuth, inboxRouter);
+app.use("/api/today", requireAuth, todayRouter);
+app.use("/api/leads", requireAuth, leadActionsRouter);
 app.use("/api/leads", requireAuth, leadsRouter);
 app.use("/api/lead-statuses", requireAuth, leadStatusesRouter);
 app.use("/api/units", requireAuth, unitsRouter);

@@ -5,7 +5,7 @@ import { deltaLabel } from "../lib/addons";
 import { BALANCE_PREFERENCES, type BalancePreference } from "../lib/bookingStatus";
 import { useNavigate } from "../lib/navigation";
 import { OCCASION_GROUPS } from "../lib/occasions";
-import type { AvailableItem, CustomerMatch, DesignRequest } from "../lib/types";
+import type { AvailableItem, CustomerMatch, DesignRequest, LeadPrefill } from "../lib/types";
 
 const usd = (n: number) => n.toLocaleString("en-US", { style: "currency", currency: "USD" });
 const todayEastern = () => new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York" }).format(new Date());
@@ -27,6 +27,7 @@ export function NewBookingModal({
   onCreated,
   onReview,
   request,
+  lead,
 }: {
   onClose: () => void;
   onCreated: (bookingId: string) => void | Promise<void>;
@@ -34,9 +35,12 @@ export function NewBookingModal({
   // request instead.
   onReview?: () => void;
   request?: DesignRequest;
+  // Block F3a: staff are building a booking for a lead. The form opens with
+  // what the lead already says, and the booking is linked to that lead.
+  lead?: LeadPrefill;
 }) {
   const navigate = useNavigate();
-  const [date, setDate] = useState(request ? request.eventDate.slice(0, 10) : "");
+  const [date, setDate] = useState(request ? request.eventDate.slice(0, 10) : (lead?.date ?? ""));
   const [time, setTime] = useState(request?.eventTime ?? "");
   const [address, setAddress] = useState(request?.address ?? "");
   const [occasion, setOccasion] = useState(request?.occasion ?? "");
@@ -55,7 +59,7 @@ export function NewBookingModal({
   const [search, setSearch] = useState("");
   // itemId -> quantity, in the order added.
   const [cart, setCart] = useState<Record<string, number>>(() =>
-    Object.fromEntries((request?.cart.items ?? []).map((i) => [i.itemId, i.quantity])),
+    Object.fromEntries(request ? request.cart.items.map((i) => [i.itemId, i.quantity]) : (lead?.itemIds ?? []).map((itemId) => [itemId, 1])),
   );
   // itemId -> groupId -> addonId ("" means cleared)
   const [picks, setPicks] = useState<Record<string, Record<string, string>>>({});
@@ -66,9 +70,9 @@ export function NewBookingModal({
   const [customerId, setCustomerId] = useState<string | null>(request?.customerId ?? null);
   // The account's own name, for the line saying which account is in use.
   const [accountName, setAccountName] = useState(request?.customerId ? request.customerName : "");
-  const [name, setName] = useState(request?.customerName ?? "");
-  const [phone, setPhone] = useState(request?.phone ?? "");
-  const [email, setEmail] = useState(request?.email ?? "");
+  const [name, setName] = useState(request?.customerName ?? lead?.name ?? "");
+  const [phone, setPhone] = useState(request?.phone ?? lead?.phone ?? "");
+  const [email, setEmail] = useState(request?.email ?? lead?.email ?? "");
 
   // On a converted request the price starts at what the request carried.
   const [priceText, setPriceText] = useState<string | null>(request && request.total !== null ? String(request.total) : null);
@@ -224,12 +228,13 @@ export function NewBookingModal({
         balancePaymentPreference: balance,
         agreed: true,
         ...(request ? { designRequestId: request.id } : {}),
+        ...(lead ? { leadId: lead.id } : {}),
         ...(!request && !sendNow ? { sendPayLink: false } : {}),
       });
       if (result.reviewRequired) {
         // Over the threshold or an occasion that needs review: it became a
         // design request, and nothing was held.
-        setReviewMessage(`${result.reviewReason ? `${result.reviewReason}, so this` : "This one needs review, so it"} was sent to Design requests instead of being held. Nothing is locked yet.`);
+        setReviewMessage(`${result.reviewReason ? `${result.reviewReason}, so this` : "This one needs review, so it"} was sent to Leads, Storefront requests, instead of being held. Nothing is locked yet.`);
         setBusy(false);
         onReview?.();
         return;
@@ -245,7 +250,7 @@ export function NewBookingModal({
     <div className="modal-backdrop" onClick={onClose}>
       <div className="modal" role="dialog" aria-modal="true" aria-label="New booking" onClick={(e) => e.stopPropagation()}>
         <div className="modal-head">
-          <h2>{request ? "Convert design request" : "New booking"}</h2>
+          <h2>{request ? "Convert storefront request" : lead ? `Build a booking for ${lead.name || "this lead"}` : "New booking"}</h2>
           <button type="button" className="icon-btn" onClick={onClose} aria-label="Close">
             <X size={16} />
           </button>
@@ -288,7 +293,7 @@ export function NewBookingModal({
                     </optgroup>
                   ))}
                 </select>
-                <span className="muted field-help">An order at or over the review amount for its occasion (Settings, Booking rules) is sent to Design requests instead of being held.</span>
+                <span className="muted field-help">An order at or over the review amount for its occasion (Settings, Booking rules) is sent to Leads, Storefront requests, instead of being held.</span>
               </label>
               <label>
                 Balance payment
@@ -515,10 +520,10 @@ export function NewBookingModal({
                 className="btn-secondary"
                 onClick={() => {
                   onClose();
-                  navigate("requests");
+                  navigate("leads", { leadView: "requests" });
                 }}
               >
-                Open Design requests
+                Open storefront requests
               </button>
             </p>
           )}

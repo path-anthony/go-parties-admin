@@ -3,7 +3,7 @@
 // real page. Run with npm test (not part of the browser bundle).
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { LEGACY_REDIRECTS, LEGACY_TABS, NAV, allPagePaths, breadcrumbFor, screenToPath } from "./nav.tsx";
+import { LEGACY_REDIRECTS, LEGACY_TABS, NAV, allPagePaths, breadcrumbFor, redirectTarget, screenToPath } from "./nav.tsx";
 
 const pages = allPagePaths();
 const realTarget = (to: string) => pages.includes(to.split("?")[0]);
@@ -43,20 +43,23 @@ test("every place the app sends you (navigate) lands on a real page", () => {
     const to = screenToPath(item.key);
     assert.ok(realTarget(to), `${item.key} -> ${to}`);
   }
-  assert.equal(screenToPath("leads", { leadStatus: "Booked" }), "/leads?status=Booked");
-  assert.equal(screenToPath("leads", { leadFollowUp: true }), "/leads?followUp=1");
-  assert.equal(screenToPath("leads", { leadStatus: "Proposal sent", leadStaleDays: 5 }), "/leads?status=Proposal+sent&staleDays=5");
+  assert.equal(screenToPath("leads", { leadView: "requests" }), "/leads?view=requests");
+  assert.equal(screenToPath("leads"), "/leads");
   assert.equal(screenToPath("crew", { gigStatus: "Needs Crew", gigId: "abc" }), "/crew/gigs?status=Needs+Crew&gig=abc");
   assert.equal(screenToPath("messages"), "/messages/upcoming");
-  assert.equal(screenToPath("scheduling"), "/scheduling/bookings");
+  assert.equal(screenToPath("bookings"), "/bookings");
+  assert.equal(screenToPath("inventory"), "/inventory/items");
+  assert.equal(screenToPath("today"), "/today");
 });
 
 test("the breadcrumb matches the sidebar path", () => {
   assert.deepEqual(breadcrumbFor("/settings/booking-rules").map((c) => c.label), ["Settings", "Booking rules"]);
-  assert.deepEqual(breadcrumbFor("/crew/skills").map((c) => c.label), ["Crew & Gigs", "Skills"]);
+  assert.deepEqual(breadcrumbFor("/crew/skills").map((c) => c.label), ["Crew and Gigs", "Skills"]);
+  assert.deepEqual(breadcrumbFor("/inventory/availability").map((c) => c.label), ["Inventory", "Availability"]);
+  assert.deepEqual(breadcrumbFor("/bookings").map((c) => c.label), ["Bookings"]);
   assert.deepEqual(breadcrumbFor("/messages/sent-log").map((c) => c.label), ["Messages", "Sent log"]);
   assert.deepEqual(breadcrumbFor("/leads").map((c) => c.label), ["Leads"]);
-  assert.deepEqual(breadcrumbFor("/design-requests").map((c) => c.label), ["Design requests"]);
+  assert.deepEqual(breadcrumbFor("/today").map((c) => c.label), ["Today"]);
 });
 
 test("the pages that were on the old Settings screen and its tabs all have a home", () => {
@@ -88,4 +91,27 @@ test("the Notifications page has its own address and stays out of the sidebar", 
   assert.equal(NAV.find((n) => n.key === "notifications")?.hiddenFromSidebar, true);
   assert.deepEqual(breadcrumbFor("/notifications").map((c) => c.label), ["Notifications"]);
   assert.equal(NAV.filter((n) => n.hiddenFromSidebar).length, 1);
+});
+
+// Block F3a: the menu, renamed and reordered, with every old address kept.
+test("the menu is Today, Leads, Bookings, Inventory, Crew and Gigs, Messages, Settings", () => {
+  assert.deepEqual(NAV.filter((n) => !n.hiddenFromSidebar).map((n) => n.label), ["Today", "Leads", "Bookings", "Inventory", "Crew and Gigs", "Messages", "Settings"]);
+  assert.deepEqual(NAV.find((n) => n.key === "inventory")?.pages?.map((p) => p.label), ["Items", "Packages and themes", "Availability"]);
+  assert.equal(NAV.some((n) => /scheduling|design/i.test(n.label)), false, "Scheduling and Design requests are gone from the menu");
+});
+
+test("old addresses land on the new ones and keep what was after the question mark", () => {
+  const to = new Map(LEGACY_REDIRECTS);
+  assert.equal(to.get("/overview"), "/today");
+  assert.equal(to.get("/"), "/today");
+  assert.equal(to.get("/scheduling/bookings"), "/bookings");
+  assert.equal(to.get("/scheduling/inventory-status"), "/inventory/availability");
+  assert.equal(to.get("/packages"), "/inventory/packages");
+  assert.equal(to.get("/design-requests"), "/leads?view=requests");
+  // A link to one booking, already sent in an email or a digest, still opens it.
+  assert.equal(redirectTarget("/bookings", "?booking=abc123"), "/bookings?booking=abc123");
+  assert.equal(redirectTarget("/leads?view=requests", "?status=Open"), "/leads?view=requests");
+  assert.equal(redirectTarget("/today", ""), "/today");
+  // /inventory was a page and is a group now: its own address opens Items.
+  assert.equal(NAV.find((n) => n.path === "/inventory")?.pages?.[0].path, "/inventory/items");
 });

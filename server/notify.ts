@@ -9,6 +9,7 @@ import type { SendResult } from "./messaging.js";
 import { sendTemplatedMessage, type ChannelOutcome } from "./sendTemplated.js";
 import { displayStatus, type DisplayStatus } from "../src/lib/bookingStatus.js";
 import { todayEastern } from "./validate.js";
+import { loadMoney } from "./payments.js";
 
 // The automatic messages, each now a trigger in server/triggers.ts sent
 // through sendTemplatedMessage. This file decides WHEN each one fires and
@@ -66,6 +67,21 @@ export type ContractSendResult = {
 // button). The message is then "Contract ready to sign, with the retainer
 // amount". It is the same one contract send, under the same key.
 export async function sendContract(target: { bookingId?: string; designRequestId?: string }, kind: ContractSendKind, pay?: { amountDue: string }): Promise<ContractSendResult> {
+  return sendContractWith(target, kind, pay);
+}
+
+// The retainer still owed on a booking, as "$500.00", or undefined.
+async function retainerOwedText(bookingId: string): Promise<{ amountDue: string } | undefined> {
+  try {
+    const { money } = await loadMoney(bookingId);
+    const left = money.retainerDueCents === null || money.retainerPaid ? 0 : Math.max(0, money.retainerDueCents - money.retainerPaidCents);
+    return left > 0 ? { amountDue: `$${(left / 100).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` } : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+async function sendContractWith(target: { bookingId?: string; designRequestId?: string }, kind: ContractSendKind, pay?: { amountDue: string }): Promise<ContractSendResult> {
   const nothing: ContractSendResult = { result: null, action: "nothing", linkIsOut: false, stageMoved: false, signed: false, reason: "the message could not be prepared" };
   const done = await guard("contract link", async (): Promise<ContractSendResult> => {
     const booking = target.bookingId ? await prisma.booking.findUnique({ where: { id: target.bookingId }, select: { phone: true, email: true, status: true, leadId: true, customerId: true } }) : null;
@@ -123,6 +139,10 @@ export async function sendContract(target: { bookingId?: string; designRequestId
       // contract page (signed in, their own booking); anyone else gets the
       // /sign token page.
       const contractLink = contractReadyLink({ bookingId: target.bookingId ?? null, customerId: booking?.customerId ?? null, tokenLink: prepared.link });
+      // Block F3a: every way of sending the contract states the retainer when
+      // one is owed and its amount is known (the button and the stage as well
+      // as a conversion). With nothing owed, or no price, the plain wording goes.
+      if (!pay && target.bookingId && action === "send-link") pay = await retainerOwedText(target.bookingId);
       const outcomes =
         action === "send-link"
           ? await sendTemplatedMessage(pay ? "contract_sent_pay" : "contract_sent", { ...ctx, extra: { contractLink, ...(pay ? { amountDue: pay.amountDue } : {}) } }, recipient, `contract_sent:${recordId}${unique}`, { purpose })

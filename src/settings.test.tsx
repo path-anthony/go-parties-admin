@@ -26,12 +26,12 @@ const EXPECTED: Record<string, string[]> = {
   "/settings/business": ["contractCompanyName", "contractAddressLine", "contractPhone", "rushContactPhone", "contractEmail", "contractWebsite", "contractFooterLine", "contractLogo"],
   "/settings/booking-rules": [
     "requireCustomerAccount", "requireAgreementCheckbox", "minBookingNoticeHours", "reviewAmountWedding", "reviewAmountCorporate", "reviewAmountKids", "reviewAmountAdult", "reviewAmountDefault", "requestResponseDays", "contractRequiredOver", "contractRequiredForCrewed",
-    "depositPercentage", "balanceDueDays", "tier1Collect", "saveCardForBalance", "retainerReminderDay1", "retainerReminderDay2", "retainerReminderDay3", "cancellationWindowDays", "holdReleaseDays", "contractHoldReleaseDays", "aiDailyCap", "directBookingDailyCap", "requireBotCheck",
+    "depositPercentage", "balanceDueDays", "tier1Collect", "saveCardForBalance", "retainerReminderDay1", "retainerReminderDay2", "retainerReminderDay3", "holdReminderEmails", "cancellationWindowDays", "holdReleaseDays", "contractHoldReleaseDays", "aiDailyCap", "directBookingDailyCap", "requireBotCheck",
   ],
   "/settings/contract-and-policy": ["panel:policy", "useGoContract", "panel:contractTerms", "signAndPayWindowDays", "returnedCheckFee", "rescheduleFeePercent", "outsidePlannerChargePercent", "authorizedSignerName", "authorizedSignerTitle", "panel:serviceRows"],
   "/settings/notifications": ["staffNotifyPhone", "staffNotifyEmail", "balanceReminderWindowDays", "digestEnabled", "digestEmail", "panel:leadColumns"],
   "/settings/home-photos": ["panel:homePhotos"],
-  "/settings/integrations": ["panel:statusText", "panel:statusEmail", "panel:statusAutomation", "panel:statusStripe", "panel:statusMaps", "panel:googleCalendar", "panel:statusStorefront"],
+  "/settings/integrations": ["panel:statusText", "panel:statusEmail", "panel:statusAutomation", "panel:statusStripe", "panel:statusMaps", "panel:googleCalendar", "panel:statusStorefront", "payLinksOpenStorefront"],
   "/settings/team": ["panel:team"],
 };
 

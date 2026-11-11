@@ -219,7 +219,8 @@ function planSeries(s: SeriesInput, f: Facts): PlanItem[] {
 
 // Only leads entered by hand are followed up. Everything else has its own
 // campaign somewhere else (or none) and must never get these texts.
-export const NURTURE_SOURCES = ["manual"];
+// "phone" is the Add lead form since Block F3a; "manual" is what it was before.
+export const NURTURE_SOURCES = ["manual", "phone"];
 
 const SOURCE_LABEL: Record<string, string> = { website: "website", storefront: "storefront", "ask-go": "Ask GO", concierge: "concierge" };
 
@@ -300,11 +301,17 @@ export type BookingInput = {
   // `days` days later (0 is off) while it is owed. A contract booking that is
   // not signed yet waits on the signature instead.
   retainer?: { requestedAt: Date | null; days: number[]; owed: boolean; waitingOnSignature: boolean } | null;
+  // Block F3a: a signed-in customer held a date on the policy path in the
+  // store and has not paid. They get an email with their pay link 1 and 3
+  // days after the hold. Email only, never a text, and only for an account
+  // holder, so a stranger's details typed at checkout still get nothing.
+  holdReminder?: { enabled: boolean; eligible: boolean; owed: boolean } | null;
 };
 
 export const STOREFRONT_HOLD_REASON = "Storefront hold: nothing is sent automatically while a storefront booking is Held and unsigned.";
 
 const NUDGE_AFTER_MS = 48 * 3_600_000;
+export const HOLD_REMINDER_DAYS = [1, 3];
 const BALANCE_EVERY_DAYS = 3;
 
 export function planBooking(b: BookingInput, f: Facts): Plan {
@@ -352,6 +359,16 @@ export function planBooking(b: BookingInput, f: Facts): Plan {
         f,
       ),
     );
+  }
+
+  // Unpaid hold reminders: 1 and 3 days after a signed-in customer held the
+  // date, at 10 AM, by email only. The storefront hold does not stop them:
+  // this is the one message that hold is allowed, to its own account holder.
+  if (b.holdReminder?.enabled && b.holdReminder.eligible) {
+    const day0 = easternDay(b.createdAt);
+    const milestones: Milestone[] = HOLD_REMINDER_DAYS.map((d, i) => ({ triggerKey: "hold_unpaid_reminder", dueAt: atEastern(addDays(day0, d), 10), baseKey: `hold_unpaid_reminder:${b.id}:${i + 1}` }));
+    const stopped = cancelled ? "Booking cancelled" : completed ? "Booking completed" : b.retainerPaid ? "Stopped: retainer paid" : !b.holdReminder.owed ? "Nothing is owed on the retainer." : null;
+    items.push(...planSeries({ id: "hold_reminder", subject, milestones, recordStart: b.createdAt, contact: b.contact, paused: b.paused, stopped, eventStart }, f).filter((i) => i.channel === "email"));
   }
 
   // Event reminders: only once the retainer is paid (Retainer Paid or
@@ -483,6 +500,7 @@ const NAMES: Record<string, string> = {
   contract_unsigned_nudge: "contract reminder",
   balance_due_reminder: "balance reminder",
   retainer_reminder: "retainer reminder",
+  hold_unpaid_reminder: "unpaid hold reminder",
   event_week_reminder: "event week reminder",
   event_eve_reminder: "event eve reminder",
   post_event_thanks: "thank-you",

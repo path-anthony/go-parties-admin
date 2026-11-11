@@ -284,7 +284,7 @@ export type RecommendResponse =
 // The name of a LeadStatusRow. Columns are configurable in Settings, so
 // this is a plain string, not a fixed union.
 export type LeadStatus = string;
-export type LeadSource = "ask-go" | "manual" | "website" | "storefront" | "concierge";
+export type LeadSource = "ask-go" | "manual" | "phone" | "website" | "storefront" | "concierge";
 
 export type LeadStatusRow = {
   id: string;
@@ -342,6 +342,8 @@ export type NewLead = {
   dateOfInterest: string;
   notes: string;
   status: LeadStatus;
+  // Block F3a: phone (called or came in) or manual (anything else).
+  source?: "phone" | "manual";
 };
 
 export type LeadPatch = Partial<Pick<Lead, "customerName" | "contact" | "occasion" | "notes" | "status" | "tags">> & {
@@ -355,6 +357,8 @@ export type LeadActivity = {
   createdAt: string;
   // The staff member behind the entry, when there was one.
   userName?: string | null;
+  // Block F3a: call, text, email, status, or null for a plain note.
+  kind?: string | null;
 };
 
 export const UNIT_STATUSES = ["Available", "Booked", "Maintenance"] as const;
@@ -634,6 +638,9 @@ export type AccountSettings = {
   retainerReminderDay1: number;
   retainerReminderDay2: number;
   retainerReminderDay3: number;
+  // Block F3a.
+  holdReminderEmails: boolean;
+  payLinksOpenStorefront: boolean;
   depositPercentage: number;
   cancellationWindowDays: number;
   requireAgreementCheckbox: boolean;
@@ -700,6 +707,8 @@ export type StaffBookingRequest = {
   balancePaymentPreference: BalancePreference;
   agreed: boolean;
   designRequestId?: string;
+  // Block F3a: the lead this booking is being built from.
+  leadId?: string;
   // Block F1: false when staff unticked "Send it now".
   sendPayLink?: boolean;
 };
@@ -964,3 +973,78 @@ export type MoneyOverview = {
     balances: { bookingId: string; customerName: string; eventDate: string; status: string; amountCents: number; dueDate: string; overdue: boolean }[];
   };
 };
+
+// ---- Block F3a: the command center ------------------------------------------------
+export type InboxTabKey = "all" | "new" | "requests" | "cancellations" | "follow-up" | "booked" | "lost";
+export type InboxRow = {
+  key: string;
+  kind: "lead" | "request";
+  id: string;
+  tabs: InboxTabKey[];
+  bucket: "new" | "follow-up" | "booked" | "lost" | "request";
+  source: string;
+  name: string;
+  phone: string | null;
+  email: string | null;
+  contactText: string | null;
+  wants: string;
+  eventDate: string | null;
+  createdAt: string;
+  ageDays: number;
+  stage: string;
+  nextAction: { code: string; label: string; urgent: boolean };
+  followUpOn: string | null;
+  bookingId: string | null;
+  cancellationRequestId: string | null;
+};
+export type Inbox = { tabs: { key: InboxTabKey; label: string; count: number }[]; rows: InboxRow[]; lostReasons: string[]; contactKinds: string[]; columns: string[] };
+export type LeadDetail = {
+  id: string;
+  source: string;
+  sourceKey: string;
+  stage: string;
+  name: string | null;
+  contact: string | null;
+  phone: string | null;
+  email: string | null;
+  createdAt: string;
+  occasion: string | null;
+  dateOfInterest: string | null;
+  notes: string | null;
+  theme: string | null;
+  itemsReturned: LeadItems | null;
+  tags: string[];
+  firstContactedAt: string | null;
+  lastContactedAt: string | null;
+  followUpOn: string | null;
+  followUpNote: string | null;
+  lostReason: string | null;
+  lostNote: string | null;
+  lostAt: string | null;
+  storeLinkSentAt: string | null;
+  automationPaused: boolean;
+  possibleMatches: { id: string; name: string; source: string; stage: string; createdAt: string }[];
+  bookings: {
+    id: string;
+    status: string;
+    retainerPaid: boolean;
+    confirmedAt: string | null;
+    eventDate: string;
+    eventTime: string | null;
+    occasion: string | null;
+    guestCount: number | null;
+    address: string | null;
+    mapsUrl: string | null;
+    setupNotes: string | null;
+    total: number | null;
+    tier: number | null;
+    packageName: string | null;
+    items: string[];
+    addons: { itemName: string; groupName: string; addonName: string }[];
+  }[];
+};
+export type TodayItem = { key: string; open: { kind: "lead" | "request" | "booking"; id: string }; title: string; detail: string; button: string };
+export type TodayColumn = { key: "close" | "nurture" | "after"; label: string; help: string; empty: string; count: number; groups: { key: string; label: string; items: TodayItem[] }[] };
+export type TodayView = { today: string; moneyIn: MoneyOverview["moneyIn"]; columns: TodayColumn[] };
+// What New booking is filled in from when staff build a booking for a lead.
+export type LeadPrefill = { id: string; name: string; phone: string; email: string; date: string; itemIds: string[] };

@@ -36,6 +36,14 @@ router.get("/", async (req, res) => {
   res.json(requests.map(serialize));
 });
 
+// Block F3a: one request, for the lead popup.
+router.get("/:id", async (req, res) => {
+  const account = await getDefaultAccount();
+  const request = await prisma.designRequest.findFirst({ where: { id: String(req.params.id), accountId: account.id } });
+  if (!request) return res.status(404).json({ error: "design request not found" });
+  res.json(serialize(request));
+});
+
 router.patch("/:id", async (req, res) => {
   const body = req.body ?? {};
   const account = await getDefaultAccount();

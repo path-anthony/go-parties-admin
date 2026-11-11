@@ -67,7 +67,7 @@ export function PackagesScreen() {
     <div className="screen screen-wide">
       <div className="screen-head screen-head-row">
         <div>
-          <h2>Packages & Themes</h2>
+          <h2>Packages and themes</h2>
           <p className="muted">Curated bundles of real catalog items at one price. Drafts stay private until you publish them.</p>
         </div>
         {packages && (
