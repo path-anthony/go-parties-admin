@@ -13,6 +13,8 @@ import {
   endCustomerSession,
   normalizeEmail,
   normalizePhone,
+  phoneRefusal,
+  usPhoneDigits,
   passwordProblem,
   publicCustomer,
   requireCustomer,
@@ -31,6 +33,7 @@ import { notifyContractSigned } from "../notify.js";
 import { PaymentError, createPaymentSession } from "../payments.js";
 import { SELF_SERVE_REFUSAL, portalFields, selfServeAllowed } from "../portal.js";
 import { getSettings } from "../settings.js";
+import { bookingMapsUrl } from "../delivery.js";
 import { StripeError } from "../stripe/client.js";
 import { customerWeddingRouter } from "./weddingDetails.js";
 import { NOT_EXACT_MESSAGE, lookupAddress } from "../addressLookup.js";
@@ -100,10 +103,9 @@ const HOME_REFUSED = { error: NOT_EXACT_MESSAGE, reason: "address-not-exact", fi
 router.post("/signup", customerSignupLimiter, async (req, res) => {
   const { phone, email, password, name, homeAddress } = req.body ?? {};
 
-  const phoneDigits = normalizePhone(phone);
-  if (!phoneDigits) {
-    return res.status(400).json({ error: "phone is required (7 to 15 digits)" });
-  }
+  // Block F2: a real US phone, ten digits. Stored as ten digits.
+  const phoneDigits = usPhoneDigits(phone);
+  if (!phoneDigits) return res.status(400).json(phoneRefusal);
   const emailText = normalizeEmail(email);
   if (!emailText) {
     return res.status(400).json({ error: "email is required and must look like an email address" });
@@ -155,7 +157,8 @@ router.post("/login", customerLoginLimiter, async (req, res) => {
 
   const account = await getDefaultAccount();
   const emailText = normalizeEmail(identifier);
-  const phoneDigits = emailText ? null : normalizePhone(identifier);
+  // New accounts store ten digits; older ones stored every digit typed.
+  const phoneDigits = emailText ? null : (usPhoneDigits(identifier) ?? normalizePhone(identifier));
   const customer = emailText
     ? await prisma.customer.findUnique({ where: { accountId_email: { accountId: account.id, email: emailText } } })
     : phoneDigits
@@ -197,8 +200,8 @@ router.patch("/me", requireCustomer, customerActionLimiter, async (req, res) => 
     data.name = text === null ? null : safeInline(text, MAX_NAME_LENGTH) || null;
   }
   if ("phone" in body) {
-    const digits = normalizePhone(body.phone);
-    if (!digits) return res.status(400).json({ error: "phone must be 7 to 15 digits" });
+    const digits = usPhoneDigits(body.phone);
+    if (!digits) return res.status(400).json(phoneRefusal);
     if (digits !== customer.phone) {
       const taken = await prisma.customer.findUnique({ where: { accountId_phone: { accountId: customer.accountId, phone: digits } }, select: { id: true } });
       if (taken) return res.status(409).json({ error: "That phone number already has an account.", field: "phone" });
@@ -225,6 +228,54 @@ router.patch("/me", requireCustomer, customerActionLimiter, async (req, res) => 
 
 router.get("/me", requireCustomer, (_req, res) => {
   res.json({ customer: publicCustomer(res.locals.customer as Customer) });
+});
+
+// Block F2: the signed-in customer's orders that went to staff review, so
+// they can see where each one stands. Built field by field: staff notes and
+// the reason for a dismissal never leave the server.
+const REQUEST_STATUS: Record<string, { status: string; label: string }> = {
+  received: { status: "received", label: "Received" },
+  reviewing: { status: "being-reviewed", label: "Being reviewed" },
+  Converted: { status: "booked", label: "Turned into a booking" },
+  Dismissed: { status: "closed", label: "Closed" },
+};
+router.get("/requests", requireCustomer, async (_req, res) => {
+  const customer = res.locals.customer as Customer;
+  const [settings, rows] = await Promise.all([
+    getSettings(customer.accountId),
+    prisma.designRequest.findMany({ where: { customerId: customer.id }, orderBy: { createdAt: "desc" } }),
+  ]);
+  const days = settings.requestResponseDays;
+  const promise = `We will contact you within ${days} business ${days === 1 ? "day" : "days"}.`;
+  res.json({
+    responseDays: days,
+    promise,
+    requests: rows.map((r) => {
+      const cart = (r.cart ?? {}) as { items?: { name: string; quantity: number }[]; addons?: { itemName: string; groupName: string; addonName: string }[]; package?: { name: string } | null };
+      const open = r.status === "Open";
+      const state = open ? (r.notes && r.notes.trim() !== "" ? REQUEST_STATUS.reviewing : REQUEST_STATUS.received) : (REQUEST_STATUS[r.status] ?? REQUEST_STATUS.received);
+      return {
+        id: r.id,
+        status: state.status,
+        statusLabel: state.label,
+        bookingId: r.status === "Converted" ? r.bookingId : null,
+        createdAt: r.createdAt.toISOString(),
+        eventDate: r.eventDate.toISOString().slice(0, 10),
+        eventTime: r.eventTime,
+        occasion: r.occasion,
+        address: r.address,
+        mapsUrl: bookingMapsUrl(r),
+        setupNotes: r.setupNotes,
+        guestCount: r.guestCount,
+        total: r.total === null ? null : Number(r.total),
+        package: cart.package?.name ?? null,
+        items: (cart.items ?? []).map((i) => ({ name: i.name, quantity: i.quantity })),
+        addons: (cart.addons ?? []).map((a) => ({ itemName: a.itemName, groupName: a.groupName, addonName: a.addonName })),
+        // Only an open request still carries the promise.
+        promise: open ? promise : null,
+      };
+    }),
+  });
 });
 
 router.get("/bookings", requireCustomer, async (_req, res) => {

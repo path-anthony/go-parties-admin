@@ -27,6 +27,19 @@ model Account {
   // DesignRequest for staff to look at first.
   fullReviewThreshold       Decimal  @default(15000) @map("full_review_threshold") @db.Decimal(10, 2)
   reviewOccasions           String[] @default(["Wedding", "Corporate"]) @map("review_occasions")
+  // Block F2: review by amount. An order goes to staff review when its
+  // total is at or over the amount for its occasion group; an order with no
+  // occasion group uses the default. These replace fullReviewThreshold and
+  // reviewOccasions above, which are kept but no longer read for routing.
+  reviewAmountKids          Decimal  @default(10000) @map("review_amount_kids") @db.Decimal(10, 2)
+  reviewAmountAdult         Decimal  @default(10000) @map("review_amount_adult") @db.Decimal(10, 2)
+  reviewAmountWedding       Decimal  @default(5000) @map("review_amount_wedding") @db.Decimal(10, 2)
+  reviewAmountCorporate     Decimal  @default(5000) @map("review_amount_corporate") @db.Decimal(10, 2)
+  reviewAmountDefault       Decimal  @default(10000) @map("review_amount_default") @db.Decimal(10, 2)
+  // Business days in which staff promise to contact a customer whose order
+  // went to review. Shown to the customer; an open request older than this
+  // raises a daily alert.
+  requestResponseDays       Int      @default(3) @map("request_response_days")
   // Share of the total taken as the deposit. One global value for now.
   depositPercentage         Decimal  @default(20) @map("deposit_percentage") @db.Decimal(5, 2)
   // Days before the event after which a cancellation is no longer free. One
@@ -989,6 +1002,27 @@ model DesignRequest {
   total                    Decimal? @db.Decimal(10, 2)
   balancePaymentPreference String   @default("Manual") @map("balance_payment_preference")
   notes                    String?
+  // Block F2: why it went to review, as a sentence staff read
+  // ("Wedding total is $5,000 or more").
+  reviewReason             String?  @map("review_reason")
+  // Block F2: everything the customer gave at checkout, kept so nothing is
+  // lost while the order waits: the exact place, its point, the setup pin
+  // and notes, the "same as my home address" tick and the guest count.
+  placeId                  String?  @map("place_id")
+  deliveryComponents       Json?    @map("delivery_components")
+  addressLat               Float?   @map("address_lat")
+  addressLng               Float?   @map("address_lng")
+  setupLat                 Float?   @map("setup_lat")
+  setupLng                 Float?   @map("setup_lng")
+  setupNotes               String?  @map("setup_notes")
+  eventAddressSameAsHome   Boolean  @default(false) @map("event_address_same_as_home")
+  guestCount               Int?     @map("guest_count")
+  // Block F2: a dismissal says why, who and when, and whether the customer
+  // was told.
+  dismissReason            String?  @map("dismiss_reason")
+  dismissedAt              DateTime? @map("dismissed_at")
+  dismissedByName          String?  @map("dismissed_by_name")
+  customerToldAt           DateTime? @map("customer_told_at")
   bookingId                String?  @unique @map("booking_id")
   createdAt                DateTime @default(now()) @map("created_at")
   updatedAt                DateTime @default(now()) @updatedAt @map("updated_at")

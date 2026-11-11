@@ -617,8 +617,14 @@ export type AccountSettings = {
   minBookingNoticeHours: number;
   // Null until a real number is set.
   rushContactPhone: string | null;
-  fullReviewThreshold: number;
-  reviewOccasions: string[];
+  // Block F2: review by amount, per occasion group, and the default.
+  reviewAmountWedding: number;
+  reviewAmountCorporate: number;
+  reviewAmountKids: number;
+  reviewAmountAdult: number;
+  reviewAmountDefault: number;
+  // Business days in which staff promise to contact a customer in review.
+  requestResponseDays: number;
   depositPercentage: number;
   cancellationWindowDays: number;
   requireAgreementCheckbox: boolean;
@@ -689,7 +695,7 @@ export type StaffBookingRequest = {
 
 export type StaffBookingResult =
   | { reviewRequired?: false; bookingId: string; leadId: string; stage: DisplayStatus; rush: boolean; total: number | null }
-  | { reviewRequired: true; designRequestId: string; reasons: ("threshold" | "occasion")[]; total: number | null; message: string };
+  | { reviewRequired: true; designRequestId: string; reasons: ("threshold" | "occasion")[]; reviewReason?: string | null; total: number | null; message: string };
 
 export type DesignRequest = {
   id: string;
@@ -709,6 +715,22 @@ export type DesignRequest = {
   notes: string | null;
   bookingId: string | null;
   createdAt: string;
+  // Block F2: why it went to review, and everything the customer gave.
+  reviewReason: string | null;
+  placeId: string | null;
+  addressLat: number | null;
+  addressLng: number | null;
+  setupLat: number | null;
+  setupLng: number | null;
+  setupNotes: string | null;
+  eventAddressSameAsHome: boolean;
+  guestCount: number | null;
+  mapsUrl: string | null;
+  dismissReason: string | null;
+  dismissedAt: string | null;
+  dismissedByName: string | null;
+  customerToldAt: string | null;
+  customerTold?: { sent: boolean; why: string | null };
   cart: {
     items: { itemId: string; name: string; quantity: number; price: number | null }[];
     addons: { itemId: string; addonId: string | null; itemName: string; groupName: string; addonName: string; priceDelta: number; quantity: number }[];

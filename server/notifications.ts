@@ -17,7 +17,8 @@ import { dueDateFor, isWeddingBooking } from "./weddingDetails/logic.js";
 
 export const NOTIFICATION_TYPES = [
   { type: "new-lead", label: "New leads" },
-  { type: "design-request", label: "Big event requests" },
+  { type: "design-request", label: "Requests for review" },
+  { type: "design-request-overdue", label: "Requests waiting too long" },
   { type: "contract-unsigned-3d", label: "Needs a push to sign" },
   { type: "retainer-unpaid-3d", label: "Retainer unpaid" },
   { type: "balance-due-7d", label: "Balance due soon" },
@@ -71,7 +72,7 @@ export async function createNotifications(rows: NotificationInput[]): Promise<nu
 
 // ---- Event producers ----------------------------------------------------
 
-const SOURCE_WORD: Record<string, string> = { website: "Website inquiry", concierge: "Concierge request", storefront: "Storefront booking" };
+const SOURCE_WORD: Record<string, string> = { website: "Website inquiry", concierge: "Concierge request", storefront: "Storefront booking", "ask-go": "Ask GO chat" };
 
 // A lead just arrived from outside (the website form through n8n, a concierge
 // request, a storefront hold). Never throws: a notification must not be able
@@ -109,7 +110,7 @@ export async function notifyDesignRequest(request: { id: string; accountId: stri
       {
         accountId: request.accountId,
         type: "design-request",
-        title: "Big event request",
+        title: "Request for review",
         body: `${clean(request.customerName, "Customer")}, ${dayLabel(dayOf(request.eventDate))}.${about}${total}`,
         link: "/design-requests?status=Open",
         customerId: request.customerId,
@@ -225,7 +226,54 @@ export async function findDueNotifications(now: Date): Promise<NotificationInput
     if (status === "not_started") out.push({ ...base, type: "wedding-details-not-started-60d", title: "Wedding details not started", body: `${who} ${daysOut} days out, not started. ${due}`, dedupeKey: `wedding-details-not-started-60d:${b.id}:${eventDay}` });
     if (status !== "submitted" && daysOut <= WEDDING_INCOMPLETE_DAYS) out.push({ ...base, type: "wedding-details-incomplete-35d", title: "Wedding details incomplete", body: `${who} ${daysOut} days out, not submitted. ${due}`, dedupeKey: `wedding-details-incomplete-35d:${b.id}:${eventDay}` });
   }
+  // Block F2: a request still open after the promised number of business
+  // days. One alert per day (the day is in the key) until it is converted or
+  // dismissed, so it shows in the bell and in each morning's digest.
+  const waiting = await prisma.designRequest.findMany({
+    where: { accountId, status: "Open" },
+    select: { id: true, customerName: true, eventDate: true, createdAt: true, customerId: true, total: true },
+  });
+  for (const r of waiting) {
+    const open = businessDaysBetween(easternDay(r.createdAt), todayText);
+    if (open < settings.requestResponseDays) continue;
+    out.push({
+      accountId,
+      type: "design-request-overdue",
+      title: "Request still waiting",
+      body: `${clean(r.customerName, "Customer")}, ${dayLabel(dayOf(r.eventDate))}. Open ${open} business ${open === 1 ? "day" : "days"}; the customer was told ${settings.requestResponseDays}.`,
+      link: "/design-requests?status=Open",
+      customerId: r.customerId,
+      dedupeKey: `design-request-overdue:${r.id}:${todayText}`,
+    });
+  }
+
   return out;
+}
+
+// Block F2: whole business days (Monday to Friday) from one Eastern day to a
+// later one. The starting day itself does not count.
+export function businessDaysBetween(fromDay: string, toDay: string): number {
+  let n = 0;
+  for (let d = addDays(fromDay, 1); d <= toDay; d = addDays(d, 1)) {
+    const weekday = new Date(`${d}T12:00:00Z`).getUTCDay();
+    if (weekday !== 0 && weekday !== 6) n += 1;
+  }
+  return n;
+}
+
+// Block F2: a request was turned into a booking or dismissed, so its alerts
+// (the first one and every "still waiting" one) are done. Never throws.
+export async function clearRequestAlerts(requestId: string, now = new Date()): Promise<number> {
+  try {
+    const { count } = await prisma.notification.updateMany({
+      where: { readAt: null, OR: [{ dedupeKey: `design-request:${requestId}` }, { dedupeKey: { startsWith: `design-request-overdue:${requestId}:` } }] },
+      data: { readAt: now },
+    });
+    return count;
+  } catch (err) {
+    console.warn("[notifications] request alerts not cleared:", safeErr(err));
+    return 0;
+  }
 }
 
 export async function runTimedNotifications(now: Date): Promise<{ due: number; created: number }> {

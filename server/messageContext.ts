@@ -75,6 +75,7 @@ export function composeValues(settings: Settings, rec: LoadedRecords): Record<st
 
   const storefront = process.env.STOREFRONT_URL?.replace(/\/$/, "");
   set("companyName", COMPANY_NAME);
+  set("responseDays", String(settings.requestResponseDays));
   set("companyPhone", settings.rushContactPhone?.trim() || prettyPhone(process.env.TWILIO_PHONE_NUMBER));
   set("depositPercentage", String(settings.depositPercentage));
   set("cancellationWindowDays", String(settings.cancellationWindowDays));

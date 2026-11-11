@@ -14,17 +14,38 @@ import { contractReadyLink } from "../notify.js";
 import { retainerOverdue } from "../routes/bookings.js";
 import { easternDay } from "../automation/time.js";
 
-const rules = { fullReviewThreshold: 15000, reviewOccasions: ["Wedding"], contractRequiredOver: 1000, contractRequiredForCrewed: true };
+const rules = { review: { kids: 10000, adult: 10000, wedding: 5000, corporate: 5000, other: 10000 }, contractRequiredOver: 1000, contractRequiredForCrewed: true };
+const tierOf = (input: Parameters<typeof decideTier>[0]) => decideTier(input, rules);
 
-test("tier rules: review first, then contract, else the rental policy", () => {
-  assert.deepEqual(decideTier({ total: 500, occasions: [], categories: [], crewed: false }, rules), { tier: 1, reasons: [] });
-  assert.deepEqual(decideTier({ total: 1000, occasions: [], categories: [], crewed: false }, rules).tier, 1, "exactly the threshold is not over it");
-  assert.deepEqual(decideTier({ total: 1000.01, occasions: [], categories: [], crewed: false }, rules), { tier: 2, reasons: ["over-contract-threshold"] });
-  assert.deepEqual(decideTier({ total: 300, occasions: [], categories: [], crewed: true }, rules), { tier: 2, reasons: ["crewed"] });
-  assert.equal(decideTier({ total: 300, occasions: [], categories: [], crewed: true }, { ...rules, contractRequiredForCrewed: false }).tier, 1);
-  assert.deepEqual(decideTier({ total: 20000, occasions: [], categories: [], crewed: true }, rules), { tier: 3, reasons: ["threshold"] });
-  assert.deepEqual(decideTier({ total: 300, occasions: ["Wedding"], categories: [], crewed: false }, rules), { tier: 3, reasons: ["occasion"] });
-  assert.equal(decideTier({ total: null, occasions: [], categories: [], crewed: false }, rules).tier, 1, "no price means nothing to compare");
+test("tier rules: review by amount first, then contract, else the rental policy", () => {
+  assert.deepEqual(tierOf({ total: 500, crewed: false }), { tier: 1, reasons: [], reviewReason: null });
+  assert.equal(tierOf({ total: 1000, crewed: false }).tier, 1, "exactly the contract amount is not over it");
+  assert.deepEqual(tierOf({ total: 1000.01, crewed: false }), { tier: 2, reasons: ["over-contract-threshold"], reviewReason: null });
+  assert.deepEqual(tierOf({ total: 300, crewed: true }), { tier: 2, reasons: ["crewed"], reviewReason: null });
+  assert.equal(decideTier({ total: 300, crewed: true }, { ...rules, contractRequiredForCrewed: false }).tier, 1);
+  assert.deepEqual(tierOf({ total: 20000, crewed: true }), { tier: 3, reasons: ["threshold"], reviewReason: "Total is $10,000 or more" });
+  assert.equal(tierOf({ total: null, occasion: "Wedding", crewed: false }).tier, 1, "no price means nothing to compare");
+});
+
+// Block F2, the cases the owner named.
+test("review by amount: the named cases", () => {
+  // A $225 rehearsal dinner checks out on the policy path.
+  assert.deepEqual(tierOf({ total: 225, occasion: "Rehearsal dinner", crewed: false }), { tier: 1, reasons: [], reviewReason: null });
+  // A $4,999 wedding package takes the contract path.
+  assert.deepEqual(tierOf({ total: 4999, occasion: null, packageOccasions: ["Ceremony + reception"], crewed: false }), { tier: 2, reasons: ["over-contract-threshold"], reviewReason: null });
+  // A $5,000 wedding goes to review, at the amount exactly.
+  assert.deepEqual(tierOf({ total: 5000, occasion: "Reception only", crewed: false }), { tier: 3, reasons: ["threshold"], reviewReason: "Wedding total is $5,000 or more" });
+  // A $4,999 crewed corporate order takes the contract path.
+  assert.deepEqual(tierOf({ total: 4999, occasion: "Team building", crewed: true }), { tier: 2, reasons: ["over-contract-threshold", "crewed"], reviewReason: null });
+  assert.equal(tierOf({ total: 5000, occasion: "Corporate", crewed: false }).reviewReason, "Corporate total is $5,000 or more");
+  // A $9,999 birthday takes the contract path; $10,000 goes to review.
+  assert.equal(tierOf({ total: 9999, occasion: "Birthday", crewed: false }).tier, 2);
+  assert.deepEqual(tierOf({ total: 10000, occasion: "Birthday", crewed: false }), { tier: 3, reasons: ["threshold"], reviewReason: "Birthday total is $10,000 or more" });
+  assert.equal(tierOf({ total: 10000, occasion: "Sweet 16", crewed: false }).reviewReason, "Kids party total is $10,000 or more");
+  // A wedding package booked as a birthday is still held to the Wedding amount.
+  assert.equal(tierOf({ total: 6000, occasion: "Birthday", packageOccasions: ["Reception only"], crewed: false }).reviewReason, "Wedding total is $5,000 or more");
+  // No occasion at all uses the default line.
+  assert.equal(tierOf({ total: 9999.99, crewed: false }).tier, 2);
 });
 
 test("tier 1 collects the retainer percent or the full amount, to the cent", () => {

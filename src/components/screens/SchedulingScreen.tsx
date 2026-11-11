@@ -225,6 +225,7 @@ export function SchedulingScreen({ view = "bookings", openBookingId }: { view?: 
                           <th>Date</th>
                           <th>Time</th>
                           <th>Customer</th>
+                          <th>Occasion</th>
                           <th>Status</th>
                           <th>Agreement</th>
                           <th>Items</th>
@@ -349,6 +350,7 @@ function BookingSummaryRow({
         {booking.customerName}
         <RushTag rush={booking.rush} cancelled={isInactiveStage(booking.status)} />
       </td>
+      <td className={booking.occasion ? undefined : "muted"}>{booking.occasion ?? "Not given"}</td>
       <td>
         <BookingStatusTag booking={booking} />
       </td>

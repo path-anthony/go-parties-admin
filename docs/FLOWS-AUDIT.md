@@ -4,17 +4,41 @@ Read only. Written 2026-11-11 from the code on admin `main` (`18d399d` plus the 
 
 Words used here: **retainer** is the up-front payment that holds the date. **Tier 1** is a small rental that only needs the policy checkbox. **Tier 2** is a booking that needs the GO contract. **Tier 3** is a booking that goes to staff review first (it lands in Design requests). **The bell** is the notification bell in the admin. **The digest** is the 7 AM Eastern email of unread bell alerts.
 
+## Changed since this audit: Block F2 (2026-11-12)
+
+The audit below was written on 2026-11-11. Block F2 changed the parts listed here. Where a later section still describes the old behaviour it carries a note "Changed in F2". Money, holds and booking stages were not touched (that is Block F1).
+
+| What | Before | Now |
+|---|---|---|
+| Review rule | Any Wedding or Corporate occasion went to staff review at any price; everything else at over $15,000 | An amount per occasion group: Wedding $5,000, Corporate $5,000, Kids party, Adult party and no occasion $10,000 (`server/review.ts`, Settings > Booking rules > Review rules). At the amount counts. Under it the order checks out as normal |
+| The rule in code | `review.ts:40-41`, `tiers.ts:35` | `reviewDecision` in `server/review.ts`: `if (input.total !== null && input.total >= line.amount)`. The occasion the customer picked and the package's occasions both count, and the lower amount applies |
+| Reason shown to staff | "Occasion needs review" | The exact rule, for example "Wedding total is $5,000 or more" (`design_requests.review_reason`) |
+| A $225 rehearsal dinner | Design request, nothing to pay | Tier 1: holds the date and pays the retainer online. It still gets the wedding details form |
+| What a request keeps | Items, address text, contact | Also the place id, the address point, the dragged setup pin, setup notes, the "same as home" tick and the guest count. Shown on the request card |
+| Convert | Always a contract (tier 2) | The normal rule: over $1,000 or a crewed item is the contract path and the contract link is sent; $1,000 or less with no crew is the policy path and **nothing is sent** (left for Block F1). Everything on the request is carried onto the booking |
+| Dismiss | Silent | Needs a reason; "Tell the customer by email" sends the editable "Request closed" email. The reason never goes to the customer |
+| Bell alert for a request | Stayed after convert or dismiss | Cleared (marked read) on both |
+| Requests left open | Sat forever | After N business days (Settings, default 3) a "Request still waiting" bell alert is raised every day until handled, so it is in each 7 AM digest |
+| The customer's view | Nothing in My party | `GET /api/customer/requests` lists their requests with a plain status and the promise "We will contact you within N business days" (the store page is in `docs/S9-CONTRACT.md`) |
+| Phone | Any 7 to 15 digits | The store must send a real US number (400 `phone-invalid`). Staff entry is not checked |
+| Ask GO and "Talk to us instead" leads | Always made, with no contact | Made only with a name, an email or a phone. Ask GO leads with contact now ring the bell |
+| Occasion | Not on the booking popup or list | Shown on both |
+| Setup notes on crew pages | Never | Sent to the crew member whose bid was accepted |
+| "We got your request" message | "Big events get a personal look. We'll reach out within one business day." | "A person will contact you within N business days." |
+
+Gaps closed: 2, 4, 5 (the pin and notes part), 7, 8 and 10 (the forced contract; the silent block when the GO contract is switched on is unchanged). Gaps 1, 3, 6 and 9 are Block F1.
+
 ## Part 6. One page summary (read this first)
 
 | # | Path | Who it is for | Stripe | Staff action needed | Where in admin |
 |---|---|---|---|---|---|
 | 1 | Self-serve policy checkout (tier 1) | Customer. Total $1,000 or less, no crewed item, no Wedding or Corporate occasion | Yes, on the "Your retainer" screen right after "Hold my date". Retainer is 20% of the total today. Customer can skip it ("Pay later") | None required. Nothing moves the booking forward after payment (see gap 1) | Scheduling > Bookings. Leads board, column "Booked". Bell: "New lead" |
 | 2 | Contract checkout (tier 2) | Customer. Total over $1,000, or any item that needs crew | Yes, on the "Your retainer" screen after the customer signs the contract in checkout. Amount comes from the quote | None required. Staff get a text and email "contract signed" | Scheduling > Bookings. Leads board. Bell: "New lead" |
-| 3 | Staff review request (tier 3) | Customer. Any Wedding or Corporate occasion (12 of 24 options), or a total over $15,000 | No. The customer is told "Nothing to pay yet" | Yes. Open the request, then Convert to booking or Dismiss | Design requests (Open filter). Bell: "Big event request". Not in Leads, not in Scheduling |
-| 4 | Convert a design request (staff) | Staff | None at conversion. Customer signs in My party, then pays the retainer there | Tick "customer agreed", click Create booking from this request | Booking appears in Scheduling > Bookings at stage Contract Sent. Request moves to the Converted filter |
+| 3 | Staff review request (tier 3). Changed in F2 | Customer. Total at or over the review amount for the occasion: Wedding or Corporate $5,000, everything else $10,000 | No. The customer is told "Nothing to pay yet" | Yes. Open the request, then Convert to booking or Dismiss (with a reason) | Design requests (Open filter). Bell: "Request for review", then "Request still waiting" daily after 3 business days. Not in Leads, not in Scheduling |
+| 4 | Convert a design request (staff). Changed in F2 | Staff | None at conversion. Contract path: customer signs in My party, then pays the retainer there. Policy path: customer pays the retainer in My party, nothing is sent | Tick "customer agreed", click Create booking from this request | Scheduling > Bookings, at Contract Sent (contract path) or Held (policy path). Request moves to the Converted filter |
 | 5 | Package, fixed price | Customer, from Home. Same rules as 1 to 3, and the package's own occasions count toward review | As path 1, 2 or 3 | As path 1, 2 or 3 | Packages & Themes (setup). Bookings as above. No packages are published in production today |
 | 6 | Package, price per guest | Nobody can book one today. The store never asks for a guest count | n/a | n/a | Packages & Themes |
-| 7 | Ask GO ("Build my party") | Customer chatting | None until they send the cart to checkout (then path 1, 2 or 3) | None. These leads have no name or contact | Leads, source "ask-go", column New. No bell alert |
+| 7 | Ask GO ("Build my party"). Changed in F2 | Customer chatting | None until they send the cart to checkout (then path 1, 2 or 3) | Follow up when a lead appears. A chat with no name, email or phone makes no lead | Leads, source "ask-go", column New. Bell: "New lead" |
 | 8 | "Ask about this" (price on request) | Customer, item with no price (57 visible items) | None | None. Same lead as Ask GO | Leads, source "ask-go" |
 | 9 | "Talk to us instead" (concierge) | Customer at checkout or in Ask GO | None | Watch for the Calendly booking; the lead carries no contact | Leads, source "concierge". Bell: "New lead" |
 | 10 | Website form | Visitor on the marketing site, through n8n | None | Call or text the lead back | Leads, source "website". Bell: "New lead" |
@@ -28,8 +52,8 @@ These decide almost every route below. Read from the `accounts` row on 2026-11-1
 
 | Setting (where it is in Settings) | Value today | What it decides |
 |---|---|---|
-| Staff review: occasions | Wedding, Corporate | Which occasions go to Design requests |
-| Staff review: over ($) | 15000 | Total above this goes to Design requests |
+| Review rules (changed in F2) | Wedding 5000, Corporate 5000, Kids party 10000, Adult party 10000, everything else 10000 | An order at or over the amount for its occasion goes to Design requests. The old occasion list and the $15,000 line are kept in the database and no longer read |
+| Contact the customer within (business days) | 3 | The promise shown to a customer in review, and when a waiting request starts raising a daily alert |
 | Contract required over ($) | 1000 | Total above this needs the GO contract (tier 2) |
 | Contract required for crewed items | On | Any DJ, MC or other crewed item needs the contract |
 | Retainer (% of total) | 20 | Retainer on tier 1 and on a staff-converted booking |
@@ -103,6 +127,8 @@ What counts as "the occasion" is wider than the dropdown. At the hold, `server/d
 
 ### Path 3. Staff review request (tier 3)
 
+**Changed in F2:** the condition is now the amount per occasion group, the request keeps everything the customer typed, the customer can see it, and a waiting request raises a daily alert. See the table at the top.
+
 - **Conditions.** `reviewReasons` returns anything (`server/directBooking.ts:219-228`): total over $15,000, or any occasion, package occasion or item category on the review list. Today: any Wedding or Corporate sub-occasion, "Wedding" or "Corporate" (what the store sends for "Other wedding" and "Other corporate").
 - **Customer sees.** The same Event details screen, with the line "Nothing to pay yet. GO reviews this one first and sends you a proposal." They press "Hold my date". The last screen is **"In review"**: "Our team takes it from here. Big events get a personal look. We'll reach out within one business day." and "Nothing is held and nothing is charged. We'll reach out by phone or email." (store:ItemReview.tsx:26-33). The checkbox for the rental policy is shown and recorded. **My party shows nothing for this request**: it lists bookings only, and the "In review" and "Proposal ready" stage wording in the store is never sent by the admin (it exists only in the store's mock data).
 - **Stripe.** No.
@@ -113,6 +139,8 @@ What counts as "the occasion" is wider than the dropdown. At the hold, `server/d
 - **If staff does nothing.** The request stays Open forever. No reminder, no aging flag, no escalation. Production proof: two requests from 2026-09-29 are still Open with event dates of 2026-10-14 and 2026-11-06, both already past. The customer was promised contact within one business day.
 
 ### Path 4. Converting a design request (staff)
+
+**Changed in F2:** the booking is no longer forced to a contract, and the pin, setup notes, exact place, "same as home" tick and guest count are carried onto it. See the table at the top.
 
 - **Conditions.** Staff click **Convert to booking** on an Open request. The route refuses a request that is not Open (`server/routes/directBookings.ts:398`) and a date in the past.
 - **Staff sees.** The "Convert design request" window opens pre-filled from the request (date, time, address text, occasion, items and quantities, options, contact, price, balance preference). Staff can change anything, including the price. They must tick **"The customer has agreed to the cancellation and retainer policy."** (`src/components/NewBookingModal.tsx:195`) and click **"Create booking from this request"**.
@@ -125,6 +153,8 @@ What counts as "the occasion" is wider than the dropdown. At the hold, `server/d
 - **If the customer never signs.** The bell shows "Needs a push to sign" at 3 days; the customer gets the 48-hour nudge once. The unit stays held. The hold-release rule only touches bookings whose lead source is "storefront" (`server/holds.ts:31`), so a converted booking is never released automatically, whatever the settings.
 
 ### Path 4b. Dismissing a design request
+
+**Changed in F2:** dismissing asks for a reason, can email the customer, and clears the bell alert.
 
 Click **Dismiss** on the card. The server only sets the status to Dismissed (`server/routes/designRequests.ts:46-56`). Nothing is sent to the customer. No unit changes (none was held). The bell alert for the request is not cleared. The card moves to the Dismissed filter, where **Reopen** puts it back to Open. There is no reason field and no way to tell the customer from this screen. The store's My party never showed the request, so the customer is left with only the "within one business day" promise.
 
@@ -193,6 +223,8 @@ An item that needs crew (a DJ, MC, photographer) creates one Gig per skill at ho
 A booking made less than 72 hours before the event is marked RUSH (tag and banner in the booking popup, Scheduling and Overview). It does not change the path. The store's last screen says "Pending. We'll be in touch." and shows the company phone.
 
 ## Part 2. The test you ran on 2026-11-11
+
+**Changed in F2:** the same order today is tier 1. A $225 Rehearsal dinner holds the date and is offered the retainer online, and still gets the wedding details form. The account of what happened on Nov 11 below is unchanged.
 
 The record (production database, read only): customer **anthony+fridgetest**, one **6 ft Portable Bar** (category "Bar and Cigar", price $225.00), occasion **Rehearsal dinner**, Fri Nov 20 2026 at 2:30 PM, 110 N 3rd St, Columbus, OH 43215. Phone typed as 2222222222. Times below are Eastern.
 
@@ -299,6 +331,8 @@ Where they **never** show: the design request card, the crew bid and gig pages (
 
 ## Part 4. Occasions
 
+**Changed in F2:** no option sends an order to review by itself any more. The occasion only picks which amount applies: Wedding and Corporate options $5,000, Kids party and Adult party options $10,000. The table below is the old behaviour.
+
 The select "What are you celebrating?" is required on Event details (store:`ItemWho.tsx:321-340`). Its list is `SUB_OCC` in `store:src/data/catalog.ts:30-35`, and the admin keeps a copy (`src/lib/occasions.ts:5-13`). With review list **Wedding, Corporate** (production today):
 
 | Group in the select | Option | What the store sends | Path it triggers |
@@ -344,15 +378,15 @@ Findings only. Ranked by how likely they are to cost a sale, lose money or leave
 ### The top 10
 
 1. **A paid tier 1 booking never reaches "Confirmed" and gets no automatic reminders.** Tier 1 has no contract, so the stage stays Held. "Confirmed" needs Signed plus paid (`src/lib/bookingStatus.ts:24`) and nothing moves a tier 1 booking to Signed. The booking is also treated as a "storefront hold" because its lead came from the store, its stage is Held and no contract is signed (`server/automation/loaders.ts:180`); the planner then stops the event-week, event-eve, balance and wedding reminders with the reason "Storefront hold: nothing is sent automatically while a storefront booking is Held and unsigned." (`server/automation/planner.ts:298`, `:347`, balance and wedding series use the same flag). The customer's My party says "Retainer received, thank you. Signing your contract confirms the date." (store:`stage.ts`, "Retainer Paid") when there is no contract to sign. Evidence: the only paid tier 1 booking in production (event Nov 24) is at stage Held, retainer paid. Its first customer reminder would be due Nov 17; I could not see future sends, so the missing reminder is **verified in code, not yet observed**. Affects every small self-serve booking.
-2. **The Wedding and Corporate rule sends small rentals to staff review.** 12 of the 24 occasion options trigger it at any price (Part 4). The customer is told "Big events get a personal look" for a $225 bar. They are not asked to pay, nothing is held, and staff must convert by hand. Evidence: your test, and 4 of the 7 requests ever made involved the occasion rule (one together with the price rule, three alone). Affects every customer who picks a Wedding or Corporate option, and the date can be taken by someone else while the request waits.
+2. (Fixed in F2.) **The Wedding and Corporate rule sends small rentals to staff review.** 12 of the 24 occasion options trigger it at any price (Part 4). The customer is told "Big events get a personal look" for a $225 bar. They are not asked to pay, nothing is held, and staff must convert by hand. Evidence: your test, and 4 of the 7 requests ever made involved the occasion rule (one together with the price rule, three alone). Affects every customer who picks a Wedding or Corporate option, and the date can be taken by someone else while the request waits.
 3. **The balance link the store promises is never sent.** The store says "Your balance of $X is due 30 days before your event. We'll email you a secure payment link." (store:`CheckoutNotes.tsx:37`). No code emails a balance payment link; the balance reminder text says "Please call or text us to arrange payment." and has no link (`server/triggers.ts:326`). The only way to pay online is the customer opening My party and tapping "Pay balance". Staff have no "send payment link" button, only "Record a payment". The stored preference "Reminder link" is recorded and never acted on. Affects every booking with a balance. Not verified: whether Stripe itself emails receipts.
-4. **Design requests can sit forever and staff are only told through the bell.** The staff alert is a bell entry and the next 7 AM digest (`server/notifications.ts:104-121`). No text or email to staff, no count on the sidebar or Overview, no aging, no reminder. Evidence: two requests from Sept 29 are still Open and their event dates (Oct 14, Nov 6) have passed. A request with a past date cannot be converted until staff change the date in the Convert window (the date check refuses a past day). The customer was promised contact within one business day.
-5. **Setup notes and the dragged pin are thrown away on every review request.** The hold stores them only when it makes a booking. Convert cannot bring them back. Your typed notes are gone (Part 3). Even on normal bookings the crew pages and calendar events no longer open the pin: since A9 the link points at the exact place first (`server/delivery.ts:187-192`), and the crew only ever see arrival notes that staff type.
+4. (Fixed in F2.) **Design requests can sit forever and staff are only told through the bell.** The staff alert is a bell entry and the next 7 AM digest (`server/notifications.ts:104-121`). No text or email to staff, no count on the sidebar or Overview, no aging, no reminder. Evidence: two requests from Sept 29 are still Open and their event dates (Oct 14, Nov 6) have passed. A request with a past date cannot be converted until staff change the date in the Convert window (the date check refuses a past day). The customer was promised contact within one business day.
+5. (Fixed in F2 for requests and crew pages; the crew and calendar map link still opens the exact place, not the pin.) **Setup notes and the dragged pin are thrown away on every review request.** The hold stores them only when it makes a booking. Convert cannot bring them back. Your typed notes are gone (Part 3). Even on normal bookings the crew pages and calendar events no longer open the pin: since A9 the link points at the exact place first (`server/delivery.ts:187-192`), and the crew only ever see arrival notes that staff type.
 6. **After a converted request is signed, the customer is not given a way to pay.** The contract page ends with "The retainer is the next step" and one button, "Back to My party". The signed-copy message ("Thanks for signing. Your signed contract ... Keep it for your records.") does not mention the retainer and carries only the PDF link; the wording that does mention the retainer ("The next step is the retainer payment") is only sent when staff set the stage to Signed by hand. No retainer reminder exists at all (the only contract reminder is the 48-hour unsigned nudge, `server/automation/planner.ts:300`). A customer who signs and then closes the tab owes a retainer nobody asks for. Guests without an account (staff-made bookings only) see "Nothing more to do here" on the signing page (store:`Sign.tsx:81`) and are never offered payment.
-7. **Ask GO and concierge leads cannot be worked.** 27 of 27 Ask GO leads and 9 of 9 concierge leads in production have no name or contact. They sit in column New. Ask GO leads raise no bell alert. The store's cart is lost when the customer leaves (the registered "cart left behind" messages are not wired, `server/triggers.ts:67-90`).
-8. **The customer cannot see their review request, and a dismissal is silent.** My party lists bookings only; the "In review" and "Proposal ready" stage text in the store is never sent by the admin. Dismiss sends nothing and leaves the bell alert. The checkout line promises "sends you a proposal", but there is no proposal document or step in the admin: the real next step is a contract link.
+7. (Fixed in F2.) **Ask GO and concierge leads cannot be worked.** 27 of 27 Ask GO leads and 9 of 9 concierge leads in production have no name or contact. They sit in column New. Ask GO leads raise no bell alert. The store's cart is lost when the customer leaves (the registered "cart left behind" messages are not wired, `server/triggers.ts:67-90`).
+8. (Fixed in F2.) **The customer cannot see their review request, and a dismissal is silent.** My party lists bookings only; the "In review" and "Proposal ready" stage text in the store is never sent by the admin. Dismiss sends nothing and leaves the bell alert. The checkout line promises "sends you a proposal", but there is no proposal document or step in the admin: the real next step is a contract link.
 9. **Staff are not told when money arrives or when a customer cancels.** A card payment moves the stage and messages the customer but raises no bell, text or email for staff (`server/payments.ts:182-196`). A customer cancel or reschedule in My party (tier 1) releases the units and crew gigs and logs it on the lead, with no message to the customer, no staff alert, no refund path and no check of the 30 day free-cancellation window (`server/routes/customer.ts:255-270`). The customer can cancel after paying the "non-refundable" retainer.
-10. **A converted request is forced to a contract, and the contract can be blocked silently.** Every conversion is tier 2 (`server/directBooking.ts:304`), even a $225 rental. If "Use the GO contract" is switched on, the send refuses until venue, on-site contact, guest count and from and to times are filled in (`server/notify.ts:79-102`). That refusal is a "skipped-not-ready" row in Messages > Sent log only. No alert, nothing to the customer, the booking sits in Held with a unit locked. Off today, but it is the next setting someone will turn on.
+10. (The forced contract is fixed in F2. The silent block is unchanged.) **A converted request is forced to a contract, and the contract can be blocked silently.** Every conversion is tier 2 (`server/directBooking.ts:304`), even a $225 rental. If "Use the GO contract" is switched on, the send refuses until venue, on-site contact, guest count and from and to times are filled in (`server/notify.ts:79-102`). That refusal is a "skipped-not-ready" row in Messages > Sent log only. No alert, nothing to the customer, the booking sits in Held with a unit locked. Off today, but it is the next setting someone will turn on.
 
 ### More findings
 

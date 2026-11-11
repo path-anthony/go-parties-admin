@@ -117,12 +117,16 @@ export const PAGES: PageSpec[] = [
         ],
       },
       {
-        id: "staff-review",
-        title: "Staff review",
-        blurb: "Some bookings go to Design Requests for your team to look at before a date is held. The customer sees that you'll be in touch instead of a hold. Applies to new bookings right away.",
+        id: "review-rules",
+        title: "Review rules",
+        blurb: "An order at or over the amount for its occasion goes to your team in Design requests before a date is held. The customer pays nothing yet and is told you'll be in touch. Under the amount, they check out and pay as normal. Applies to new orders right away.",
         fields: [
-          { key: "fullReviewThreshold", label: "Send to staff review over ($)", kind: "number", min: 0, step: "0.01", required: true, help: "A booking with a total above this goes to staff review. 15000 means a $15,001 booking is reviewed and a $15,000 one isn't." },
-          { key: "reviewOccasions", label: "Always send these occasions to staff review", kind: "occasions", help: "Tick a whole group, like Wedding, or single occasions. Those bookings go to staff review whatever the price." },
+          { key: "reviewAmountWedding", label: "Wedding ($)", kind: "number", min: 0, step: "0.01", required: true, row: "r1", help: "5000 means a wedding order of $5,000 or more is reviewed, and a $4,999 one checks out online. Counts any Wedding occasion or a wedding package." },
+          { key: "reviewAmountCorporate", label: "Corporate ($)", kind: "number", min: 0, step: "0.01", required: true, row: "r1", help: "5000 means a corporate order of $5,000 or more is reviewed. Smaller ones check out online." },
+          { key: "reviewAmountKids", label: "Kids party ($)", kind: "number", min: 0, step: "0.01", required: true, row: "r2", help: "10000 means a kids party order of $10,000 or more is reviewed." },
+          { key: "reviewAmountAdult", label: "Adult party ($)", kind: "number", min: 0, step: "0.01", required: true, row: "r2", help: "10000 means an adult party order of $10,000 or more is reviewed." },
+          { key: "reviewAmountDefault", label: "Everything else ($)", kind: "number", min: 0, step: "0.01", required: true, row: "r3", help: "Used when an order has no occasion. 10000 means $10,000 or more is reviewed." },
+          { key: "requestResponseDays", label: "Contact the customer within (business days)", kind: "number", min: 1, max: 30, step: "1", required: true, row: "r3", help: "3 means customers in review are told \"We will contact you within 3 business days\". A request still open after that raises a bell alert every day until it's handled." },
         ],
       },
       {

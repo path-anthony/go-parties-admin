@@ -206,6 +206,10 @@ export function BookingModal({
             />
           </div>
           <div className="detail-field">
+            <span className="detail-field-label">Occasion</span>
+            <span className={booking.occasion ? undefined : "muted"}>{booking.occasion ?? "Not given"}</span>
+          </div>
+          <div className="detail-field">
             <span className="detail-field-label">Address</span>
             <EditableCell
               value={booking.address ?? ""}

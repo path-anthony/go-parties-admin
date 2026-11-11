@@ -85,8 +85,8 @@ async function clearBookings() {
 before(async () => {
   accountId = (await getDefaultAccount()).id;
   const a = await prisma.account.findUniqueOrThrow({ where: { id: accountId } });
-  settingsBefore = { balanceDueDays: a.balanceDueDays, depositPercentage: a.depositPercentage, tier1Collect: a.tier1Collect, digestEmail: a.digestEmail, digestEnabled: a.digestEnabled, directBookingDailyCap: a.directBookingDailyCap, requireCustomerAccount: a.requireCustomerAccount, balanceReminderWindowDays: a.balanceReminderWindowDays };
-  await prisma.account.update({ where: { id: accountId }, data: { balanceDueDays: 30, depositPercentage: 20, tier1Collect: "retainer", digestEmail: "digest@example.test", digestEnabled: true, directBookingDailyCap: 1000, requireCustomerAccount: false, balanceReminderWindowDays: 7 } });
+  settingsBefore = { reviewAmountKids: a.reviewAmountKids, reviewAmountAdult: a.reviewAmountAdult, reviewAmountWedding: a.reviewAmountWedding, reviewAmountCorporate: a.reviewAmountCorporate, reviewAmountDefault: a.reviewAmountDefault, balanceDueDays: a.balanceDueDays, depositPercentage: a.depositPercentage, tier1Collect: a.tier1Collect, digestEmail: a.digestEmail, digestEnabled: a.digestEnabled, directBookingDailyCap: a.directBookingDailyCap, requireCustomerAccount: a.requireCustomerAccount, balanceReminderWindowDays: a.balanceReminderWindowDays };
+  await prisma.account.update({ where: { id: accountId }, data: { reviewAmountKids: 15000, reviewAmountAdult: 15000, reviewAmountWedding: 1, reviewAmountCorporate: 15000, reviewAmountDefault: 15000, balanceDueDays: 30, depositPercentage: 20, tier1Collect: "retainer", digestEmail: "digest@example.test", digestEnabled: true, directBookingDailyCap: 1000, requireCustomerAccount: false, balanceReminderWindowDays: 7 } });
   if ((await prisma.leadStatus.count({ where: { accountId } })) === 0) made.statuses.push((await prisma.leadStatus.create({ data: { accountId, name: "New", position: 0 } })).id);
   const existingPolicy = await prisma.policyVersion.findFirst({ where: { accountId }, orderBy: { version: "desc" } });
   const policy = existingPolicy ?? (await prisma.policyVersion.create({ data: { accountId, version: 1, text: `${ZZ} rental policy.` } }));
@@ -145,7 +145,11 @@ test("new-lead fires for the website, a concierge request and a storefront hold,
   const w = await post("/api/leads/external", { customerName: `${ZZ} Web Lead`, contact: "+15005550401", occasion: "Birthday" });
   assert.equal(w.status, 201, JSON.stringify(w.json));
   made.leads.push(w.json.id as string);
-  const c = await post("/api/leads/concierge", { source: "checkout", occasion: "Wedding" });
+  // Block F2: a concierge request with nobody to reach makes no lead and no alert.
+  const nobody = await post("/api/leads/concierge", { source: "checkout", occasion: "Wedding" });
+  assert.equal(nobody.status, 200, JSON.stringify(nobody.json));
+  assert.equal(nobody.json.leadId, null);
+  const c = await post("/api/leads/concierge", { source: "checkout", occasion: "Wedding", email: "zz-a10-concierge@example.test" });
   assert.equal(c.status, 201, JSON.stringify(c.json));
   made.leads.push(c.json.leadId as string);
   const h = await post("/api/bookings/direct", { itemId, eventDate: addDays(easternDay(NOW), 70), eventTime: "2 PM", customerName: `${ZZ} Hold`, phone: "+15005550402", email: "zz-a10@example.test", agreedToPolicy: true, delivery: null, address: "9 Event Rd, Avon, CT" });
@@ -175,7 +179,7 @@ test("design-request fires once when a tier 3 request is created, and holds noth
   assert.equal(r.status, 202, JSON.stringify(r.json));
   const rows = await ofType("design-request");
   assert.equal(rows.length, 1);
-  assert.equal(rows[0].title, "Big event request");
+  assert.equal(rows[0].title, "Request for review");
   assert.equal(rows[0].link, "/design-requests?status=Open");
   assert.equal(rows[0].bookingId, null, "no booking exists yet");
   assert.match(rows[0].body, /^ZZTEST Big Event, .*\. Wedding\. \$100\.$/);

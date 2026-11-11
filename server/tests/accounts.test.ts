@@ -80,8 +80,8 @@ const requireAccount = (on: boolean) => prisma.account.update({ where: { id: acc
 before(async () => {
   accountId = (await getDefaultAccount()).id;
   const a = await prisma.account.findUniqueOrThrow({ where: { id: accountId } });
-  settingsBefore = { requireCustomerAccount: a.requireCustomerAccount, balanceDueDays: a.balanceDueDays, contractRequiredOver: a.contractRequiredOver, fullReviewThreshold: a.fullReviewThreshold, reviewOccasions: a.reviewOccasions, authorizedSignerName: a.authorizedSignerName, authorizedSignerTitle: a.authorizedSignerTitle, directBookingDailyCap: a.directBookingDailyCap };
-  await prisma.account.update({ where: { id: accountId }, data: { requireCustomerAccount: false, balanceDueDays: 30, contractRequiredOver: 1000, fullReviewThreshold: 15000, reviewOccasions: ["Wedding"], authorizedSignerName: "Mel Owner", authorizedSignerTitle: "Owner", directBookingDailyCap: 1000 } });
+  settingsBefore = { reviewAmountKids: a.reviewAmountKids, reviewAmountAdult: a.reviewAmountAdult, reviewAmountWedding: a.reviewAmountWedding, reviewAmountCorporate: a.reviewAmountCorporate, reviewAmountDefault: a.reviewAmountDefault, requireCustomerAccount: a.requireCustomerAccount, balanceDueDays: a.balanceDueDays, contractRequiredOver: a.contractRequiredOver, fullReviewThreshold: a.fullReviewThreshold, reviewOccasions: a.reviewOccasions, authorizedSignerName: a.authorizedSignerName, authorizedSignerTitle: a.authorizedSignerTitle, directBookingDailyCap: a.directBookingDailyCap };
+  await prisma.account.update({ where: { id: accountId }, data: { reviewAmountKids: 15000, reviewAmountAdult: 15000, reviewAmountWedding: 1, reviewAmountCorporate: 15000, reviewAmountDefault: 15000, requireCustomerAccount: false, balanceDueDays: 30, contractRequiredOver: 1000, fullReviewThreshold: 15000, reviewOccasions: ["Wedding"], authorizedSignerName: "Mel Owner", authorizedSignerTitle: "Owner", directBookingDailyCap: 1000 } });
   if ((await prisma.leadStatus.count({ where: { accountId } })) === 0) {
     const s = await prisma.leadStatus.create({ data: { accountId, name: "New", position: 0 } });
     made.statuses.push(s.id);

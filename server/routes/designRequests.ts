@@ -1,21 +1,28 @@
 import { Router } from "express";
 import { getDefaultAccount } from "../account.js";
+import { actorFields } from "../actor.js";
 import { prisma } from "../db.js";
+import { bookingMapsUrl } from "../delivery.js";
+import { clearRequestAlerts } from "../notifications.js";
+import { safeText } from "../sanitize.js";
+import { sendTemplatedMessage } from "../sendTemplated.js";
+import { audit } from "../users.js";
 import { normalizeText } from "../validate.js";
 
 const STATUSES = ["Open", "Converted", "Dismissed"] as const;
 const MAX_NOTES = 2000;
+const MAX_REASON = 300;
 
 const router = Router();
 
-function serialize<T extends { total: unknown }>(request: T) {
-  return { ...request, total: request.total === null ? null : Number(request.total) };
+function serialize<T extends { total: unknown; placeId: string | null; addressLat: number | null; addressLng: number | null; setupLat: number | null; setupLng: number | null }>(request: T) {
+  return { ...request, total: request.total === null ? null : Number(request.total), mapsUrl: bookingMapsUrl(request) };
 }
 
 // The review queue. Newest first; ?status=Open (or Converted, Dismissed)
 // narrows it. Turning a request into a booking is not here: staff do that
 // in New booking, which is given the request's id, so the same locks and
-// the agreement rule apply. This only reads, dismisses and takes notes.
+// the agreement rule apply. This reads, takes notes and dismisses.
 router.get("/", async (req, res) => {
   const status = typeof req.query.status === "string" ? req.query.status : undefined;
   if (status !== undefined && !(STATUSES as readonly string[]).includes(status)) {
@@ -35,7 +42,7 @@ router.patch("/:id", async (req, res) => {
   const existing = await prisma.designRequest.findFirst({ where: { id: String(req.params.id), accountId: account.id } });
   if (!existing) return res.status(404).json({ error: "design request not found" });
 
-  const data: { notes?: string | null; status?: string } = {};
+  const data: { notes?: string | null; status?: string; dismissReason?: string | null; dismissedAt?: Date | null; dismissedByName?: string | null } = {};
   if ("notes" in body) {
     const notes = body.notes === null ? null : typeof body.notes === "string" ? normalizeText(body.notes) : undefined;
     if (notes === undefined || (notes !== null && notes.length > MAX_NOTES)) {
@@ -43,6 +50,7 @@ router.patch("/:id", async (req, res) => {
     }
     data.notes = notes;
   }
+  let dismissing = false;
   if ("status" in body) {
     // Converted is only ever set by making the booking; the only manual
     // moves are to Dismissed and back to Open.
@@ -53,11 +61,46 @@ router.patch("/:id", async (req, res) => {
       return res.status(409).json({ error: "This request already became a booking." });
     }
     data.status = body.status;
+    if (body.status === "Dismissed" && existing.status !== "Dismissed") {
+      // Block F2: a dismissal says why, in a line staff can read back later.
+      const reason = typeof body.reason === "string" ? safeText(body.reason, MAX_REASON) : "";
+      if (!reason) return res.status(400).json({ error: "Say why this request is being dismissed.", reason: "reason-required" });
+      if (body.tellCustomer !== undefined && typeof body.tellCustomer !== "boolean") return res.status(400).json({ error: "tellCustomer must be true or false" });
+      dismissing = true;
+      data.dismissReason = reason;
+      data.dismissedAt = new Date();
+      data.dismissedByName = actorFields().userName ?? "staff";
+    }
+    if (body.status === "Open") {
+      data.dismissReason = null;
+      data.dismissedAt = null;
+      data.dismissedByName = null;
+    }
   }
   if (Object.keys(data).length === 0) return res.status(400).json({ error: "no editable fields provided" });
 
-  const updated = await prisma.designRequest.update({ where: { id: existing.id }, data });
-  res.json(serialize(updated));
+  let updated = await prisma.designRequest.update({ where: { id: existing.id }, data });
+  // What happened to the "Tell the customer" email, when it was asked for.
+  let customerTold: { sent: boolean; why: string | null } | null = null;
+  if (dismissing) {
+    await clearRequestAlerts(existing.id);
+    await audit("design request dismissed", `${existing.customerName}: ${data.dismissReason}`);
+    if (body.tellCustomer === true) {
+      if (!existing.email) customerTold = { sent: false, why: "There is no email address on this request." };
+      else {
+        try {
+          // Email only: the wording is the "Request closed" template in Messages, Templates.
+          const outcomes = await sendTemplatedMessage("design_request_closed", { designRequestId: existing.id }, { email: existing.email }, `design_request_closed:${existing.id}:${data.dismissedAt?.getTime()}`, { purpose: "design-request-closed", channels: ["email"] });
+          const sent = outcomes.some((o) => o.status === "sent");
+          customerTold = { sent, why: sent ? null : (outcomes[0]?.status === "skipped_disabled" ? "The Request closed email is switched off in Messages, Templates." : (outcomes[0]?.error ?? outcomes[0]?.status ?? "The email could not be sent.")) };
+          if (sent) updated = await prisma.designRequest.update({ where: { id: existing.id }, data: { customerToldAt: new Date() } });
+        } catch {
+          customerTold = { sent: false, why: "The email could not be sent." };
+        }
+      }
+    }
+  }
+  res.json({ ...serialize(updated), ...(customerTold ? { customerTold } : {}) });
 });
 
 export default router;

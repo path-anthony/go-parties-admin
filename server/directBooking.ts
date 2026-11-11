@@ -6,8 +6,8 @@ import { NoCrewFree, createGigs, needsCrew } from "./gigs.js";
 import { displayStatus, legacyCustomerStatus } from "../src/lib/bookingStatus.js";
 import { sendContract, sendDesignRequestAck } from "./notify.js";
 import { currentPolicy } from "./policy.js";
-import { reviewReasons } from "./review.js";
-import { getSettings, rushFor } from "./settings.js";
+import { reviewDecision } from "./review.js";
+import { getSettings, reviewRulesOf, rushFor } from "./settings.js";
 import { getDefaultAccount } from "./account.js";
 import { ipHash, safeErr } from "./log.js";
 import { stripControl } from "./sanitize.js";
@@ -15,13 +15,13 @@ import { loadGoSigner, signContractFromQuote, token } from "./contracts.js";
 import { bookingMapsUrl, deliveryColumns, placeColumns, type Delivery } from "./delivery.js";
 import { checkBookingAddress, type ExactPlace } from "./addressLookup.js";
 import { queueGoogleSync } from "./google/sync.js";
-import { notifyDesignRequest, notifyNewLead } from "./notifications.js";
+import { clearRequestAlerts, notifyDesignRequest, notifyNewLead } from "./notifications.js";
 import { notifyContractSigned } from "./notify.js";
 import { createPaymentSession, type PaymentOffer } from "./payments.js";
 import { customerStage } from "./portal.js";
 import { HIDDEN_MESSAGE, checkQuote, resolveCart, type QuoteCart } from "./quotes.js";
 import { GuestCountError, isPerGuest, packagePrice } from "./packagePricing.js";
-import { decideTier, type Tier } from "./tiers.js";
+import { baseTier, decideTier, type Tier } from "./tiers.js";
 
 export const MAX_UNITS_PER_BOOKING = 50;
 
@@ -92,6 +92,9 @@ export type DirectBookingInput = {
   // and the booking is verified from the start. The pin still comes from
   // delivery when the storefront sent one.
   place?: ExactPlace | null;
+  // Block F2: the setup pin and notes a reviewed request carried, handed on
+  // when staff turn it into a booking (a staff booking has no delivery).
+  pin?: { setupLat: number | null; setupLng: number | null; setupNotes: string | null } | null;
   // Block A9: why the address could not be checked (no key, Google down,
   // the daily cap), when it could not be. Stored with "not checked".
   addressCheckReason?: string | null;
@@ -212,22 +215,23 @@ export async function createDirectBooking(input: DirectBookingInput): Promise<{ 
   }
   const evidence = agreementEvidence(input);
 
-  // Review routing. A cart over the threshold, or one for an occasion on
-  // the review list, is not held: it becomes a design request for staff, and
+  // Review routing (Block F2). An order whose total is at or over the amount
+  // for its occasion group is not held: it becomes a request for staff, and
   // nothing is locked. A request being converted by staff has already been
   // reviewed, so it skips this.
   if (!designRequestId) {
-    const reasons = reviewReasons({
-      total,
-      // Every source of an occasion counts, not just the optional field a
-      // customer can leave out or change: what they said, what the package
-      // is for, and what the cart contains.
-      occasions: [...(occasion ? [occasion] : []), ...(pkg?.occasions ?? [])],
-      categories: items.map((item) => item.category),
-      fullReviewThreshold: settings.fullReviewThreshold,
-      reviewOccasions: settings.reviewOccasions,
-    });
+    const review = reviewDecision({ total, occasion, packageOccasions: pkg?.occasions ?? [], rules: reviewRulesOf(settings) });
+    const reasons = review.reasons;
     if (reasons.length > 0) {
+      // Nothing the customer gave is dropped while the order waits: the exact
+      // place, its point, the setup pin and notes, the "same as home" tick
+      // and the guest count are kept on the request.
+      const sent = input.delivery ?? null;
+      const where = input.place
+        ? { placeId: input.place.placeId, deliveryComponents: input.place.components, addressLat: input.place.lat, addressLng: input.place.lng }
+        : sent
+          ? { placeId: sent.placeId, deliveryComponents: sent.components, addressLat: sent.addressLat, addressLng: sent.addressLng }
+          : {};
       const request = await prisma.$transaction(async (tx) => {
         const created = await tx.designRequest.create({
         data: {
@@ -244,6 +248,13 @@ export async function createDirectBooking(input: DirectBookingInput): Promise<{ 
           packageId: pkg?.id ?? null,
           total,
           balancePaymentPreference,
+          reviewReason: review.sentence,
+          ...where,
+          setupLat: sent?.setupLat ?? null,
+          setupLng: sent?.setupLng ?? null,
+          setupNotes: sent?.setupNotes || null,
+          eventAddressSameAsHome: input.eventAddressSameAsHome === true,
+          guestCount: input.guestCount ?? null,
           cart: {
             items: wanted.map(({ item, quantity }) => ({
               itemId: item.id,
@@ -288,6 +299,10 @@ export async function createDirectBooking(input: DirectBookingInput): Promise<{ 
         occasion,
         eventDate: dateText,
         total,
+        // How many business days staff promise to be in touch within.
+        responseDays: settings.requestResponseDays,
+        // The specific rule, for staff only.
+        ...(staff ? { reviewReason: review.sentence } : {}),
         message: "This one goes to our team first. Nothing is held yet; we'll be in touch to put it together with you.",
       });
     }
@@ -297,11 +312,13 @@ export async function createDirectBooking(input: DirectBookingInput): Promise<{ 
   // already sent tier 3 to staff, so this is 1 or 2. A storefront hold must
   // match the tier it was told; a tier 2 hold carries a signature on a quote
   // that still has to hash the same today.
-  const decided = decideTier(
-    { total, occasions: [...(occasion ? [occasion] : []), ...(pkg?.occasions ?? [])], categories: items.map((item) => item.category), crewed: items.some((item) => needsCrew(item)) },
-    { fullReviewThreshold: settings.fullReviewThreshold, reviewOccasions: settings.reviewOccasions, contractRequiredOver: settings.contractRequiredOver, contractRequiredForCrewed: settings.contractRequiredForCrewed },
-  );
-  const tier: Tier = designRequestId ? (decided.tier === 3 ? 2 : decided.tier) : decided.tier;
+  const tierRules = { review: reviewRulesOf(settings), contractRequiredOver: settings.contractRequiredOver, contractRequiredForCrewed: settings.contractRequiredForCrewed };
+  const crewed = items.some((item) => needsCrew(item));
+  const decided = decideTier({ total, occasion, packageOccasions: pkg?.occasions ?? [], crewed }, tierRules);
+  // Block F2: a request staff turn into a booking takes the policy or the
+  // contract path by the same price and crew rule as any booking. It is no
+  // longer forced to a contract.
+  const tier: Tier = designRequestId ? baseTier({ total, crewed }, tierRules).tier : decided.tier;
   let quote: UsableQuote | null = null;
   let cartForQuote: QuoteCart | null = null;
   if (!staff) {
@@ -416,7 +433,9 @@ export async function createDirectBooking(input: DirectBookingInput): Promise<{ 
           eventTime,
           address,
           eventAddressSameAsHome: input.eventAddressSameAsHome === true,
-          guestCount,
+          // The per-guest count a package was priced on. A request staff turn
+          // into a booking also keeps the count the customer gave with it.
+          guestCount: guestCount ?? (designRequestId ? (input.guestCount ?? null) : null),
           customerName: name,
           phone: contact.phone,
           email: contact.email,
@@ -429,13 +448,16 @@ export async function createDirectBooking(input: DirectBookingInput): Promise<{ 
           tier,
           ...(input.place
             ? // Block A9: the exact place from Google, verified now.
-              placeColumns(input.place, delivery ? { setupLat: delivery.setupLat, setupLng: delivery.setupLng, setupNotes: delivery.setupNotes } : null)
+              placeColumns(input.place, delivery ? { setupLat: delivery.setupLat, setupLng: delivery.setupLng, setupNotes: delivery.setupNotes } : (input.pin ?? null))
             : {
                 ...deliveryColumns(delivery),
                 // The contract's mailing address comes from the delivery
                 // address when there is one.
                 ...(delivery ? { mailingAddress: `${delivery.components.streetNumber} ${delivery.components.route}`.trim(), city: delivery.components.city || null, state: delivery.components.state || null, zip: delivery.components.zip || null } : {}),
                 ...(address && input.addressCheckReason ? { addressCheck: "not_checked", addressCheckReason: input.addressCheckReason } : {}),
+                // A converted request whose address staff changed: the pin no
+                // longer fits, the customer's setup notes still do.
+                ...(!delivery && input.pin?.setupNotes ? { setupNotes: input.pin.setupNotes } : {}),
               }),
           // eventDate is copied onto each join row for the (unitId, eventDate)
           // unique constraint, the database-level backstop behind the lock.
@@ -507,10 +529,14 @@ export async function createDirectBooking(input: DirectBookingInput): Promise<{ 
       return { booking, lead, claimed, gigs, agreement };
     });
 
-    // A design request that became a booking: text the customer their
-    // contract link. After the booking is safely committed, and never in
-    // the way of its response.
-    if (designRequestId) void sendContract({ bookingId: result.booking.id }, "conversion");
+    // A request that became a booking. On the contract path the customer is
+    // sent their contract link, after the booking is safely committed and
+    // never in the way of its response. On the policy path there is no
+    // contract to send. Either way its bell alerts are cleared.
+    if (designRequestId) {
+      if (tier === 2) void sendContract({ bookingId: result.booking.id }, "conversion");
+      void clearRequestAlerts(designRequestId);
+    }
 
     // Block T1. A tier 2 hold: the signature taken in checkout is recorded
     // now, against the quote's hash, and the signed document and PDF are
@@ -553,7 +579,7 @@ export async function createDirectBooking(input: DirectBookingInput): Promise<{ 
     // Block A9: a storefront hold was looked up before it was made. A staff
     // booking is checked after the reply, never refused, never waited on.
     // The calendar follows a signed contract.
-    if (staff && address) void checkBookingAddress(result.booking.id).catch(() => undefined);
+    if (staff && address && !input.place) void checkBookingAddress(result.booking.id).catch(() => undefined);
     if (contract?.signed) queueGoogleSync(result.booking.id);
     // Staff made this one themselves, so only a storefront hold is news.
     if (!staff) await notifyNewLead({ ...result.lead, bookingId: result.booking.id, customerId: result.booking.customerId });
