@@ -348,3 +348,40 @@ describe("wedding details reminders", () => {
     assert.equal(r60(planBooking(b({ status: "not_started", hasAccount: true }), facts(et("2026-10-21", 12), { off: ["wedding_details_reminder_60:email"] }))), undefined);
   });
 });
+
+// Block F1: retainer reminders, counted from the first ask.
+describe("retainer reminders", () => {
+  // Asked Monday Oct 5 at noon; the event is Dec 20.
+  const asked = et("2026-10-05", 12);
+  const mine = (p: { items: PlanItem[] }) => p.items.filter((i) => i.seriesId === "retainer" && i.channel === "sms");
+  const at = (now: Date, over: Partial<BookingInput> = {}, retainer: Partial<NonNullable<BookingInput["retainer"]>> = {}, logs: Record<string, LogFact> = {}) =>
+    mine(planBooking(booking({ stage: "Held", retainerPaid: false, eventDate: "2026-12-20", createdAt: et("2026-10-05", 11), retainer: { requestedAt: asked, days: [1, 3, 7], owed: true, waitingOnSignature: false, ...retainer }, ...over }), facts(now, { logs })));
+
+  it("plans 1, 3 and 7 days after the ask at 10 AM Eastern, keyed by position", () => {
+    const items = at(et("2026-10-05", 13));
+    assert.deepEqual(items.map((i) => i.dueAt.toISOString()), [et("2026-10-06", 10), et("2026-10-08", 10), et("2026-10-12", 10)].map((d) => d.toISOString()));
+    assert.deepEqual(items.map((i) => i.baseKey), ["retainer_reminder:B1:1", "retainer_reminder:B1:2", "retainer_reminder:B1:3"]);
+    assert.ok(items.every((i) => i.triggerKey === "retainer_reminder" && i.state === "scheduled"));
+  });
+  it("each one comes due on its day and not before", () => {
+    assert.deepEqual(at(et("2026-10-06", 9, 59)).map((i) => i.state), ["scheduled", "scheduled", "scheduled"]);
+    assert.deepEqual(at(et("2026-10-06", 10, 5)).map((i) => i.state), ["due", "scheduled", "scheduled"]);
+  });
+  it("stops on payment, on cancellation, and when nothing is owed", () => {
+    assert.ok(at(et("2026-10-06", 10, 5), { retainerPaid: true }).every((i) => i.state === "stopped" && i.reason === "Stopped: retainer paid"));
+    assert.ok(at(et("2026-10-06", 10, 5), { stage: "Cancelled" }).every((i) => i.state === "stopped" && i.reason === "Booking cancelled"));
+    assert.ok(at(et("2026-10-06", 10, 5), {}, { owed: false }).every((i) => i.state === "stopped"));
+  });
+  it("a contract booking that is not signed waits on the signature", () => {
+    assert.ok(at(et("2026-10-06", 10, 5), { stage: "Contract Sent" }, { waitingOnSignature: true }).every((i) => i.state === "waiting" && i.reason === "Waits for the contract to be signed."));
+  });
+  it("a day set to 0 is off, and nothing is planned before the retainer was asked for", () => {
+    assert.equal(at(et("2026-10-06", 10, 5), {}, { days: [1, 0, 7] }).length, 2);
+    assert.equal(at(et("2026-10-06", 10, 5), {}, { requestedAt: null }).length, 0);
+  });
+  it("the storefront hold does not stop them, and a paid storefront booking that is Confirmed has no hold", () => {
+    assert.deepEqual(at(et("2026-10-06", 10, 5), { storefrontHeldUnsigned: true }).map((i) => i.state), ["due", "scheduled", "scheduled"]);
+    const confirmed = planBooking(booking({ stage: "Held", retainerPaid: true, storefrontHeldUnsigned: false, eventDate: "2026-12-20" }), facts(et("2026-10-06", 10, 5)));
+    assert.ok(confirmed.items.filter((i) => i.seriesId === "event").every((i) => i.state !== "stopped"));
+  });
+});

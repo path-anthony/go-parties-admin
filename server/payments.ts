@@ -3,9 +3,11 @@ import { getDefaultAccount } from "./account.js";
 import { prisma } from "./db.js";
 import { queueGoogleSync } from "./google/sync.js";
 import { safeErr } from "./log.js";
+import { confirmIfPaid } from "./confirm.js";
+import { notifyPaymentReceived } from "./notifications.js";
 import { notifyStageChange } from "./notify.js";
 import { getSettings } from "./settings.js";
-import { createCheckoutSession, createRefund, createStripeCustomer, retrieveCheckoutSession, stripeConfigured, stripeRequest, StripeError, type CheckoutSession, type StripeEventBody } from "./stripe/client.js";
+import { createCheckoutSession, createStripeCustomer, retrieveCheckoutSession, stripeConfigured, stripeRequest, StripeError, type CheckoutSession, type StripeEventBody } from "./stripe/client.js";
 import { tier1Amount } from "./tiers.js";
 import { displayStatus } from "../src/lib/bookingStatus.js";
 
@@ -96,6 +98,8 @@ function loadBooking(bookingId: string) {
 const inactive = (status: string) => status === "Cancelled" || status === "Released" || status === "Completed";
 
 export type PaymentOffer = { kind: "retainer" | "balance"; amount: number; clientSecret: string; sessionId: string };
+// The pay link's version: Stripe's own page.
+export type HostedOffer = { kind: "retainer" | "balance"; amount: number; url: string; sessionId: string };
 
 // What a kind can collect right now, in cents, or why not.
 export function dueFor(b: { status: string; tier: number | null; agreement?: { contractStatus: string | null } | null }, money: Money, kind: "retainer" | "balance"): { cents: number } | { reason: "nothing-due" | "not-payable"; message: string } {
@@ -124,11 +128,22 @@ async function stripeCustomerFor(b: NonNullable<Awaited<ReturnType<typeof loadBo
 
 // Mints a Checkout Session for what is due. Null when Stripe is not set up.
 // Throws PaymentError (409) when nothing is due or it is not payable yet.
-export async function createPaymentSession(bookingId: string, kind: "retainer" | "balance"): Promise<PaymentOffer | null> {
+export async function createPaymentSession(bookingId: string, kind: "retainer" | "balance"): Promise<PaymentOffer | null>;
+export async function createPaymentSession(bookingId: string, kind: "retainer" | "balance", hosted: { successUrl: string; cancelUrl: string }): Promise<HostedOffer | null>;
+export async function createPaymentSession(bookingId: string, kind: "retainer" | "balance", hosted?: { successUrl: string; cancelUrl: string }): Promise<PaymentOffer | HostedOffer | null> {
   if (!stripeConfigured()) return null;
   const { booking, money, settings } = await loadMoney(bookingId);
   const due = dueFor(booking, money, kind);
   if ("reason" in due) throw new PaymentError(409, due.reason, due.message);
+  // The pay link is opened more than once (the email, the text, a link
+  // preview). A page that is still open for the same amount is used again,
+  // so a second open never closes the page the customer is paying on.
+  if (hosted) {
+    for (const old of booking.payments.filter((p) => p.kind === kind && p.status === "pending" && p.stripeSessionId && p.amountCents === due.cents)) {
+      const s = await retrieveCheckoutSession(old.stripeSessionId as string).catch(() => null);
+      if (s && s.status === "open" && s.url) return { kind, amount: due.cents / 100, url: s.url, sessionId: s.id };
+    }
+  }
   // An earlier session for the same thing is expired on Stripe's side, best
   // effort, so the customer cannot pay the same amount twice.
   for (const old of booking.payments.filter((p) => p.kind === kind && p.status === "pending" && p.stripeSessionId)) {
@@ -151,6 +166,7 @@ export async function createPaymentSession(bookingId: string, kind: "retainer" |
       metadata: { bookingId: booking.id, agreementId: booking.agreement?.id ?? "", kind, paymentId: row.id },
       idempotencyKey: `sess:${row.id}`,
       saveCard: settings.saveCardForBalance,
+      ...(hosted ? { hosted } : {}),
     });
   } catch (err) {
     await prisma.payment.update({ where: { id: row.id }, data: { status: "failed", failureReason: err instanceof StripeError ? err.message : safeErr(err) } });
@@ -158,6 +174,10 @@ export async function createPaymentSession(bookingId: string, kind: "retainer" |
     throw err;
   }
   await prisma.payment.update({ where: { id: row.id }, data: { stripeSessionId: session.id, stripePaymentIntentId: session.payment_intent ?? null } });
+  if (hosted) {
+    if (!session.url) throw new PaymentError(502, "no-url", "Stripe did not return a payment page.");
+    return { kind, amount: due.cents / 100, url: session.url, sessionId: session.id };
+  }
   if (!session.client_secret) throw new PaymentError(502, "no-secret", "Stripe did not return a client secret.");
   return { kind, amount: due.cents / 100, clientSecret: session.client_secret, sessionId: session.id };
 }
@@ -167,15 +187,21 @@ export async function createPaymentSession(bookingId: string, kind: "retainer" |
 // A succeeded payment changes the booking: the retainer flag (which is what
 // Retainer Paid and Confirmed read), the balance flag, a line on the lead,
 // the stage messages and the calendar. Idempotent: a payment already
-// succeeded does nothing.
+// succeeded does nothing. Block F1: the change of status is one conditional
+// update, so when the webhook and the status check (or the same Stripe event
+// twice) arrive together only one of them records the payment and tells
+// anyone about it.
+const SETTLED = ["succeeded", "refunded", "disputed"];
 export async function settlePayment(paymentId: string, detail: { paymentIntentId?: string | null; chargeId?: string | null; paidAt?: Date } = {}): Promise<boolean> {
   const p = await prisma.payment.findUnique({ where: { id: paymentId } });
-  if (!p || p.status === "succeeded" || p.status === "refunded" || p.status === "disputed") return false;
-  await prisma.payment.update({
-    where: { id: p.id },
+  if (!p || SETTLED.includes(p.status)) return false;
+  const won = await prisma.payment.updateMany({
+    where: { id: p.id, status: { notIn: SETTLED } },
     data: { status: "succeeded", paidAt: detail.paidAt ?? new Date(), stripePaymentIntentId: detail.paymentIntentId ?? p.stripePaymentIntentId, stripeChargeId: detail.chargeId ?? p.stripeChargeId },
   });
+  if (won.count === 0) return false;
   await applyPaid(p.bookingId);
+  await notifyPaymentReceived(p.id);
   return true;
 }
 
@@ -186,7 +212,11 @@ export async function applyPaid(bookingId: string): Promise<void> {
   if (money.retainerPaid && !booking.retainerPaid) data.retainerPaid = true;
   if (money.balancePaid && !booking.balancePaid) data.balancePaid = true;
   if (Object.keys(data).length === 0) return;
-  const updated = await prisma.booking.update({ where: { id: bookingId }, data });
+  await prisma.booking.update({ where: { id: bookingId }, data });
+  // Block F1: paid means Confirmed. A booking that needs no contract is
+  // confirmed here, the moment its retainer becomes paid.
+  if (data.retainerPaid) await confirmIfPaid(bookingId);
+  const updated = await prisma.booking.findUniqueOrThrow({ where: { id: bookingId }, select: { status: true, retainerPaid: true, confirmedAt: true } });
   if (booking.leadId) {
     const what = [data.retainerPaid ? "retainer" : null, data.balancePaid ? "balance" : null].filter(Boolean).join(" and ");
     await prisma.leadActivity.create({ data: { leadId: booking.leadId, text: `Payment received: ${what} paid.`, ...actorFields() } }).catch(() => undefined);
@@ -216,29 +246,14 @@ export async function recordManualPayment(bookingId: string, input: { kind: Paym
     },
   });
   await applyPaid(b.id);
+  await notifyPaymentReceived(row.id);
   return row;
 }
 
-// A partial or full refund of a card payment, through Stripe. The local row
-// is updated at once; the charge.refunded webhook confirms it later.
-export async function refundPayment(paymentId: string, amountCents: number, note: string | null) {
-  const p = await prisma.payment.findUnique({ where: { id: paymentId } });
-  if (!p) throw new PaymentError(404, "not-found", "payment not found");
-  if (p.method !== "card" || !p.stripePaymentIntentId) throw new PaymentError(409, "not-refundable", "Only card payments taken through Stripe can be refunded here.");
-  if (p.status !== "succeeded" && p.status !== "refunded") throw new PaymentError(409, "not-refundable", "That payment has not succeeded.");
-  const remaining = p.amountCents - p.refundedCents;
-  if (amountCents <= 0 || amountCents > remaining) throw new PaymentError(400, "bad-amount", `The refund must be between $0.01 and $${(remaining / 100).toFixed(2)}.`);
-  const who = actorFields();
-  const refund = await createRefund({ paymentIntentId: p.stripePaymentIntentId, amountCents, idempotencyKey: `refund:${p.id}:${p.refundedCents + amountCents}`, reason: note ?? "" });
-  const refunded = p.refundedCents + amountCents;
-  const updated = await prisma.payment.update({
-    where: { id: p.id },
-    data: { refundedCents: refunded, status: refunded >= p.amountCents ? "refunded" : "succeeded", note: [p.note, note ? `Refund ${(amountCents / 100).toFixed(2)}: ${note}` : null].filter(Boolean).join(" | ") || null },
-  });
-  const b = await prisma.booking.findUnique({ where: { id: p.bookingId }, select: { leadId: true } });
-  if (b?.leadId) await prisma.leadActivity.create({ data: { leadId: b.leadId, text: `Refunded $${(amountCents / 100).toFixed(2)} of a ${p.kind} payment${who.userName ? "" : ""}.`, ...who } }).catch(() => undefined);
-  return { payment: updated, refundId: refund.id };
-}
+// Block F1: this app never sends money out. A refund is made by a person in
+// Stripe, and written down in the refund log (server/cancellations.ts). When
+// Stripe reports the refund (charge.refunded, below) the payment row is
+// updated to match.
 
 // ---- the status check --------------------------------------------------------------
 

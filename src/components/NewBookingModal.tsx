@@ -42,6 +42,8 @@ export function NewBookingModal({
   const [occasion, setOccasion] = useState(request?.occasion ?? "");
   const [balance, setBalance] = useState<BalancePreference>(request?.balancePaymentPreference ?? "Manual");
   const [agreed, setAgreed] = useState(false);
+  // Block F1: send the customer what they owe as soon as the booking is made.
+  const [sendNow, setSendNow] = useState(true);
   const [reviewMessage, setReviewMessage] = useState<string | null>(null);
   // Options chosen on the request, matched to their groups once the day's
   // catalog has loaded; anything the user changes overrides them.
@@ -222,6 +224,7 @@ export function NewBookingModal({
         balancePaymentPreference: balance,
         agreed: true,
         ...(request ? { designRequestId: request.id } : {}),
+        ...(!request && !sendNow ? { sendPayLink: false } : {}),
       });
       if (result.reviewRequired) {
         // Over the threshold or an occasion that needs review: it became a
@@ -482,6 +485,26 @@ export function NewBookingModal({
             <span className="muted field-help">
               Read it to them, or send it, before ticking. The agreement is recorded against the policy version that is current now.
             </span>
+          </div>
+
+          <div className="modal-section">
+            <span className="detail-field-label">6. Ask for the retainer</span>
+            {request ? (
+              <span className="muted field-help">
+                When you turn this request into a booking the customer is sent what they owe next, by text and email, with the amount: the contract to sign (over the contract amount, or with crew) or the link to pay the retainer.
+              </span>
+            ) : (
+              <>
+                <label className="checkbox-label">
+                  <input type="checkbox" checked={sendNow} onChange={(e) => setSendNow(e.target.checked)} aria-label="Send the customer what they owe now" />
+                  Send the customer what they owe as soon as this is booked.
+                </label>
+                <span className="muted field-help">
+                  On: they get a text and an email with the amount. A booking that needs a contract gets the contract link first, and the pay link right after they sign. A small rental gets the link to pay the retainer. Reminders follow if
+                  it stays unpaid. Off: nothing is sent; use Send pay link on the booking when you are ready.
+                </span>
+              </>
+            )}
           </div>
 
           {reviewMessage && (

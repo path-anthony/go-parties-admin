@@ -60,7 +60,7 @@ import type {
   SkillRow,
   Unit,
   UnitPatch,
- HeroSlide } from "./types";
+ HeroSlide, PayLinkView, RefundRecord, CancellationRequestView, MoneyOverview } from "./types";
 
 export const AUTH_EXPIRED_EVENT = "auth:expired";
 
@@ -522,8 +522,32 @@ export function getBookingPayments(bookingId: string): Promise<PaymentsView> {
 export function recordPayment(bookingId: string, input: { kind: "retainer" | "balance" | "other"; amountCents: number; method: "cash" | "check" | "other"; note: string | null }): Promise<PaymentsView> {
   return fetch(`/api/bookings/${bookingId}/payments`, jsonRequest("POST", input)).then(asJson<PaymentsView>);
 }
-export function refundPayment(bookingId: string, paymentId: string, input: { amountCents: number; note: string | null }): Promise<PaymentsView> {
-  return fetch(`/api/bookings/${bookingId}/payments/${paymentId}/refund`, jsonRequest("POST", input)).then(asJson<PaymentsView>);
+// Block F1: the pay link, the refund log, cancellation requests and the
+// Overview money sections.
+export function getPayLink(bookingId: string): Promise<PayLinkView> {
+  return fetch(`/api/bookings/${bookingId}/pay-link`).then(asJson<PayLinkView>);
+}
+// A send that did not go answers 409 with the same view and the reason.
+export async function sendPayLink(bookingId: string): Promise<PayLinkView & { sent: boolean; why: string | null }> {
+  const res = await fetch(`/api/bookings/${bookingId}/pay-link/send`, jsonRequest("POST", {}));
+  if (res.status === 409) return (await res.json()) as PayLinkView & { sent: boolean; why: string | null };
+  return asJson<PayLinkView & { sent: boolean; why: string | null }>(res);
+}
+export function getRefunds(bookingId: string): Promise<{ refunds: RefundRecord[] }> {
+  return fetch(`/api/bookings/${bookingId}/refunds`).then(asJson<{ refunds: RefundRecord[] }>);
+}
+export function addRefund(bookingId: string, input: { amountCents: number; refundedOn: string; method: string; note: string | null; cancellationRequestId?: string | null }): Promise<{ refunds: RefundRecord[] }> {
+  return fetch(`/api/bookings/${bookingId}/refunds`, jsonRequest("POST", input)).then(asJson<{ refunds: RefundRecord[] }>);
+}
+export function getCancellationRequests(filter: { status?: string; leadId?: string; bookingId?: string } = {}): Promise<{ requests: CancellationRequestView[] }> {
+  const q = new URLSearchParams(Object.entries(filter).filter(([, v]) => v) as [string, string][]).toString();
+  return fetch(`/api/cancellation-requests${q ? `?${q}` : ""}`).then(asJson<{ requests: CancellationRequestView[] }>);
+}
+export function decideCancellationRequest(id: string, decision: "approve" | "decline", note: string | null): Promise<{ status: string; customerTold: boolean; request: CancellationRequestView }> {
+  return fetch(`/api/cancellation-requests/${id}/${decision}`, jsonRequest("POST", { note })).then(asJson<{ status: string; customerTold: boolean; request: CancellationRequestView }>);
+}
+export function getMoneyOverview(): Promise<MoneyOverview> {
+  return fetch("/api/money/overview").then(asJson<MoneyOverview>);
 }
 export type DeliveryPatch = { address?: string | null; setupLat?: number | null; setupLng?: number | null; setupNotes?: string | null; verified?: boolean };
 export function updateDelivery(bookingId: string, patch: DeliveryPatch): Promise<{ ok: true }> {

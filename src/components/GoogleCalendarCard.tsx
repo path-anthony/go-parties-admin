@@ -116,7 +116,7 @@ export function GoogleCalendarCard() {
           <label>
             Add bookings when they are
             <select value={info.syncStage} disabled={busy} onChange={(e) => run(() => updateGoogleCalendar({ syncStage: e.target.value as "Confirmed" | "Signed" }), "Saved.")}>
-              <option value="Confirmed">Confirmed (signed and retainer paid)</option>
+              <option value="Confirmed">Confirmed (retainer paid, and signed when a contract is needed)</option>
               <option value="Signed">Signed</option>
             </select>
             <span className="muted field-help">{EDITOR_COPY.google.stage}</span>

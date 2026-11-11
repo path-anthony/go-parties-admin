@@ -285,7 +285,9 @@ export type BookingInput = {
   // The contract, if one was sent.
   contract: { sentAt: Date | null; signed: boolean } | null;
   balanceWindowDays: number;
-  // Made on the storefront by a customer, still at Held, contract unsigned.
+  // Made on the storefront by a customer, still at Held, contract unsigned,
+  // and not Confirmed (Block F1: a paid small rental is Confirmed while its
+  // stage is still Held, and its reminders run).
   // Nobody at GO has engaged with it yet, so nothing scheduled is texted or
   // emailed to it: a stranger's number typed into the form must not receive
   // automated messages from us.
@@ -293,6 +295,11 @@ export type BookingInput = {
   // A wedding booking's questionnaire. hasAccount: the form is behind the
   // customer's sign-in, so without an account there is nothing to link to.
   wedding?: { status: string; hasAccount: boolean } | null;
+  // Block F1: the retainer was asked for at this moment (a pay link went, or
+  // the customer signed at checkout and reached the pay step). Reminders go
+  // `days` days later (0 is off) while it is owed. A contract booking that is
+  // not signed yet waits on the signature instead.
+  retainer?: { requestedAt: Date | null; days: number[]; owed: boolean; waitingOnSignature: boolean } | null;
 };
 
 export const STOREFRONT_HOLD_REASON = "Storefront hold: nothing is sent automatically while a storefront booking is Held and unsigned.";
@@ -324,6 +331,24 @@ export function planBooking(b: BookingInput, f: Facts): Plan {
           stopped,
           eventStart,
         },
+        f,
+      ),
+    );
+  }
+
+  // Retainer reminders: 1, 3 and 7 days (Settings) after the retainer was
+  // first asked for, at 10 AM, while it is unpaid. The storefront hold does
+  // not apply: the clock only starts once staff or a signature asked for it.
+  if (b.retainer?.requestedAt) {
+    const day0 = easternDay(b.retainer.requestedAt);
+    const milestones: Milestone[] = b.retainer.days
+      .map((d, i) => ({ d, n: i + 1 }))
+      .filter(({ d }) => d > 0)
+      .map(({ d, n }) => ({ triggerKey: "retainer_reminder", dueAt: atEastern(addDays(day0, d), 10), baseKey: `retainer_reminder:${b.id}:${n}` }));
+    const stopped = cancelled ? "Booking cancelled" : completed ? "Booking completed" : b.retainerPaid ? "Stopped: retainer paid" : !b.retainer.owed ? "Nothing is owed on the retainer." : null;
+    items.push(
+      ...planSeries(
+        { id: "retainer", subject, milestones, recordStart: b.retainer.requestedAt, contact: b.contact, paused: b.paused, stopped, waiting: b.retainer.waitingOnSignature ? "Waits for the contract to be signed." : null, eventStart },
         f,
       ),
     );
@@ -457,6 +482,7 @@ const NAMES: Record<string, string> = {
   lead_nurture_day10: "day 10 follow-up",
   contract_unsigned_nudge: "contract reminder",
   balance_due_reminder: "balance reminder",
+  retainer_reminder: "retainer reminder",
   event_week_reminder: "event week reminder",
   event_eve_reminder: "event eve reminder",
   post_event_thanks: "thank-you",

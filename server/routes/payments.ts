@@ -1,13 +1,11 @@
 import { Router } from "express";
 import { getDefaultAccount } from "../account.js";
-import { requireOwner } from "../auth.js";
 import { prisma } from "../db.js";
 import { INVALID } from "../validate.js";
 import { bookingMapsUrl, updateDelivery } from "../delivery.js";
 import { checkBookingAddress } from "../addressLookup.js";
-import { MANUAL_METHODS, PAYMENT_KINDS, PaymentError, loadMoney, paymentStatus, recordManualPayment, refundPayment, type PaymentKind } from "../payments.js";
+import { MANUAL_METHODS, PAYMENT_KINDS, PaymentError, loadMoney, paymentStatus, recordManualPayment, type PaymentKind } from "../payments.js";
 import { StripeError, stripeConfigured, stripeMode } from "../stripe/client.js";
-import { audit } from "../users.js";
 
 // Block T1. Payments: the public status check the storefront polls, and the
 // admin's Payments section on a booking (list, totals, record by hand,
@@ -51,7 +49,6 @@ function serializePayment(p: { id: string; kind: string; amountCents: number; cu
     recordedByName: p.recordedByName,
     paidAt: p.paidAt?.toISOString() ?? null,
     createdAt: p.createdAt.toISOString(),
-    refundable: p.method === "card" && !!p.stripePaymentIntentId && (p.status === "succeeded" || p.status === "refunded") && p.refundedCents < p.amountCents,
   };
 }
 
@@ -98,25 +95,6 @@ adminPaymentsRouter.post("/:id/payments", async (req, res) => {
   try {
     await recordManualPayment(b.id, { kind: kind as PaymentKind, amountCents, method: method as string, note });
     res.status(201).json(await paymentsView(b.id));
-  } catch (err) {
-    fail(res, err);
-  }
-});
-
-// Owners only: a partial or full refund of a card payment through Stripe.
-adminPaymentsRouter.post("/:id/payments/:paymentId/refund", requireOwner, async (req, res) => {
-  const b = await own(String(req.params.id));
-  if (!b) return res.status(404).json({ error: "booking not found" });
-  const body = (req.body ?? {}) as Record<string, unknown>;
-  const amountCents = body.amountCents;
-  if (typeof amountCents !== "number" || !Number.isInteger(amountCents) || amountCents <= 0) return res.status(400).json({ error: "amountCents must be a whole number of cents above 0" });
-  const note = typeof body.note === "string" ? body.note.trim().slice(0, 300) || null : null;
-  const p = await prisma.payment.findFirst({ where: { id: String(req.params.paymentId), bookingId: b.id }, select: { id: true } });
-  if (!p) return res.status(404).json({ error: "payment not found" });
-  try {
-    await refundPayment(p.id, amountCents, note);
-    await audit("payment refunded", `booking ${b.id}, $${(amountCents / 100).toFixed(2)}`);
-    res.json(await paymentsView(b.id));
   } catch (err) {
     fail(res, err);
   }

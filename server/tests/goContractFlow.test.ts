@@ -20,6 +20,26 @@ import { prisma } from "../db.js";
 import { sendContract } from "../notify.js";
 import { publicContractsRouter } from "../routes/contracts.js";
 
+
+// Block F1: this suite writes bookings and leads, so it runs only against a
+// throwaway database, and it makes what a fresh one lacks (a lead column
+// named "New", a policy with text) instead of assuming production's rows.
+if (!/zz_scratch/.test(process.env.DATABASE_URL ?? "")) throw new Error("goContractFlow.test.ts runs only against a throwaway database (name containing zz_scratch)");
+const fixtures = { statuses: [] as string[], policies: [] as string[], items: [] as string[] };
+async function ensureFixtures(accountId: string, needItem: boolean) {
+  if ((await prisma.leadStatus.count({ where: { accountId, name: "New" } })) === 0) fixtures.statuses.push((await prisma.leadStatus.create({ data: { accountId, name: "New", position: 0 } })).id);
+  const policy = await prisma.policyVersion.findFirst({ where: { accountId }, orderBy: { version: "desc" } });
+  if (!policy || policy.text.trim() === "") fixtures.policies.push((await prisma.policyVersion.create({ data: { accountId, version: (policy?.version ?? 0) + 1, text: "ZZTEST rental policy: the retainer is {{depositPercentage}}% and non-refundable." } })).id);
+  if (needItem && (await prisma.item.count({ where: { accountId, price: { not: null }, units: { some: {} } } })) === 0) {
+    fixtures.items.push((await prisma.item.create({ data: { accountId, name: "ZZTEST Contract Item", category: "Tents", price: 100, units: { create: [{ label: "1" }, { label: "2" }, { label: "3" }, { label: "4" }, { label: "5" }, { label: "6" }] } } })).id);
+  }
+}
+async function removeFixtures() {
+  await prisma.item.deleteMany({ where: { id: { in: fixtures.items } } });
+  await prisma.policyVersion.deleteMany({ where: { id: { in: fixtures.policies } } }).catch(() => undefined);
+  await prisma.leadStatus.deleteMany({ where: { id: { in: fixtures.statuses } } }).catch(() => undefined);
+}
+
 const realFetch = globalThis.fetch;
 let texts: string[] = [];
 let accountId = "";
@@ -65,6 +85,7 @@ const sign = async (token: string, body: unknown) => {
 
 before(async () => {
   accountId = (await getDefaultAccount()).id;
+  await ensureFixtures(accountId, true);
   const a = await prisma.account.findUniqueOrThrow({ where: { id: accountId }, select: { useGoContract: true, authorizedSignerName: true, authorizedSignerTitle: true } });
   savedSettings = a;
   termsBefore = await prisma.contractTermsVersion.count({ where: { accountId } });
@@ -84,12 +105,16 @@ before(async () => {
 });
 
 after(async () => {
+  // Block F1: a signature with the retainer unpaid sends the pay link after
+  // the reply. Let that finish before the rows it logs against are removed.
+  await new Promise((r) => setTimeout(r, 2500));
   globalThis.fetch = realFetch;
   server.close();
   if (savedSettings) await prisma.account.update({ where: { id: accountId }, data: savedSettings });
   const logs = await prisma.messageLog.deleteMany({ where: { bookingId: { in: made.bookings } } });
   const b = await prisma.booking.deleteMany({ where: { id: { in: made.bookings } } });
   const l = await prisma.lead.deleteMany({ where: { id: { in: made.leads } } });
+  await removeFixtures();
   const left = {
     bookings: await prisma.booking.count({ where: { customerName: { startsWith: ZZ } } }),
     leads: await prisma.lead.count({ where: { customerName: { startsWith: ZZ } } }),

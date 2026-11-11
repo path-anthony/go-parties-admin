@@ -56,6 +56,9 @@ export async function getSettings(accountId: string) {
       reviewAmountCorporate: true,
       reviewAmountDefault: true,
       requestResponseDays: true,
+      retainerReminderDay1: true,
+      retainerReminderDay2: true,
+      retainerReminderDay3: true,
     },
   });
   return {
@@ -108,6 +111,10 @@ export async function getSettings(accountId: string) {
     reviewAmountCorporate: Number(account.reviewAmountCorporate),
     reviewAmountDefault: Number(account.reviewAmountDefault),
     requestResponseDays: account.requestResponseDays,
+    // Block F1: days after the retainer was first asked for; 0 is off.
+    retainerReminderDay1: account.retainerReminderDay1,
+    retainerReminderDay2: account.retainerReminderDay2,
+    retainerReminderDay3: account.retainerReminderDay3,
   };
 }
 

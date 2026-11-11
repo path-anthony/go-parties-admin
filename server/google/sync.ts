@@ -22,7 +22,7 @@ import { internalEventPayload, inviteEventPayload, syncHash, type BookingForCale
 export type SyncOutcome = { bookingId: string; action: "created" | "updated" | "deleted" | "unchanged" | "skipped" | "failed"; detail?: string };
 
 // Whether a booking is far enough along to be on the calendar.
-export function reachesStage(b: { status: string; retainerPaid: boolean }, stage: "Confirmed" | "Signed"): boolean {
+export function reachesStage(b: { status: string; retainerPaid: boolean; confirmedAt: Date | null }, stage: "Confirmed" | "Signed"): boolean {
   const shown = displayStatus(b);
   if (shown === "Cancelled" || shown === "Released") return false;
   if (shown === "Completed") return true;
@@ -30,7 +30,7 @@ export function reachesStage(b: { status: string; retainerPaid: boolean }, stage
   return shown === "Confirmed";
 }
 
-async function loadForCalendar(bookingId: string): Promise<(BookingForCalendar & { status: string; retainerPaid: boolean; googleEventId: string | null; googleInviteEventId: string | null; googleSyncHash: string | null }) | null> {
+async function loadForCalendar(bookingId: string): Promise<(BookingForCalendar & { status: string; retainerPaid: boolean; confirmedAt: Date | null; googleEventId: string | null; googleInviteEventId: string | null; googleSyncHash: string | null }) | null> {
   const b = await prisma.booking.findUnique({
     where: { id: bookingId },
     include: {
@@ -73,6 +73,7 @@ async function loadForCalendar(bookingId: string): Promise<(BookingForCalendar &
     addressLng: b.addressLng,
     status: b.status,
     retainerPaid: b.retainerPaid,
+    confirmedAt: b.confirmedAt,
     googleEventId: b.googleEventId,
     googleInviteEventId: b.googleInviteEventId,
     googleSyncHash: b.googleSyncHash,

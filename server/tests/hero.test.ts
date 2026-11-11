@@ -33,6 +33,11 @@ let slidesBefore = 0;
 before(async () => {
   accountId = (await getDefaultAccount()).id;
   slidesBefore = await prisma.heroSlide.count({ where: { accountId } });
+  // Block F1: a freshly seeded database already holds the three seeded
+  // photos, and every case here counts slides from zero. This suite runs
+  // only on a throwaway database (checked above) and removes every slide at
+  // the end anyway, so it starts by clearing them.
+  await prisma.heroSlide.deleteMany({ where: { accountId } });
   const app = express();
   app.use(express.json({ limit: "64kb" }));
   app.use(cookieParser(process.env.COOKIE_SECRET));

@@ -60,7 +60,12 @@ export type ContractSendResult = {
 // booking. A hand-pressed send always goes (it gets its own key); the others
 // go once per booking. If the link can't be made (no policy text yet) the
 // reason is logged as a skipped send.
-export async function sendContract(target: { bookingId?: string; designRequestId?: string }, kind: ContractSendKind): Promise<ContractSendResult> {
+//
+// Block F1: `pay` is given when the retainer is owed and its amount is known
+// (a request just converted, a booking staff just made, the Send pay link
+// button). The message is then "Contract ready to sign, with the retainer
+// amount". It is the same one contract send, under the same key.
+export async function sendContract(target: { bookingId?: string; designRequestId?: string }, kind: ContractSendKind, pay?: { amountDue: string }): Promise<ContractSendResult> {
   const nothing: ContractSendResult = { result: null, action: "nothing", linkIsOut: false, stageMoved: false, signed: false, reason: "the message could not be prepared" };
   const done = await guard("contract link", async (): Promise<ContractSendResult> => {
     const booking = target.bookingId ? await prisma.booking.findUnique({ where: { id: target.bookingId }, select: { phone: true, email: true, status: true, leadId: true, customerId: true } }) : null;
@@ -104,7 +109,7 @@ export async function sendContract(target: { bookingId?: string; designRequestId
           ...(target.bookingId ? { bookingId: target.bookingId } : { designRequestId: target.designRequestId }),
           // Sends from before triggers were recorded have no trigger key; a
           // signing link in the text is what marks them.
-          OR: [{ triggerKey: "contract_sent" }, { triggerKey: null, body: { contains: "/sign/" } }],
+          OR: [{ triggerKey: { in: ["contract_sent", "contract_sent_pay"] } }, { triggerKey: null, body: { contains: "/sign/" } }],
         },
         orderBy: { createdAt: "asc" },
         select: { createdAt: true, sentAt: true },
@@ -118,7 +123,10 @@ export async function sendContract(target: { bookingId?: string; designRequestId
       // contract page (signed in, their own booking); anyone else gets the
       // /sign token page.
       const contractLink = contractReadyLink({ bookingId: target.bookingId ?? null, customerId: booking?.customerId ?? null, tokenLink: prepared.link });
-      const outcomes = action === "send-link" ? await sendTemplatedMessage("contract_sent", { ...ctx, extra: { contractLink } }, recipient, `contract_sent:${recordId}${unique}`, { purpose }) : [];
+      const outcomes =
+        action === "send-link"
+          ? await sendTemplatedMessage(pay ? "contract_sent_pay" : "contract_sent", { ...ctx, extra: { contractLink, ...(pay ? { amountDue: pay.amountDue } : {}) } }, recipient, `contract_sent:${recordId}${unique}`, { purpose })
+          : [];
       const sent = reallySent(outcomes);
       const after = afterContractSend({ action, sent, linkAlreadySent: earlier !== null, bookingStage });
       let stageMoved = false;
@@ -212,7 +220,7 @@ export async function notifyContractSigned(agreement: { bookingId: string | null
     });
 
     if (agreement.bookingId) {
-      const b = await prisma.booking.findUnique({ where: { id: agreement.bookingId }, select: { status: true, retainerPaid: true, phone: true, email: true } });
+      const b = await prisma.booking.findUnique({ where: { id: agreement.bookingId }, select: { status: true, retainerPaid: true, confirmedAt: true, phone: true, email: true } });
       if (b && displayStatus(b) === "Confirmed") {
         await sendTemplatedMessage("booking_confirmed", { bookingId: agreement.bookingId }, { phone: b.phone, email: b.email }, `booking_confirmed:${agreement.bookingId}`, { purpose: "stage-update" });
       }

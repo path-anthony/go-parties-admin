@@ -20,7 +20,10 @@ export const NOTIFICATION_TYPES = [
   { type: "design-request", label: "Requests for review" },
   { type: "design-request-overdue", label: "Requests waiting too long" },
   { type: "contract-unsigned-3d", label: "Needs a push to sign" },
+  { type: "payment-received", label: "Payments received" },
+  { type: "cancellation-request", label: "Cancellation requests" },
   { type: "retainer-unpaid-3d", label: "Retainer unpaid" },
+  { type: "retainer-still-unpaid", label: "Retainer still unpaid" },
   { type: "balance-due-7d", label: "Balance due soon" },
   { type: "wedding-details-not-started-60d", label: "Wedding details not started" },
   { type: "wedding-details-incomplete-35d", label: "Wedding details incomplete" },
@@ -120,6 +123,66 @@ export async function notifyDesignRequest(request: { id: string; accountId: stri
   } catch (err) {
     console.warn("[notifications] design request not recorded:", safeErr(err));
   }
+}
+
+// Block F1. Money arrived: a card payment Stripe confirmed, or one staff
+// recorded by hand. One alert per payment (the payment id is the key), so the
+// same Stripe event twice still says it once. Never throws.
+export async function notifyPaymentReceived(paymentId: string): Promise<void> {
+  try {
+    const p = await prisma.payment.findUnique({ where: { id: paymentId }, select: { id: true, accountId: true, kind: true, amountCents: true, method: true, booking: { select: { id: true, customerName: true, eventDate: true, leadId: true, customerId: true } } } });
+    if (!p) return;
+    const what = p.kind === "retainer" ? "retainer" : p.kind === "balance" ? "balance" : "payment";
+    const how = p.method === "card" ? "by card" : `by ${p.method}, recorded by staff`;
+    await createNotifications([
+      {
+        accountId: p.accountId,
+        type: "payment-received",
+        title: "Payment received",
+        body: `${clean(p.booking.customerName, "Customer")}, ${dayLabel(dayOf(p.booking.eventDate))}. ${usd(p.amountCents)} ${what}, ${how}.`,
+        link: bookingLink(p.booking.id),
+        bookingId: p.booking.id,
+        leadId: p.booking.leadId,
+        customerId: p.booking.customerId,
+        dedupeKey: `payment-received:${p.id}`,
+      },
+    ]);
+  } catch (err) {
+    console.warn("[notifications] payment not recorded:", safeErr(err));
+  }
+}
+
+// Block F1. A customer asked to cancel. Nothing is cancelled until staff
+// decide, so this is the alert that makes someone look. Never throws.
+export async function notifyCancellationRequest(request: { id: string; accountId: string; paidCents: number; booking: { id: string; customerName: string; eventDate: Date; leadId: string | null; customerId: string | null } }): Promise<void> {
+  try {
+    await createNotifications([
+      {
+        accountId: request.accountId,
+        type: "cancellation-request",
+        title: "Cancellation request",
+        body: `${clean(request.booking.customerName, "Customer")}, ${dayLabel(dayOf(request.booking.eventDate))}. ${request.paidCents > 0 ? `${usd(request.paidCents)} paid so far.` : "Nothing paid yet."} The booking is still held until you decide.`,
+        link: request.booking.leadId ? leadLink(request.booking.leadId) : bookingLink(request.booking.id),
+        bookingId: request.booking.id,
+        leadId: request.booking.leadId,
+        customerId: request.booking.customerId,
+        dedupeKey: `cancellation-request:${request.id}`,
+      },
+    ]);
+  } catch (err) {
+    console.warn("[notifications] cancellation request not recorded:", safeErr(err));
+  }
+}
+
+// Staff decided a cancellation request: its alert is settled.
+export async function clearCancellationAlert(requestId: string, now = new Date()): Promise<void> {
+  await prisma.notification.updateMany({ where: { readAt: null, dedupeKey: `cancellation-request:${requestId}` }, data: { readAt: now } }).catch(() => undefined);
+}
+
+// The last retainer reminder day that is switched on, or null when all are off.
+export function lastRetainerReminderDay(settings: { retainerReminderDay1: number; retainerReminderDay2: number; retainerReminderDay3: number }): number | null {
+  const on = [settings.retainerReminderDay1, settings.retainerReminderDay2, settings.retainerReminderDay3].filter((d) => d > 0);
+  return on.length === 0 ? null : Math.max(...on);
 }
 
 // ---- Timed producers ----------------------------------------------------
@@ -233,6 +296,34 @@ export async function findDueNotifications(now: Date): Promise<NotificationInput
     where: { accountId, status: "Open" },
     select: { id: true, customerName: true, eventDate: true, createdAt: true, customerId: true, total: true },
   });
+  // Block F1: asked for the retainer, every reminder has gone, still unpaid.
+  // Fires once per booking, the day after the last reminder was due. A
+  // contract booking that is not signed yet is waiting on the signature, and
+  // the unsigned-contract alert covers it.
+  const lastDay = lastRetainerReminderDay(settings);
+  if (lastDay !== null) {
+    const asked = await prisma.booking.findMany({
+      where: { accountId, retainerRequestedAt: { not: null }, retainerPaid: false, status: { in: LIVE_STAGES }, eventDate: { gte: today } },
+      select: { id: true, customerName: true, eventDate: true, leadId: true, customerId: true, tier: true, retainerRequestedAt: true, agreement: { select: { contractStatus: true } } },
+    });
+    for (const b of asked) {
+      if (!b.retainerRequestedAt || (b.tier === 2 && b.agreement?.contractStatus !== "Signed")) continue;
+      const askedDay = easternDay(b.retainerRequestedAt);
+      if (now < atEastern(addDays(askedDay, lastDay + 1), 10)) continue;
+      out.push({
+        accountId,
+        type: "retainer-still-unpaid",
+        title: "Retainer still unpaid",
+        body: `${clean(b.customerName, "Customer")}, ${dayLabel(dayOf(b.eventDate))}. Asked ${humanDay(b.retainerRequestedAt)}, every reminder has gone, still not paid.`,
+        link: bookingLink(b.id),
+        bookingId: b.id,
+        leadId: b.leadId,
+        customerId: b.customerId,
+        dedupeKey: `retainer-still-unpaid:${b.id}`,
+      });
+    }
+  }
+
   for (const r of waiting) {
     const open = businessDaysBetween(easternDay(r.createdAt), todayText);
     if (open < settings.requestResponseDays) continue;

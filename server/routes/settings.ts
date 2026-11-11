@@ -108,6 +108,9 @@ router.patch("/", async (req, res) => {
     reviewAmountCorporate?: number;
     reviewAmountDefault?: number;
     requestResponseDays?: number;
+    retainerReminderDay1?: number;
+    retainerReminderDay2?: number;
+    retainerReminderDay3?: number;
   } = {};
 
   if ("minBookingNoticeHours" in body) {
@@ -159,6 +162,15 @@ router.patch("/", async (req, res) => {
       return res.status(400).json({ error: "The number of business days must be a whole number from 1 to 30" });
     }
     data.requestResponseDays = days;
+  }
+  for (const key of ["retainerReminderDay1", "retainerReminderDay2", "retainerReminderDay3"] as const) {
+    if (key in body) {
+      const days = body[key];
+      if (typeof days !== "number" || !Number.isInteger(days) || days < 0 || days > 60) {
+        return res.status(400).json({ error: "A retainer reminder day must be a whole number from 0 to 60 (0 switches that reminder off)" });
+      }
+      data[key] = days;
+    }
   }
   if ("depositPercentage" in body) {
     const pct = body.depositPercentage;

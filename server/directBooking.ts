@@ -4,7 +4,8 @@ import { NoFreeUnits } from "./bookingOps.js";
 import { prisma } from "./db.js";
 import { NoCrewFree, createGigs, needsCrew } from "./gigs.js";
 import { displayStatus, legacyCustomerStatus } from "../src/lib/bookingStatus.js";
-import { sendContract, sendDesignRequestAck } from "./notify.js";
+import { sendDesignRequestAck } from "./notify.js";
+import { sendPayLink, type PayLinkSend } from "./payLink.js";
 import { currentPolicy } from "./policy.js";
 import { reviewDecision } from "./review.js";
 import { getSettings, reviewRulesOf, rushFor } from "./settings.js";
@@ -98,6 +99,10 @@ export type DirectBookingInput = {
   // Block A9: why the address could not be checked (no key, Google down,
   // the daily cap), when it could not be. Stored with "not checked".
   addressCheckReason?: string | null;
+  // Block F1. Staff bookings only: send the customer what they owe next (the
+  // contract with the retainer amount, or the pay link) as soon as the
+  // booking is made. On unless staff untick it.
+  sendPayLink?: boolean;
 };
 
 export type HoldSignature = { fullName: string; additionalSignerName: string | null; contentHash: string; quoteId: string };
@@ -533,10 +538,15 @@ export async function createDirectBooking(input: DirectBookingInput): Promise<{ 
     // sent their contract link, after the booking is safely committed and
     // never in the way of its response. On the policy path there is no
     // contract to send. Either way its bell alerts are cleared.
-    if (designRequestId) {
-      if (tier === 2) void sendContract({ bookingId: result.booking.id }, "conversion");
-      void clearRequestAlerts(designRequestId);
-    }
+    //
+    // Block F1: every booking staff make (a converted request or a new one)
+    // sends the customer what they owe next, with the amount: on the contract
+    // path the contract link, on the policy path the pay link. sendPayLink
+    // decides which, and goes through sendContract for the contract. Waited
+    // on so the reply can say whether it went.
+    let payLinkSend: PayLinkSend | null = null;
+    if (staff && input.sendPayLink !== false) payLinkSend = await sendPayLink(result.booking.id, "created");
+    if (designRequestId) void clearRequestAlerts(designRequestId);
 
     // Block T1. A tier 2 hold: the signature taken in checkout is recorded
     // now, against the quote's hash, and the signed document and PDF are
@@ -559,6 +569,10 @@ export async function createDirectBooking(input: DirectBookingInput): Promise<{ 
           quote.contentHash,
         );
         contract = { agreementId: result.agreement.id, signed: true, signedAt: signed.signedAt.toISOString(), pdfUrl: signed.pdfUrl };
+        // Block F1: signed at checkout, so the retainer is asked for now (the
+        // pay step is the next screen). Nothing is sent this minute; if they
+        // leave without paying, the retainer reminders carry the pay link.
+        await prisma.booking.updateMany({ where: { id: result.booking.id, retainerRequestedAt: null }, data: { retainerRequestedAt: new Date() } });
         void notifyContractSigned({ bookingId: result.booking.id, designRequestId: null }, signed);
       } catch (err) {
         console.error("[bookings] checkout signature could not be recorded:", safeErr(err));
@@ -575,7 +589,7 @@ export async function createDirectBooking(input: DirectBookingInput): Promise<{ 
         console.warn("[bookings] no payment session for the hold:", safeErr(err));
       }
     }
-    const fresh = await prisma.booking.findUniqueOrThrow({ where: { id: result.booking.id }, select: { status: true, retainerPaid: true, tier: true } });
+    const fresh = await prisma.booking.findUniqueOrThrow({ where: { id: result.booking.id }, select: { status: true, retainerPaid: true, tier: true, confirmedAt: true } });
     // Block A9: a storefront hold was looked up before it was made. A staff
     // booking is checked after the reply, never refused, never waited on.
     // The calendar follows a signed contract.
@@ -647,6 +661,8 @@ export async function createDirectBooking(input: DirectBookingInput): Promise<{ 
       unit: bookedItems[0].unit,
       items: bookedItems,
       ...(staff ? { gigs: result.gigs } : {}),
+      // Block F1: whether the customer was sent what they owe, and if not, why.
+      ...(staff && payLinkSend ? { payLink: { sent: payLinkSend.sent, step: payLinkSend.step, amountCents: payLinkSend.amountCents, why: payLinkSend.why } } : {}),
     });
   } catch (err) {
     if (err instanceof DesignRequestUnavailable) {

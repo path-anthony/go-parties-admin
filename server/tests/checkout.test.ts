@@ -29,7 +29,6 @@ import { prisma } from "../db.js";
 import { setMapsFetch } from "../delivery.js";
 import { checkBookingAddress } from "../addressLookup.js";
 import { sendContract } from "../notify.js";
-import { refundPayment } from "../payments.js";
 import { customerWriteGuard } from "../security.js";
 import { setStripeFetch, signWebhookPayload } from "../stripe/client.js";
 import customerRouter from "../routes/customer.js";
@@ -160,8 +159,8 @@ const track = (r: Res) => {
 before(async () => {
   accountId = (await getDefaultAccount()).id;
   const a = await prisma.account.findUniqueOrThrow({ where: { id: accountId } });
-  settingsBefore = { reviewAmountKids: a.reviewAmountKids, reviewAmountAdult: a.reviewAmountAdult, reviewAmountWedding: a.reviewAmountWedding, reviewAmountCorporate: a.reviewAmountCorporate, reviewAmountDefault: a.reviewAmountDefault, contractRequiredOver: a.contractRequiredOver, contractRequiredForCrewed: a.contractRequiredForCrewed, fullReviewThreshold: a.fullReviewThreshold, reviewOccasions: a.reviewOccasions, depositPercentage: a.depositPercentage, authorizedSignerName: a.authorizedSignerName, authorizedSignerTitle: a.authorizedSignerTitle, tier1Collect: a.tier1Collect, rushContactPhone: a.rushContactPhone };
-  await prisma.account.update({ where: { id: accountId }, data: { reviewAmountKids: 15000, reviewAmountAdult: 15000, reviewAmountWedding: 1, reviewAmountCorporate: 15000, reviewAmountDefault: 15000, contractRequiredOver: 1000, contractRequiredForCrewed: true, fullReviewThreshold: 15000, reviewOccasions: ["Wedding"], depositPercentage: 20, authorizedSignerName: "Mel Owner", authorizedSignerTitle: "Owner", tier1Collect: "retainer", rushContactPhone: "+15005550099" } });
+  settingsBefore = { reviewAmountKids: a.reviewAmountKids, reviewAmountAdult: a.reviewAmountAdult, reviewAmountWedding: a.reviewAmountWedding, reviewAmountCorporate: a.reviewAmountCorporate, reviewAmountDefault: a.reviewAmountDefault, contractRequiredOver: a.contractRequiredOver, contractRequiredForCrewed: a.contractRequiredForCrewed, fullReviewThreshold: a.fullReviewThreshold, reviewOccasions: a.reviewOccasions, depositPercentage: a.depositPercentage, authorizedSignerName: a.authorizedSignerName, authorizedSignerTitle: a.authorizedSignerTitle, tier1Collect: a.tier1Collect, rushContactPhone: a.rushContactPhone, directBookingDailyCap: a.directBookingDailyCap };
+  await prisma.account.update({ where: { id: accountId }, data: { reviewAmountKids: 15000, reviewAmountAdult: 15000, reviewAmountWedding: 1, reviewAmountCorporate: 15000, reviewAmountDefault: 15000, contractRequiredOver: 1000, contractRequiredForCrewed: true, fullReviewThreshold: 15000, reviewOccasions: ["Wedding"], depositPercentage: 20, authorizedSignerName: "Mel Owner", authorizedSignerTitle: "Owner", tier1Collect: "retainer", rushContactPhone: "+15005550099", directBookingDailyCap: 1000 } });
   if ((await prisma.leadStatus.count({ where: { accountId } })) === 0) {
     const s = await prisma.leadStatus.create({ data: { accountId, name: "New", position: 0 } });
     made.statuses.push(s.id);
@@ -289,13 +288,15 @@ test("tier 1 hold: held, policy agreed, a retainer session offered; the webhook 
   assert.equal(done.json.paid, true);
   assert.equal(done.json.status, "complete");
   await new Promise((r) => setTimeout(r, 300));
-  const retainerMsgs = await prisma.messageLog.findMany({ where: { bookingId: smallBooking, triggerKey: "retainer_paid", channel: "sms" } });
-  assert.equal(retainerMsgs.length, 1, "the retainer message fired from the webhook");
+  // Block F1: a paid small rental is Confirmed, and that is what it is told.
+  const retainerMsgs = await prisma.messageLog.findMany({ where: { bookingId: smallBooking, triggerKey: "booking_confirmed", channel: "sms" } });
+  assert.equal(retainerMsgs.length, 1, "the confirmation fired from the webhook");
+  assert.equal(await prisma.messageLog.count({ where: { bookingId: smallBooking, triggerKey: "retainer_paid" } }), 0);
 
   const again = await paidEvent(smallSession);
   assert.deepEqual(again.json, { received: true, duplicate: true, handled: false });
   await new Promise((r) => setTimeout(r, 200));
-  assert.equal(await prisma.messageLog.count({ where: { bookingId: smallBooking, triggerKey: "retainer_paid", channel: "sms" } }), 1, "a replay sends nothing twice");
+  assert.equal(await prisma.messageLog.count({ where: { bookingId: smallBooking, triggerKey: "booking_confirmed", channel: "sms" } }), 1, "a replay sends nothing twice");
 });
 
 // ---- tier 2: the quote refusals and the signed hold ----------------------------------
@@ -375,15 +376,15 @@ test("tier 2 hold: the three refusals, then a signed hold with the contract stor
 });
 
 // ---- Stripe: refund and dispute, then Stripe missing -----------------------------------
-test("a paid retainer can be partly refunded through Stripe; a dispute flags the booking", async () => {
+test("a refund made in Stripe is recorded from its webhook, and the app itself never asks Stripe for one; a dispute flags the booking", async () => {
   const p = await prisma.payment.findFirstOrThrow({ where: { bookingId: smallBooking, kind: "retainer" } });
-  const { payment } = await refundPayment(p.id, 1000, "Goodwill");
-  assert.equal(payment.refundedCents, 1000);
-  assert.equal(payment.status, "succeeded");
-  assert.ok(stripeCalls.some((c) => c.path === "/v1/refunds" && c.body.includes("amount=1000")));
+  // Block F1: there is no refund call in the app. Staff refund in Stripe and
+  // Stripe tells us.
   await webhook({ id: "evt_zz_refund", type: "charge.refunded", created: 1, data: { object: { id: "ch_zz", payment_intent: p.stripePaymentIntentId, amount_refunded: 1000 } } });
-  assert.equal((await prisma.payment.findUniqueOrThrow({ where: { id: p.id } })).refundedCents, 1000);
-  await assert.rejects(refundPayment(p.id, 6000, null), /between/);
+  const after = await prisma.payment.findUniqueOrThrow({ where: { id: p.id } });
+  assert.equal(after.refundedCents, 1000);
+  assert.equal(after.status, "succeeded");
+  assert.equal(stripeCalls.some((c) => c.path.startsWith("/v1/refunds")), false, "nothing here asks Stripe for a refund");
 
   const d = await webhook({ id: "evt_zz_dispute", type: "charge.dispute.created", created: 1, data: { object: { id: "dp_zz", payment_intent: p.stripePaymentIntentId, reason: "fraudulent", amount: 6000 } } });
   assert.equal(d.json.handled, true);
@@ -460,9 +461,13 @@ test("portal: a customer sees tier, stage, steps, contract and money on their ow
   const none = await call(`/api/customer/bookings/${rental.json.bookingId}/contract`, { cookie: xc });
   assert.equal(none.status, 404, "a rental has no contract");
 
+  // Block F1: nobody cancels a booking themselves. The call makes a
+  // cancellation request and the booking stays as it is.
   const cancel = await post(`/api/customer/bookings/${id}/cancel`, {}, xc);
-  assert.equal(cancel.status, 409);
-  assert.equal(cancel.json.error, "Call or text GO to change this booking.");
+  assert.equal(cancel.status, 202, JSON.stringify(cancel.json));
+  assert.equal(cancel.json.cancellationRequested, true);
+  assert.equal((await prisma.booking.findUniqueOrThrow({ where: { id } })).status, "Signed", "the booking is not cancelled");
+  await prisma.cancellationRequest.deleteMany({ where: { bookingId: id } });
   const move = await post(`/api/customer/bookings/${id}/reschedule`, { eventDate: day(120) }, xc);
   assert.equal(move.status, 409);
   const swap = await post(`/api/customer/bookings/${id}/change-item`, { itemId: small }, xc);

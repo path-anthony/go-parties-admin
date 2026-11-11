@@ -161,7 +161,7 @@ export type Gig = {
   arrivalNotes: string | null;
   createdAt: string;
   updatedAt: string;
-  booking: { id: string; customerName: string; eventDate: string; eventTime: string | null; address: string | null; occasion: string | null; status: BookingStatus; leadId: string | null; rush: boolean; retainerPaid: boolean; balancePaymentPreference: BalancePreference; agreement: AgreementInfo | null };
+  booking: { id: string; customerName: string; eventDate: string; eventTime: string | null; address: string | null; occasion: string | null; status: BookingStatus; leadId: string | null; rush: boolean; retainerPaid: boolean; confirmedAt?: string | null; balancePaymentPreference: BalancePreference; agreement: AgreementInfo | null };
   filledBy: { id: string; name: string } | null;
   offers: GigOffer[];
 };
@@ -328,6 +328,7 @@ export type LeadBooking = {
   status: BookingStatus;
   rush: boolean;
   retainerPaid: boolean;
+  confirmedAt?: string | null;
   balancePaymentPreference: BalancePreference;
   agreement: AgreementInfo | null;
   total: string | null;
@@ -464,7 +465,6 @@ export type PaymentRow = {
   recordedByName: string | null;
   paidAt: string | null;
   createdAt: string;
-  refundable: boolean;
 };
 export type PaymentsView = {
   stripeConfigured: boolean;
@@ -489,11 +489,16 @@ export type Booking = {
   email: string | null;
   // The stage set by hand.
   status: BookingStatus;
-  // What it reads as, computed: Confirmed only when Signed and retainerPaid.
+  // What it reads as, computed: Confirmed when Signed and retainerPaid, or
+  // (Block F1) a paid booking that needs no contract.
   displayStatus: DisplayStatus;
   // Booked or moved inside the minimum notice window. Visibility only.
   rush: boolean;
   retainerPaid: boolean;
+  // Block F1: when a booking that needs no contract became Confirmed.
+  confirmedAt: string | null;
+  payLinkSentAt: string | null;
+  payLinkSentByName: string | null;
   occasion: string | null;
   balancePaymentPreference: BalancePreference;
   // The balance (total less the retainer) has been paid; ticked by hand.
@@ -625,6 +630,10 @@ export type AccountSettings = {
   reviewAmountDefault: number;
   // Business days in which staff promise to contact a customer in review.
   requestResponseDays: number;
+  // Days after the retainer was first asked for; 0 switches one off.
+  retainerReminderDay1: number;
+  retainerReminderDay2: number;
+  retainerReminderDay3: number;
   depositPercentage: number;
   cancellationWindowDays: number;
   requireAgreementCheckbox: boolean;
@@ -691,10 +700,12 @@ export type StaffBookingRequest = {
   balancePaymentPreference: BalancePreference;
   agreed: boolean;
   designRequestId?: string;
+  // Block F1: false when staff unticked "Send it now".
+  sendPayLink?: boolean;
 };
 
 export type StaffBookingResult =
-  | { reviewRequired?: false; bookingId: string; leadId: string; stage: DisplayStatus; rush: boolean; total: number | null }
+  | { reviewRequired?: false; bookingId: string; leadId: string; stage: DisplayStatus; rush: boolean; total: number | null; payLink?: { sent: boolean; step: string; amountCents: number | null; why: string | null } }
   | { reviewRequired: true; designRequestId: string; reasons: ("threshold" | "occasion")[]; reviewReason?: string | null; total: number | null; message: string };
 
 export type DesignRequest = {
@@ -912,4 +923,44 @@ export type WeddingStaffView = {
     changeRequestNote: string | null;
     sections: WeddingShownSection[];
   } | null;
+};
+
+// ---- Block F1: the money path ----------------------------------------------------
+export type PayLinkView = {
+  step: "closed" | "sign" | "retainer" | "balance" | "nothing";
+  amountCents: number | null;
+  explain: string;
+  canSend: boolean;
+  link: string;
+  hasPhone: boolean;
+  hasEmail: boolean;
+  lastSentAt: string | null;
+  lastSentByName: string | null;
+  retainerRequestedAt: string | null;
+};
+export type RefundRecord = { id: string; amountCents: number; refundedOn: string; method: string; note: string | null; recordedByName: string | null; createdAt: string; cancellationRequestId: string | null };
+export type CancellationRequestView = {
+  id: string;
+  status: "Open" | "Approved" | "Declined";
+  reason: string | null;
+  createdAt: string;
+  paidAtRequestCents: number;
+  paidCents: number;
+  retainerPaidCents: number;
+  termsAcceptedAt: string | null;
+  termsText: string | null;
+  decidedAt: string | null;
+  decidedByName: string | null;
+  decisionNote: string | null;
+  customerToldAt: string | null;
+  booking: { id: string; customerName: string; phone: string | null; email: string | null; eventDate: string; eventTime: string | null; status: string; retainerPaid: boolean; confirmedAt: string | null; leadId: string | null; totalCents: number | null };
+  refunds: RefundRecord[];
+};
+export type MoneyOverview = {
+  moneyIn: { days: number; totalCents: number; payments: { id: string; bookingId: string; customerName: string; eventDate: string; kind: string; method: string; amountCents: number; paidAt: string }[] };
+  waiting: {
+    balanceDays: number;
+    retainers: { bookingId: string; customerName: string; eventDate: string; status: string; amountCents: number; needsSignature: boolean; requestedAt: string | null; payLinkSentAt: string | null }[];
+    balances: { bookingId: string; customerName: string; eventDate: string; status: string; amountCents: number; dueDate: string; overdue: boolean }[];
+  };
 };

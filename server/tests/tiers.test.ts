@@ -174,6 +174,7 @@ test("the delivery object is checked for shape and cleaned", () => {
 const portal = (over: Partial<PortalBooking>): PortalBooking => ({
   status: "Held",
   tier: 1,
+  confirmedAt: null,
   total: "700",
   retainerPaid: false,
   balancePaid: false,
@@ -195,6 +196,8 @@ test("the customer's stage: Requested for an unpaid tier 2, the real stages othe
   assert.equal(customerStage(portal({ tier: 2, status: "Signed", retainerPaid: true })), "Confirmed");
   assert.equal(customerStage(portal({ tier: 1, status: "Held" })), "Held");
   assert.equal(customerStage(portal({ tier: 1, status: "Held", retainerPaid: true })), "Retainer Paid");
+  // Block F1: a paid policy booking the server confirmed reads Confirmed.
+  assert.equal(customerStage(portal({ tier: 1, status: "Held", retainerPaid: true, confirmedAt: new Date() })), "Confirmed");
   assert.equal(customerStage(portal({ tier: 2, status: "Released" })), "Released");
   assert.equal(customerStage(portal({ tier: 2, status: "Cancelled" })), "Cancelled");
 });

@@ -25,6 +25,7 @@ const LEAD_BOOKINGS = {
       status: true,
       rush: true,
       retainerPaid: true,
+      confirmedAt: true,
       balancePaymentPreference: true,
       agreement: AGREEMENT_SELECT,
       total: true,

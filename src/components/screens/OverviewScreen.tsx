@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
-import { getBookings, getDesignRequests, getMessageSummary, getGigs, getLeadStatuses, getLeads } from "../../lib/api";
+import { Link } from "react-router-dom";
+import { getBookings, getDesignRequests, getMessageSummary, getGigs, getLeadStatuses, getLeads, getMoneyOverview } from "../../lib/api";
 import { formatEventDay } from "../../lib/gigs";
 import { FOLLOW_UP_DAYS, PROPOSAL_FOLLOW_UP_DAYS, daysSinceUpdate, findStage, needsFollowUp, useNavigate } from "../../lib/navigation";
-import type { Booking, DesignRequest, MessageSummary, Gig, Lead } from "../../lib/types";
+import type { Booking, DesignRequest, MessageSummary, Gig, Lead, MoneyOverview } from "../../lib/types";
 import { displayStatus, isInactiveStage } from "../../lib/bookingStatus";
 import { AgreementChip, BalanceLabel } from "../AgreementChip";
 import { BookingStatusTag } from "../BookingStatusTag";
@@ -91,6 +92,8 @@ export function OverviewScreen() {
       {error && <p className="form-error">{error}</p>}
       {!ready && !error && <p className="muted">Loading…</p>}
 
+      <MoneySections />
+
       {ready && (
         <>
           <section className="kpi-section kpi-section-leads">
@@ -153,7 +156,7 @@ export function OverviewScreen() {
                   key={status}
                   label={status}
                   value={byStatus(status)}
-                  note={status === "Confirmed" ? "Signed and retainer paid" : "Upcoming bookings"}
+                  note={status === "Confirmed" ? "Retainer paid, and signed when a contract is needed" : "Upcoming bookings"}
                   onClick={() => navigate("scheduling")}
                 />
               ))}
@@ -287,5 +290,85 @@ export function OverviewScreen() {
         </StatGrid>
       </section>
     </div>
+  );
+}
+
+// Block F1. Two plain lists: what came in over the last week, and what is
+// still owed. Every row opens its booking. Kept simple on purpose; the next
+// block restyles the admin screens.
+const money = (cents: number) => `$${(cents / 100).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+const shortDay = (ymd: string) => new Date(`${ymd.slice(0, 10)}T12:00:00Z`).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
+const paidWhen = (iso: string) => new Date(iso).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZone: "America/New_York" });
+const bookingHref = (id: string) => `/scheduling/bookings?booking=${id}`;
+
+function MoneySections() {
+  const [data, setData] = useState<MoneyOverview | null>(null);
+  useEffect(() => {
+    let current = true;
+    getMoneyOverview()
+      .then((d) => current && setData(d))
+      .catch(() => undefined);
+    return () => {
+      current = false;
+    };
+  }, []);
+  if (!data) return null;
+  const { moneyIn, waiting } = data;
+  return (
+    <>
+      <section className="kpi-section" aria-label="Money in" data-testid="money-in">
+        <span className="kpi-section-label">Money in</span>
+        <p className="muted">
+          Payments received in the last {moneyIn.days} days: <strong>{money(moneyIn.totalCents)}</strong> from {moneyIn.payments.length} {moneyIn.payments.length === 1 ? "payment" : "payments"}.
+        </p>
+        {moneyIn.payments.length > 0 && (
+          <ul className="crew-card-list">
+            {moneyIn.payments.map((p) => (
+              <li key={p.id}>
+                <Link className="crew-card-row" style={{ color: "inherit", textDecoration: "none" }} to={bookingHref(p.bookingId)}>
+                  <span className="kpi-list-when">{paidWhen(p.paidAt)}</span>
+                  <span className="crew-card-customer">
+                    {p.customerName} · {money(p.amountCents)} {p.kind} · {p.method === "card" ? "card" : `${p.method}, recorded by staff`}
+                  </span>
+                  <span className="muted">event {shortDay(p.eventDate)}</span>
+                </Link>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+      <section className="kpi-section" aria-label="Waiting on payment" data-testid="waiting-on-payment">
+        <span className="kpi-section-label">Waiting on payment</span>
+        <p className="muted">
+          Retainers not paid yet ({waiting.retainers.length}), and balances due in the next {waiting.balanceDays} days or already late ({waiting.balances.length}).
+        </p>
+        {waiting.retainers.length + waiting.balances.length > 0 && (
+          <ul className="crew-card-list">
+            {waiting.retainers.map((r) => (
+              <li key={`r:${r.bookingId}`}>
+                <Link className="crew-card-row" style={{ color: "inherit", textDecoration: "none" }} to={bookingHref(r.bookingId)}>
+                  <span className="kpi-list-when">Retainer {money(r.amountCents)}</span>
+                  <span className="crew-card-customer">
+                    {r.customerName} · event {shortDay(r.eventDate)} · {r.status}
+                  </span>
+                  <span className="muted">{r.needsSignature ? "contract not signed yet" : r.payLinkSentAt ? `pay link sent ${shortDay(r.payLinkSentAt)}` : "pay link not sent"}</span>
+                </Link>
+              </li>
+            ))}
+            {waiting.balances.map((b) => (
+              <li key={`b:${b.bookingId}`}>
+                <Link className="crew-card-row" style={{ color: "inherit", textDecoration: "none" }} to={bookingHref(b.bookingId)}>
+                  <span className="kpi-list-when">Balance {money(b.amountCents)}</span>
+                  <span className="crew-card-customer">
+                    {b.customerName} · event {shortDay(b.eventDate)}
+                  </span>
+                  <span className="muted">{b.overdue ? `was due ${shortDay(b.dueDate)}` : `due ${shortDay(b.dueDate)}`}</span>
+                </Link>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+    </>
   );
 }

@@ -6,6 +6,7 @@ import { buildGoPdf } from "../contract/goPdf.js";
 import { getSettings } from "../settings.js";
 import { queueGoogleSync } from "../google/sync.js";
 import { prisma } from "../db.js";
+import { sendPayLink } from "../payLink.js";
 import { notifyContractSigned } from "../notify.js";
 import { availabilityLimiter, contractSignLimiter } from "../rateLimit.js";
 
@@ -218,8 +219,10 @@ publicContractsRouter.post("/:token/sign", contractSignLimiter, async (req, res)
     });
     // Texts and emails are sent after the signature is safely stored, and
     // never held up or failed by it.
-    void notifyContractSigned(signed.content.subject, signed);
-    if (signed.content.subject.bookingId) queueGoogleSync(signed.content.subject.bookingId);
+    // Block F1: signed with the retainer unpaid, so the pay link goes next.
+    const signedBookingId = signed.content.subject.bookingId;
+    void notifyContractSigned(signed.content.subject, signed).then(() => (signedBookingId ? sendPayLink(signedBookingId, "signed") : undefined));
+    if (signedBookingId) queueGoogleSync(signedBookingId);
     res.status(201).json({
       signed: true,
       signedAt: signed.signedAt.toISOString(),

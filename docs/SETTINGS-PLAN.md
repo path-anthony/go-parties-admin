@@ -279,6 +279,12 @@ Every line below is the text on the screen, listed straight from `src/settingsCo
 - **Small rentals pay at checkout.** What a small rental (no contract) pays when they book. Customers see this at checkout.
 - **Save the card for the balance.** On: Stripe keeps the card used for the retainer so the balance can be charged later. Nothing is charged automatically yet.
 
+**Retainer reminders.** When a customer has been asked for the retainer and hasn't paid, they get up to three reminders by text and email, each with their pay link and the amount. The days count from the first time they were asked. Reminders stop the moment the retainer is paid or the booking is cancelled. The day after the last one, you get a bell alert, "Retainer still unpaid". The wording is in Messages, Templates. A change applies to reminders that haven't gone yet.
+
+- **First reminder (days after).** 1 means the day after they were first asked, at 10 AM. 0 switches this reminder off.
+- **Second reminder (days after).** 3 means three days after they were first asked. 0 switches this reminder off.
+- **Last reminder (days after).** 7 means a week after they were first asked. 0 switches this reminder off.
+
 **Cancellation and unpaid holds.** How long a customer can cancel for free, and when a held date with nothing paid is let go. The cancellation window shows at checkout and in contracts. Unpaid holds are checked every hour.
 
 - **Free cancellation window (days before the event).** 5 means a customer can cancel for free until 5 days before the event. It's printed in the policy and in contracts, and shown at checkout.

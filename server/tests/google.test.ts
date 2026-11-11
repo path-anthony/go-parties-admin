@@ -175,13 +175,13 @@ test("the customer invite carries customer-safe content only, the customer as th
 });
 
 test("which stage puts a booking on the calendar", () => {
-  assert.equal(reachesStage({ status: "Signed", retainerPaid: true }, "Confirmed"), true);
-  assert.equal(reachesStage({ status: "Signed", retainerPaid: false }, "Confirmed"), false);
-  assert.equal(reachesStage({ status: "Signed", retainerPaid: false }, "Signed"), true);
-  assert.equal(reachesStage({ status: "Held", retainerPaid: true }, "Signed"), false);
-  assert.equal(reachesStage({ status: "Completed", retainerPaid: true }, "Confirmed"), true);
-  assert.equal(reachesStage({ status: "Cancelled", retainerPaid: true }, "Signed"), false);
-  assert.equal(reachesStage({ status: "Released", retainerPaid: false }, "Signed"), false);
+  assert.equal(reachesStage({ status: "Signed", retainerPaid: true, confirmedAt: null }, "Confirmed"), true);
+  assert.equal(reachesStage({ status: "Signed", retainerPaid: false, confirmedAt: null }, "Confirmed"), false);
+  assert.equal(reachesStage({ status: "Signed", retainerPaid: false, confirmedAt: null }, "Signed"), true);
+  assert.equal(reachesStage({ status: "Held", retainerPaid: true, confirmedAt: null }, "Signed"), false);
+  assert.equal(reachesStage({ status: "Completed", retainerPaid: true, confirmedAt: null }, "Confirmed"), true);
+  assert.equal(reachesStage({ status: "Cancelled", retainerPaid: true, confirmedAt: null }, "Signed"), false);
+  assert.equal(reachesStage({ status: "Released", retainerPaid: false, confirmedAt: null }, "Signed"), false);
 });
 
 // ---- with the database -----------------------------------------------------------------

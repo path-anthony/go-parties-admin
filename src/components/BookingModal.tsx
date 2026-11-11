@@ -25,6 +25,7 @@ import { AgreementChip } from "./AgreementChip";
 import { BookingStatusTag } from "./BookingStatusTag";
 import { RushTag } from "./RushTag";
 import { PaymentsSection } from "./PaymentsSection";
+import { PayLinkControl, RefundLog } from "./MoneyControls";
 import { DeliverySection } from "./DeliverySection";
 import { bookingMapsUrl } from "../lib/maps";
 import { WeddingDetailsPanel } from "./WeddingDetailsPanel";
@@ -258,7 +259,7 @@ export function BookingModal({
               Retainer paid
             </label>
             <span className="muted field-help">
-              Confirmed is worked out, not set: a booking is Confirmed when its stage is Signed and the retainer is paid.
+              Confirmed is worked out, not set. A small rental with no contract is Confirmed as soon as its retainer is paid. A contract booking is Confirmed when it is Signed and the retainer is paid.
             </span>
           </div>
           <div className="status-control" role="group" aria-label={`Agreement and balance for ${who}`}>
@@ -341,6 +342,8 @@ export function BookingModal({
                 .catch(() => undefined);
             }}
           />
+          <PayLinkControl bookingId={booking.id} refreshKey={`${booking.status}:${booking.retainerPaid}:${booking.balancePaid}`} />
+          <RefundLog bookingId={booking.id} />
           <DeliverySection
             booking={booking}
             onChanged={() => {

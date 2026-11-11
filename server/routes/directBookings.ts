@@ -445,6 +445,8 @@ staffBookingRouter.post("/", async (req, res) => {
     place: carried.place ?? null,
     pin: carried.pin ?? null,
     eventAddressSameAsHome: carried.eventAddressSameAsHome === true,
+    // Block F1: on unless staff unticked "Send it now".
+    sendPayLink: body.sendPayLink !== false,
   });
   res.status(result.status).json(result.body);
 });
