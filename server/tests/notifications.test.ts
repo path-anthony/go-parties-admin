@@ -180,7 +180,7 @@ test("design-request fires once when a tier 3 request is created, and holds noth
   const rows = await ofType("design-request");
   assert.equal(rows.length, 1);
   assert.equal(rows[0].title, "Request for review");
-  assert.equal(rows[0].link, "/design-requests?status=Open");
+  assert.equal(rows[0].link, "/leads?view=requests");
   assert.equal(rows[0].bookingId, null, "no booking exists yet");
   assert.match(rows[0].body, /^ZZTEST Big Event, .*\. Wedding\. \$100\.$/);
   const request = await prisma.designRequest.findUniqueOrThrow({ where: { id: r.json.designRequestId as string } });

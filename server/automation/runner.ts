@@ -212,7 +212,7 @@ export async function upcomingView(days = 14, now = new Date()): Promise<{ entri
     recipient: r.recipient,
     error: r.error,
     at: (r.sentAt ?? r.createdAt).toISOString(),
-    href: r.leadId ? `/leads?lead=${r.leadId}` : r.gigId ? `/crew/gigs?gig=${r.gigId}` : r.bookingId ? `/scheduling/bookings?booking=${r.bookingId}` : null,
+    href: r.leadId ? `/leads?lead=${r.leadId}` : r.gigId ? `/crew/gigs?gig=${r.gigId}` : r.bookingId ? `/bookings?booking=${r.bookingId}` : null,
   }));
   return { entries, needsAttention: await countNeedsAttention(), failed };
 }

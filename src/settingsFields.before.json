@@ -1,5 +1,5 @@
 {
-  "note": "Block A12. Every Settings control that existed before the cleanup, captured from the nine old pages: each account setting by its field name, plus one marker for each editor or status panel. The settings test checks that the seven new pages show exactly these, each once. Block F2 replaced the review threshold and the review occasion list with one review amount per occasion group and the contact promise in business days. Block F1 added the three retainer reminder days.",
+  "note": "Block A12. Every Settings control that existed before the cleanup, captured from the nine old pages: each account setting by its field name, plus one marker for each editor or status panel. The settings test checks that the seven new pages show exactly these, each once. Block F2 replaced the review threshold and the review occasion list with one review amount per occasion group and the contact promise in business days. Block F1 added the three retainer reminder days. Block F3a added the unpaid hold reminder switch and the pay link switch.",
   "settings": [
     "aiDailyCap",
     "authorizedSignerName",
@@ -22,8 +22,10 @@
     "digestEnabled",
     "directBookingDailyCap",
     "holdReleaseDays",
+    "holdReminderEmails",
     "minBookingNoticeHours",
     "outsidePlannerChargePercent",
+    "payLinksOpenStorefront",
     "requestResponseDays",
     "requireAgreementCheckbox",
     "requireBotCheck",

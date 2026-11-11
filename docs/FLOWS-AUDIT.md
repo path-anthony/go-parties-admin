@@ -52,6 +52,108 @@ Gaps closed: 1, 3, 6, 9. Gap 13 (the cancellation window is printed, not enforce
 
 Still open after F1: the pay link and the after-payment page are plain pages on the admin address until the storefront builds its own (`docs/S9-CONTRACT.md` section 6); the storefront's Cancel button needs the new screen (section 7); gap 16 (a lead is "Booked" at the hold, before anything is paid); gap 18 (unpaid holds never release while both settings are 0); gap 20 (the two old placeholder tiles on Overview).
 
+## Changed since this audit: Block F3a (2026-11-14), the command center
+
+The admin was reorganised around the day's work. Payment, Stripe and booking states are exactly as Block F1 left them.
+
+| What | Before | Now |
+|---|---|---|
+| Menu | Overview, Leads, Scheduling (Bookings, Inventory status), Inventory, Packages & Themes, Design requests, Crew & Gigs, Messages, Settings | Today, Leads, Bookings, Inventory (Items, Packages and themes, Availability), Crew and Gigs, Messages, Settings. Every old address redirects, and a link to one booking still opens that booking |
+| First screen | Overview: tiles of counts | Today: three columns of work (Close the sale, Nurture, After the sale), each item one line with one button, with Money in for the last 7 days and a count per column above them |
+| Leads | A board of columns to drag cards between | One inbox list. Views: All, New, Storefront requests, Cancellation requests, Follow up, Booked, Lost. Every row shows the source in words, name, contact, what they want, event date, age and the next action |
+| Design requests | Its own menu entry and screen | The "Storefront requests" view in Leads. Same Convert and Dismiss, in the lead popup |
+| Opening a lead | A side drawer | A wide popup in four parts, always in this order: Who, What they want, History, Next action |
+| Working a lead | Free-form notes and a column to change by hand | Three actions. Contact: log a call, text or email (the first one moves the lead to Contacted). How they buy: Send store link, Build a booking for them, or Not ready with a follow up date. Close: Lost with a reason from a short list |
+| A booking and its lead | Every booking made a brand new lead, so a website lead who booked became two leads (gap 17) | A booking built from a lead hangs on that lead. A storefront booking, or a converted storefront request, with the same email or phone as an open lead is linked to it. Either way the lead moves to Booked on its own |
+| Where a booking was made | Read from its lead's source | Stored on the booking (`origin`), because a storefront booking can now hang on a website lead. The storefront hold and the unpaid hold release read it |
+| "Send contract link" and Contract Sent by hand | The plain wording | The wording that states the retainer amount, the same as a conversion |
+| A signed-in customer who holds a date and does not pay | Nothing | An email with their pay link 1 and 3 days later. Email only. A guest checkout still gets nothing. Settings > Booking rules, on by default |
+| Pay link address | Always the admin address | A switch on Settings > Integrations, off by default: "Pay links open the storefront pay page" |
+
+Gaps closed: 17 (duplicate leads, for exact matches), 19 and 20 (the old Overview tiles are gone). Gap 16 is unchanged: a lead still reads Booked from the moment a date is held.
+
+### How a booking is matched to a lead
+
+- **Exact match, linked automatically:** the same email address (capital letters ignored) or the same ten digit phone number, on a lead that is still open. Open means not Lost, no booking that is going ahead, and added in the last 180 days. With more than one, the newest is used. The lead keeps its source, notes and history, moves to Booked, and gets a line in History saying why it was linked. Staff still get a bell alert that a date was held.
+- **Near match, never linked automatically:** the same name with a different or missing email and phone, or the same email or phone on a lead that is Lost, already has a live booking, or is older than 180 days. The booking gets its own lead as before. Both leads get the tag "Possible duplicate" and a line in History, and the popup shows "Possible match" with a link to the other lead. Nothing is merged; a person decides.
+- **No match:** a new lead, exactly as before.
+
+### Which view a lead is in
+
+Worked out from the record every time, never stored. Every lead is in exactly one of these four:
+
+1. **Booked:** it has a booking that is going ahead (or its column is Booked).
+2. **Lost:** its column is Lost, or every booking it had was cancelled or released.
+3. **New:** it is in the New column and nobody has logged a contact.
+4. **Follow up:** everything else, which means contacted and still deciding.
+
+"Storefront requests" are the store orders waiting for review (they have no lead until converted). "Cancellation requests" are booked leads whose customer has asked to cancel.
+
+## Daily process for staff
+
+Written as steps to follow. Start every day on **Today** and work the columns left to right: Close the sale, Nurture, After the sale. Each line has one button.
+
+### A. A website lead (also Ask GO and "Talk to us")
+
+1. The lead arrives on its own. The bell shows "New lead" and it is in the 7 AM digest.
+2. Open **Today**. It is under Close the sale, "New leads, not contacted". Press **Contact**.
+3. The popup opens. Read **1. Who** (name, phone, email, where it came from, when) and **2. What they want** (their message, occasion, date).
+4. Tap **Call**, **Text** or **Email** in part 1 to reach them from your own phone or mail.
+5. In **4. Next action** press **Log your first contact**. Pick Call, Text or Email, write what was said, and save. The lead moves to Contacted on its own and leaves the New list.
+6. Choose how they will buy:
+   - They will book themselves: press **Send store link**. They get a text and an email with the store address.
+   - You will book it for them: press **Build a booking for them**. New booking opens filled in from the lead. Add the items and the date, tick that they agreed to the policy, and create it. The lead moves to Booked on its own and the customer is sent the contract or the pay link.
+   - They are not ready: press **Not ready**, pick the day to come back to them, and add a note.
+7. On that day the lead is on Today under Nurture, "Follow ups due today or overdue". Press **Follow up** and repeat from step 4.
+8. If they book in the store themselves with the same email or phone, the lead moves to Booked on its own. Nothing to do.
+9. If it goes nowhere: press **Lost**, pick the reason, and save. It moves to the Lost view and follow up messages stop.
+
+### B. A phone or walk-in lead
+
+1. Go to **Leads** and press **Add a lead**.
+2. Type the name and the phone or email. Leave "How they reached us" on **Phone or in person**. Add the occasion and date if you know them. Press **Add lead**.
+3. Open the lead from the list. You have already spoken to them, so press **Log your first contact**, choose Call, write what was said, and save.
+4. If they are ready now: press **Build a booking for them** and make the booking while they are on the phone. Leave "Send the customer what they owe" ticked so they get the contract or the pay link at once.
+5. If they want to look first: press **Send store link**.
+6. If they need time: press **Not ready** and set the follow up day.
+7. From here it is the same as steps 7 to 9 of a website lead.
+
+### C. A storefront request (an order the store sent for review)
+
+1. The customer checks out, their total is at or over the review amount, and they are told a person will be in touch within the number of business days in Settings. Nothing is held and nothing is charged.
+2. The bell shows "Request for review". On **Today** it is under Close the sale, "Storefront requests waiting". Press **Review**.
+3. Read **1. Who** and **2. What they want**: items, date, guest count, occasion, address with a map link, setup notes, total, and why it needs you.
+4. Call or email the customer. Write what was agreed in **Staff notes** in part 3 and press Save notes.
+5. To go ahead: press **Convert to a booking**. New booking opens filled in from the request. Change anything you agreed (the price included), tick that they agreed to the policy, and create it.
+6. The date is now held. The customer is sent what they owe next: the contract to sign (over the contract amount, or with crew) or the link to pay the retainer. The request leaves the list, and the booking's lead is in the Booked view.
+7. To turn it down: press **Dismiss**, give the reason (for your team only), and tick "Tell the customer by email" if they should hear from you.
+8. A request still open after the promised number of business days raises "Request still waiting" every morning until it is converted or dismissed.
+
+### D. A cancellation request
+
+1. The customer presses cancel in their account and gives a reason. If they have paid anything they must accept the retainer terms first. Their booking and date stay held.
+2. The bell shows "Cancellation request". On **Today** it is under After the sale, "Cancellation requests". Press **Decide**.
+3. The popup opens on the lead. In **4. Next action** read the request: the booking, their contact details, what they paid, their reason, and the terms they accepted.
+4. Call the customer if you want to save the booking. Write a note for your records in the box (it is not sent to them).
+5. Press **Approve** to cancel: the booking is cancelled, its items and crew are freed, and the customer is emailed. Or press **Decline** to keep it: nothing changes and the customer is emailed that it is still in place.
+6. If you agreed to give money back, make the refund in Stripe yourself. Then press **Write down a refund** under the request and record the amount, date and how. The admin never sends money.
+7. After Approve the lead moves to the Lost view with "Booking cancelled".
+
+### What Today shows, and what clears each line
+
+| Column | Line | It goes away when |
+|---|---|---|
+| Close the sale | New leads, not contacted | You log a contact, send the store link, build a booking, or mark it Lost |
+| Close the sale | Storefront requests waiting | You convert or dismiss it |
+| Close the sale | Contracts unsigned | The customer signs (open the booking to send the link again) |
+| Close the sale | Retainers unpaid | The retainer is paid (open the booking to send the pay link) |
+| Nurture | Follow ups due today or overdue | You log a contact and set a new day, they book, or you mark it Lost |
+| Nurture | Contacted, no next step for 3 days | You set a follow up day, log a contact, or close it |
+| After the sale | Cancellation requests | You approve or decline |
+| After the sale | Balances due within 14 days | The balance is paid |
+| After the sale | Wedding details missing, event within 45 days | The customer submits the form |
+| After the sale | Events in the next 7 days | The event day passes |
+
 ## Part 6. One page summary (read this first)
 
 | # | Path | Who it is for | Stripe | Staff action needed | Where in admin |
@@ -420,10 +522,10 @@ Findings only. Ranked by how likely they are to cost a sale, lose money or leave
 14. **Per-guest packages cannot be booked from the store,** and **no packages are published at all** (production has 0). The store has no guest count field and never reads per-guest pricing. Home shows no packages today. Block P1 is dry-run only.
 15. **Rehearsal dinner, Bridal shower and Engagement party are treated as weddings** by the wedding questionnaire: 202-field form, bell alerts, and a Scheduling filter. Staff must flip the override per booking. The booking popup shows no occasion, so staff may not know why a rehearsal dinner shows "Wedding details".
 16. **Lead column "Booked" is set at the moment of the hold,** before anything is paid or signed, for storefront and staff bookings alike (`server/availability.ts:74-80`). The board counts them as won and stops follow-ups. All 47 storefront leads in production are in Booked, including the 23 whose bookings were later cancelled (cancelling does not move the lead).
-17. **Duplicate leads.** New booking and Convert each make a new "manual" lead, even if the customer already has a lead (for example a website or concierge lead). Staff can link one by hand.
+17. (Fixed in F3a for an exact email or phone match; a near match is flagged, not merged.) **Duplicate leads.** New booking and Convert each make a new "manual" lead, even if the customer already has a lead (for example a website or concierge lead). Staff can link one by hand.
 18. **Unpaid holds never release.** Both release settings are 0 in production. Even if set, converted and staff-made bookings are never released (`server/holds.ts:31` only looks at storefront leads), and a customer's tier 1 booking that paid the retainer is never touched.
-19. **Convert banner says "Held"** when the booking is at Contract Sent, and staff must tick "customer agreed to the policy" again although the request already holds the customer's own tick (`src/components/screens/DesignRequestsScreen.tsx:196`, `src/components/NewBookingModal.tsx:195`).
-20. **Overview has placeholder tiles** that say "Waiting on payment integration" and "Waiting on the e-sign integration" (`src/components/screens/OverviewScreen.tsx:15-18`) while Stripe and e-signing are live. There is no Design requests tile.
+19. (The Design requests screen is gone in F3a; converting is in the lead popup.) **Convert banner says "Held"** when the booking is at Contract Sent, and staff must tick "customer agreed to the policy" again although the request already holds the customer's own tick (`src/components/screens/DesignRequestsScreen.tsx:196`, `src/components/NewBookingModal.tsx:195`).
+20. (Fixed in F3a: Overview is replaced by Today.) **Overview has placeholder tiles** that say "Waiting on payment integration" and "Waiting on the e-sign integration" (`src/components/screens/OverviewScreen.tsx:15-18`) while Stripe and e-signing are live. There is no Design requests tile.
 21. **The tier line on Event details sits at the bottom of the form,** below setup notes and the hidden field, and flips after the customer picks an occasion. A customer who does not scroll may not see "Nothing to pay yet" before pressing "Hold my date".
 22. **Price on request items.** 57 visible items have no price. The store blocks them, the API does not (not tested). They would hold with a total of nothing and no retainer.
 23. **A booking made inside 72 hours is "pending"** for the customer, but the store still takes and shows the retainer screen first for tier 1 and 2 (**not verified** which comes first on screen).

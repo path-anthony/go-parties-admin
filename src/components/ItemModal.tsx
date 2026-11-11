@@ -574,7 +574,7 @@ function DeleteItemControl({ item, onDeleted }: { item: Item; onDeleted: (item: 
         <p className="form-error">
           It can't be deleted yet: {usage.heldByBookings} {usage.heldByBookings === 1 ? "booking that isn't" : "bookings that aren't"}{" "}
           cancelled {usage.heldByBookings === 1 ? "holds" : "hold"} one of its units. Remove it from those bookings in
-          Scheduling, or cancel them, then try again. Nothing was changed.
+          Bookings, or cancel them, then try again. Nothing was changed.
         </p>
       )}
 

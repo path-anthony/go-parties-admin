@@ -14,6 +14,10 @@ export type HoldRelease = { bookingId: string; customerName: string; eventDate: 
 
 // Block T1: a tier 2 hold (the contract signed at checkout, the retainer
 // unpaid) has its own limit, "Release unpaid contract holds after N days".
+// Block F3a: made in the store. A booking says so itself (origin); one made
+// before F3a has none and reads its lead's source, as before.
+const MADE_IN_STORE = { OR: [{ origin: "storefront" }, { origin: null, lead: { is: { source: "storefront" } } }] };
+
 export async function findExpiredHolds(now = new Date()): Promise<{ days: number; holds: HoldRelease[] }> {
   const account = await getDefaultAccount();
   const { holdReleaseDays, contractHoldReleaseDays } = await getSettings(account.id);
@@ -28,7 +32,7 @@ export async function findExpiredHolds(now = new Date()): Promise<{ days: number
   if (holdReleaseDays > 0) {
     const cutoff = new Date(now.getTime() - holdReleaseDays * 86_400_000);
     const rows = await prisma.booking.findMany({
-      where: { accountId: account.id, status: "Held", retainerPaid: false, createdAt: { lt: cutoff }, lead: { is: { source: "storefront" } }, OR: [{ tier: null }, { tier: { not: 2 } }] },
+      where: { accountId: account.id, status: "Held", retainerPaid: false, createdAt: { lt: cutoff }, AND: [MADE_IN_STORE, { OR: [{ tier: null }, { tier: { not: 2 } }] }] },
       select: { id: true, customerName: true, eventDate: true, createdAt: true, tier: true },
       orderBy: { createdAt: "asc" },
     });
@@ -37,7 +41,7 @@ export async function findExpiredHolds(now = new Date()): Promise<{ days: number
   if (contractHoldReleaseDays > 0) {
     const cutoff = new Date(now.getTime() - contractHoldReleaseDays * 86_400_000);
     const rows = await prisma.booking.findMany({
-      where: { accountId: account.id, tier: 2, status: { in: ["Held", "Contract Sent", "Signed"] }, retainerPaid: false, createdAt: { lt: cutoff }, lead: { is: { source: "storefront" } } },
+      where: { accountId: account.id, tier: 2, status: { in: ["Held", "Contract Sent", "Signed"] }, retainerPaid: false, createdAt: { lt: cutoff }, AND: [MADE_IN_STORE] },
       select: { id: true, customerName: true, eventDate: true, createdAt: true, tier: true },
       orderBy: { createdAt: "asc" },
     });

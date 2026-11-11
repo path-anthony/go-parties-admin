@@ -59,6 +59,8 @@ export async function getSettings(accountId: string) {
       retainerReminderDay1: true,
       retainerReminderDay2: true,
       retainerReminderDay3: true,
+      holdReminderEmails: true,
+      payLinksOpenStorefront: true,
     },
   });
   return {
@@ -115,6 +117,9 @@ export async function getSettings(accountId: string) {
     retainerReminderDay1: account.retainerReminderDay1,
     retainerReminderDay2: account.retainerReminderDay2,
     retainerReminderDay3: account.retainerReminderDay3,
+    // Block F3a.
+    holdReminderEmails: account.holdReminderEmails,
+    payLinksOpenStorefront: account.payLinksOpenStorefront,
   };
 }
 

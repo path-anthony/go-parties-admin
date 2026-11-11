@@ -111,6 +111,8 @@ router.patch("/", async (req, res) => {
     retainerReminderDay1?: number;
     retainerReminderDay2?: number;
     retainerReminderDay3?: number;
+    holdReminderEmails?: boolean;
+    payLinksOpenStorefront?: boolean;
   } = {};
 
   if ("minBookingNoticeHours" in body) {
@@ -280,6 +282,12 @@ router.patch("/", async (req, res) => {
   if ("tier1Collect" in body) {
     if (body.tier1Collect !== "retainer" && body.tier1Collect !== "full") return res.status(400).json({ error: "tier1Collect must be retainer or full" });
     data.tier1Collect = body.tier1Collect;
+  }
+  for (const key of ["holdReminderEmails", "payLinksOpenStorefront"] as const) {
+    if (key in body) {
+      if (typeof body[key] !== "boolean") return res.status(400).json({ error: `${key} must be true or false` });
+      data[key] = body[key];
+    }
   }
   if ("requireBotCheck" in body) {
     if (typeof body.requireBotCheck !== "boolean") return res.status(400).json({ error: "requireBotCheck must be true or false" });

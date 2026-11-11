@@ -6,6 +6,8 @@ import { NoCrewFree, createGigs, needsCrew } from "./gigs.js";
 import { displayStatus, legacyCustomerStatus } from "../src/lib/bookingStatus.js";
 import { sendDesignRequestAck } from "./notify.js";
 import { sendPayLink, type PayLinkSend } from "./payLink.js";
+import { findLeadMatch } from "./inboxLoad.js";
+import { actorFields } from "./actor.js";
 import { currentPolicy } from "./policy.js";
 import { reviewDecision } from "./review.js";
 import { getSettings, reviewRulesOf, rushFor } from "./settings.js";
@@ -16,7 +18,7 @@ import { loadGoSigner, signContractFromQuote, token } from "./contracts.js";
 import { bookingMapsUrl, deliveryColumns, placeColumns, type Delivery } from "./delivery.js";
 import { checkBookingAddress, type ExactPlace } from "./addressLookup.js";
 import { queueGoogleSync } from "./google/sync.js";
-import { clearRequestAlerts, notifyDesignRequest, notifyNewLead } from "./notifications.js";
+import { clearRequestAlerts, notifyDesignRequest, notifyLinkedBooking, notifyNewLead } from "./notifications.js";
 import { notifyContractSigned } from "./notify.js";
 import { createPaymentSession, type PaymentOffer } from "./payments.js";
 import { customerStage } from "./portal.js";
@@ -103,6 +105,10 @@ export type DirectBookingInput = {
   // contract with the retainer amount, or the pay link) as soon as the
   // booking is made. On unless staff untick it.
   sendPayLink?: boolean;
+  // Block F3a. Staff built this booking from a lead (Leads, "Build a booking
+  // for them"): the booking hangs on that lead instead of making a new one,
+  // and the lead moves to Booked.
+  leadId?: string | null;
 };
 
 export type HoldSignature = { fullName: string; additionalSignerName: string | null; contentHash: string; quoteId: string };
@@ -382,6 +388,22 @@ export async function createDirectBooking(input: DirectBookingInput): Promise<{ 
   const when = eventTime ? `${dateText} at ${eventTime}` : dateText;
   const where = address ? ` Address: ${address}.` : " Address not given yet.";
 
+  // Block F3a: which lead this booking belongs to. Staff named one, or a
+  // storefront booking (or a storefront request being converted) has the
+  // same email or phone as a lead that is still open (matchLead in
+  // server/inbox.ts has the rule). Otherwise it gets its own lead, as before.
+  let linkLeadId: string | null = null;
+  let nearLeads: { id: string; customerName: string | null; createdAt: Date }[] = [];
+  if (staff && input.leadId) {
+    const named = await prisma.lead.findFirst({ where: { id: input.leadId, accountId: account.id }, select: { id: true } });
+    if (!named) return out(404, { error: "That lead was not found.", reason: "lead-not-found" });
+    linkLeadId = named.id;
+  } else if (!staff || designRequestId) {
+    const match = await findLeadMatch(account.id, { name, email: contact.email, phone: contact.phone });
+    linkLeadId = match.exact?.id ?? null;
+    nearLeads = match.near;
+  }
+
   try {
     const result = await prisma.$transaction(async (tx) => {
       // Lock every unit before writing anything: the wanted quantity of
@@ -411,22 +433,29 @@ export async function createDirectBooking(input: DirectBookingInput): Promise<{ 
           .map(({ item, quantity }) => (quantity > 1 ? `${item.name} x${quantity} (crew)` : `${item.name} (crew)`)),
       ].join(", ");
       const packageNote = pkg ? ` Package: ${pkg.name}, $${Number(pkg.price)}.` : "";
-      const lead = await tx.lead.create({
-        data: {
-          accountId: account.id,
-          source: staff ? "manual" : "storefront",
-          status: leadStatus,
-          customerName: name,
-          contact: leadContact,
-          occasion: pkg ? pkg.name : [...new Set(claimed.map(({ item }) => item.name))].join(", "),
-          dateOfInterest: date,
-          notes: `Direct booking of ${summary} ${origin}, ${when}.${where}${packageNote}${addonNote ? ` Add-ons: ${addonNote}.` : ""}`,
-        },
-      });
+      // An existing lead keeps everything on it (its source, its notes, its
+      // history); only its column moves to Booked and an empty date is filled.
+      const linked = linkLeadId ? await tx.lead.findFirst({ where: { id: linkLeadId, accountId: account.id } }) : null;
+      const lead = linked
+        ? await tx.lead.update({ where: { id: linked.id }, data: { status: leadStatus, sortOrder: 0, dateOfInterest: linked.dateOfInterest ?? date, followUpOn: null, followUpNote: null } })
+        : await tx.lead.create({
+            data: {
+              accountId: account.id,
+              source: staff ? "manual" : "storefront",
+              status: leadStatus,
+              customerName: name,
+              contact: leadContact,
+              occasion: pkg ? pkg.name : [...new Set(claimed.map(({ item }) => item.name))].join(", "),
+              dateOfInterest: date,
+              notes: `Direct booking of ${summary} ${origin}, ${when}.${where}${packageNote}${addonNote ? ` Add-ons: ${addonNote}.` : ""}`,
+            },
+          });
       await tx.leadActivity.create({
         data: {
           leadId: lead.id,
-          text: `Booked ${summary} for ${when} ${origin}.${addonNote ? ` Add-ons: ${addonNote}.` : ""}`,
+          kind: "status",
+          text: `Booked ${summary} for ${when} ${origin}.${addonNote ? ` Add-ons: ${addonNote}.` : ""}${linked ? (staff && input.leadId ? " Built from this lead." : " Linked to this lead because the email or phone is the same.") + (linked.status !== leadStatus ? ` Moved to ${leadStatus}.` : "") : ""}`,
+          ...actorFields(),
         },
       });
       const booking = await tx.booking.create({
@@ -445,6 +474,9 @@ export async function createDirectBooking(input: DirectBookingInput): Promise<{ 
           phone: contact.phone,
           email: contact.email,
           status: "Held",
+          // Block F3a: where it was made, now that its lead may have come
+          // from somewhere else.
+          origin: staff ? "staff" : "storefront",
           rush,
           occasion,
           balancePaymentPreference,
@@ -596,7 +628,12 @@ export async function createDirectBooking(input: DirectBookingInput): Promise<{ 
     if (staff && address && !input.place) void checkBookingAddress(result.booking.id).catch(() => undefined);
     if (contract?.signed) queueGoogleSync(result.booking.id);
     // Staff made this one themselves, so only a storefront hold is news.
-    if (!staff) await notifyNewLead({ ...result.lead, bookingId: result.booking.id, customerId: result.booking.customerId });
+    if (!staff) {
+      if (linkLeadId) await notifyLinkedBooking({ leadId: result.lead.id, accountId: account.id, customerName: name, leadSource: result.lead.source, bookingId: result.booking.id, customerId: result.booking.customerId });
+      else await notifyNewLead({ ...result.lead, bookingId: result.booking.id, customerId: result.booking.customerId });
+    }
+    // Block F3a: a near match is never linked on its own. Both leads say so.
+    if (!linkLeadId && nearLeads.length > 0) void notePossibleMatches(result.lead.id, name, nearLeads);
 
     // One entry per unit held and one per gig, so an item wanted twice
     // appears twice. A gig has no unit; its entry says so with null.
@@ -691,5 +728,28 @@ export async function createDirectBooking(input: DirectBookingInput): Promise<{ 
       });
     }
     throw err;
+  }
+}
+
+// Block F3a. A new booking looks like it could belong to a lead that already
+// exists (the same name with other contact details, or the same contact on a
+// lead that is closed or already booked). Nothing is merged: each lead gets a
+// line in its history and the tag "Possible duplicate", for a person to judge.
+export const DUPLICATE_TAG = "Possible duplicate";
+async function notePossibleMatches(newLeadId: string, name: string, near: { id: string; customerName: string | null; createdAt: Date }[]): Promise<void> {
+  try {
+    const day = (d: Date) => d.toISOString().slice(0, 10);
+    const tag = async (id: string) => {
+      const l = await prisma.lead.findUnique({ where: { id }, select: { tags: true } });
+      if (l && !l.tags.includes(DUPLICATE_TAG)) await prisma.lead.update({ where: { id }, data: { tags: [...l.tags, DUPLICATE_TAG] } });
+    };
+    await tag(newLeadId);
+    await prisma.leadActivity.create({ data: { leadId: newLeadId, kind: "status", text: `Possible match with ${near.length === 1 ? "an earlier lead" : `${near.length} earlier leads`}: ${near.map((n) => `${n.customerName ?? "no name"} (added ${day(n.createdAt)})`).join(", ")}. Not linked, because the email and phone are not the same or that lead is closed or already booked.` } });
+    for (const n of near) {
+      await tag(n.id);
+      await prisma.leadActivity.create({ data: { leadId: n.id, kind: "status", text: `Possible match: a new booking was made for ${name}. It was not linked to this lead. Check whether they are the same customer.` } });
+    }
+  } catch (err) {
+    console.warn("[bookings] possible matches not noted:", safeErr(err));
   }
 }

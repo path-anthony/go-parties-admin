@@ -311,7 +311,7 @@ test("submit needs every required section, locks the form, notifies once; a chan
   let notes = await ofType("wedding-details-submitted", id);
   assert.equal(notes.length, 1);
   assert.equal(notes[0].title, "Wedding details submitted");
-  assert.equal(notes[0].link, `/scheduling/bookings?booking=${id}`);
+  assert.equal(notes[0].link, `/bookings?booking=${id}`);
 
   const late = await call(path(id), "PATCH", { answers: { "cocktail_hour.time": "5 PM" } }, c.cookie);
   assert.equal(late.status, 409);

@@ -56,7 +56,9 @@ const WEDDING_INCOMPLETE_DAYS = 35;
 // Released are not).
 const LIVE_STAGES = ["Held", "Contract Sent", "Signed"];
 
-export const bookingLink = (id: string) => `/scheduling/bookings?booking=${id}`;
+export const bookingLink = (id: string) => `/bookings?booking=${id}`;
+// Block F3a: storefront requests live in the Leads inbox now.
+export const requestsLink = "/leads?view=requests";
 export const leadLink = (id: string) => `/leads?lead=${id}`;
 const clean = (text: string | null | undefined, fallback: string) => safeInline(text ?? "", 100) || fallback;
 // An event date is a calendar day stored at UTC midnight; noon Eastern reads
@@ -102,6 +104,29 @@ export async function notifyNewLead(lead: { id: string; accountId: string; sourc
   }
 }
 
+// Block F3a. A storefront booking arrived for someone who was already a lead
+// (same email or phone), so no new lead was made. Staff still need to know a
+// date was just held. Keyed by the booking. Never throws.
+export async function notifyLinkedBooking(b: { leadId: string; accountId: string; customerName: string; leadSource: string; bookingId: string; customerId: string | null }): Promise<void> {
+  try {
+    await createNotifications([
+      {
+        accountId: b.accountId,
+        type: "new-lead",
+        title: "Storefront booking from an existing lead",
+        body: `${clean(b.customerName, "Customer")} held a date in the store. Linked to their ${SOURCE_WORD[b.leadSource] ?? "earlier"} lead, which moved to Booked.`,
+        link: leadLink(b.leadId),
+        leadId: b.leadId,
+        bookingId: b.bookingId,
+        customerId: b.customerId,
+        dedupeKey: `storefront-booking:${b.bookingId}`,
+      },
+    ]);
+  } catch (err) {
+    console.warn("[notifications] linked booking not recorded:", safeErr(err));
+  }
+}
+
 // A tier 3 request just went to Design Requests. Nothing is held and no
 // booking exists until staff convert it, so the link is the Open list.
 // Never throws, for the same reason as a new lead.
@@ -115,7 +140,7 @@ export async function notifyDesignRequest(request: { id: string; accountId: stri
         type: "design-request",
         title: "Request for review",
         body: `${clean(request.customerName, "Customer")}, ${dayLabel(dayOf(request.eventDate))}.${about}${total}`,
-        link: "/design-requests?status=Open",
+        link: requestsLink,
         customerId: request.customerId,
         dedupeKey: `design-request:${request.id}`,
       },
@@ -218,7 +243,7 @@ export async function findDueNotifications(now: Date): Promise<NotificationInput
       type: "contract-unsigned-3d",
       title: "Needs a push to sign",
       body: `${clean(rec.customerName, "Customer")}, ${dayLabel(dayOf(rec.eventDate))}. Contract sent ${sent}, not signed.`,
-      link: a.booking ? bookingLink(a.booking.id) : "/design-requests",
+      link: a.booking ? bookingLink(a.booking.id) : requestsLink,
       bookingId: a.booking?.id ?? null,
       leadId: a.booking?.leadId ?? null,
       customerId: a.customerId,
@@ -332,7 +357,7 @@ export async function findDueNotifications(now: Date): Promise<NotificationInput
       type: "design-request-overdue",
       title: "Request still waiting",
       body: `${clean(r.customerName, "Customer")}, ${dayLabel(dayOf(r.eventDate))}. Open ${open} business ${open === 1 ? "day" : "days"}; the customer was told ${settings.requestResponseDays}.`,
-      link: "/design-requests?status=Open",
+      link: requestsLink,
       customerId: r.customerId,
       dedupeKey: `design-request-overdue:${r.id}:${todayText}`,
     });

@@ -201,6 +201,6 @@ export async function checkBookingAddress(bookingId: string, now = new Date()): 
   }
   const out = { check: "not_checked" as const, reason: outcome.reason };
   await prisma.booking.update({ where: { id: bookingId }, data: { addressCheck: out.check, addressCheckReason: out.reason, addressCheckedAt: null, addressCheckedByName: null } });
-  await createNotifications([{ accountId: b.accountId, type: "address-not-checked", title: "Address not checked", body: `${b.customerName}: ${out.reason}`, link: `/scheduling/bookings?booking=${bookingId}`, bookingId, dedupeKey: `address-not-checked:${bookingId}:${cacheKeyFor(b.placeId ? { placeId: b.placeId } : { text: b.address }) ?? ""}` }]).catch(() => undefined);
+  await createNotifications([{ accountId: b.accountId, type: "address-not-checked", title: "Address not checked", body: `${b.customerName}: ${out.reason}`, link: `/bookings?booking=${bookingId}`, bookingId, dedupeKey: `address-not-checked:${bookingId}:${cacheKeyFor(b.placeId ? { placeId: b.placeId } : { text: b.address }) ?? ""}` }]).catch(() => undefined);
   return out;
 }

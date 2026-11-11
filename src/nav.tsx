@@ -1,20 +1,19 @@
 /* oxlint-disable react/only-export-components -- this file is the navigation config: the tree, its routes and address helpers live together on purpose, so adding a page is one line. */
 import type { ReactElement } from "react";
-import { Navigate, useSearchParams } from "react-router-dom";
-import { Box, Briefcase, CalendarDays, ChartBar, ClipboardList, Contact, Layers2, MessageSquare, Settings, type LucideIcon } from "lucide-react";
+import { Navigate, useLocation, useSearchParams } from "react-router-dom";
+import { Box, Briefcase, CalendarDays, ChartBar, Contact, MessageSquare, Settings, type LucideIcon } from "lucide-react";
 import { CrewGigsScreen } from "./components/screens/CrewGigsScreen";
-import { DesignRequestsScreen } from "./components/screens/DesignRequestsScreen";
 import { InventoryScreen } from "./components/screens/InventoryScreen";
-import { LeadsScreen } from "./components/screens/LeadsScreen";
+import { LeadsInboxScreen } from "./components/screens/LeadsInboxScreen";
 import { BidsPage } from "./components/screens/BidsPage";
 import { MessageTemplatesPage, MessagesUpcomingPage, SentLogPage } from "./components/screens/MessagesScreen";
 import { NotificationsScreen } from "./components/screens/NotificationsScreen";
-import { OverviewScreen } from "./components/screens/OverviewScreen";
 import { PackagesScreen } from "./components/screens/PackagesScreen";
 import { SchedulingScreen } from "./components/screens/SchedulingScreen";
 import { BookingRulesPage, BusinessPage, ContractAndPolicyPage, HomePhotosPage, IntegrationsPage, MessagesAndNotificationsPage } from "./components/screens/SettingsPages";
 import { SkillsPage } from "./components/screens/SkillsPage";
 import { TeamPage } from "./components/screens/TeamPage";
+import { TodayScreen } from "./components/screens/TodayScreen";
 import type { ScreenKey, ScreenParams } from "./lib/navigation";
 
 // THE navigation, in one place. The sidebar, the routes, the breadcrumb and
@@ -26,8 +25,6 @@ import type { ScreenKey, ScreenParams } from "./lib/navigation";
 //     page is its own address and its own full page. Never add in-page tabs.
 //   - Every old address keeps working: add it to LEGACY_REDIRECTS.
 //
-// Room left for later, not built yet:
-//   Leads (groups). (Settings > Team is the account and access page.)
 
 // ownerOnly: the page is listed and routed only for Owners (the server
 // refuses everyone else regardless).
@@ -47,15 +44,6 @@ export type NavItem = {
   hiddenFromSidebar?: boolean;
 };
 
-const num = (v: string | null) => (v && Number.isFinite(Number(v)) ? Number(v) : undefined);
-
-// Overview's cards send filters along in the address (?status=Booked), so
-// the page they open is bookmarkable.
-function LeadsRoute() {
-  const [q] = useSearchParams();
-  return <LeadsScreen openLeadId={q.get("lead") ?? undefined} initialStatus={q.get("status") ?? undefined} initialFollowUp={q.get("followUp") === "1"} initialStaleDays={num(q.get("staleDays"))} />;
-}
-
 function BookingsRoute() {
   const [q] = useSearchParams();
   return <SchedulingScreen view="bookings" openBookingId={q.get("booking") ?? undefined} />;
@@ -66,29 +54,31 @@ function GigsRoute() {
   return <CrewGigsScreen view="gigs" initialStatus={q.get("status") ?? undefined} openGigId={q.get("gig") ?? undefined} />;
 }
 
+// Block F3a: the menu, in the order the day is worked. Today, Leads,
+// Bookings, Inventory (Items, Packages and themes, Availability), Crew and
+// Gigs, Messages, Settings. Storefront requests are a view inside Leads, and
+// "Scheduling" is gone: its two pages moved to Bookings and to Inventory.
 export const NAV: NavItem[] = [
   { key: "notifications", label: "Notifications", icon: MessageSquare, path: "/notifications", element: <NotificationsScreen />, hiddenFromSidebar: true },
-  { key: "overview", label: "Overview", icon: ChartBar, path: "/overview", element: <OverviewScreen /> },
-  { key: "leads", label: "Leads", icon: Contact, path: "/leads", element: <LeadsRoute /> },
+  { key: "today", label: "Today", icon: ChartBar, path: "/today", element: <TodayScreen /> },
+  // The views (New, Storefront requests, ...) and the open lead live in the
+  // address: /leads?view=requests, /leads?lead=<id>, /leads?request=<id>.
+  { key: "leads", label: "Leads", icon: Contact, path: "/leads", element: <LeadsInboxScreen /> },
+  { key: "bookings", label: "Bookings", icon: CalendarDays, path: "/bookings", element: <BookingsRoute /> },
   {
-    key: "scheduling",
-    label: "Scheduling",
-    icon: CalendarDays,
-    path: "/scheduling",
+    key: "inventory",
+    label: "Inventory",
+    icon: Box,
+    path: "/inventory",
     pages: [
-      { label: "Bookings", path: "/scheduling/bookings", element: <BookingsRoute /> },
-      { label: "Inventory status", path: "/scheduling/inventory-status", element: <SchedulingScreen view="units" /> },
+      { label: "Items", path: "/inventory/items", element: <InventoryScreen /> },
+      { label: "Packages and themes", path: "/inventory/packages", element: <PackagesScreen /> },
+      { label: "Availability", path: "/inventory/availability", element: <SchedulingScreen view="units" /> },
     ],
   },
-  // Inventory has one page (search and category filter sit at the top of it),
-  // so it is a link, not a group.
-  { key: "inventory", label: "Inventory", icon: Box, path: "/inventory", element: <InventoryScreen /> },
-  // Themes are not a separate screen in the app, so this is a link too.
-  { key: "packages", label: "Packages & Themes", icon: Layers2, path: "/packages", element: <PackagesScreen /> },
-  { key: "requests", label: "Design requests", icon: ClipboardList, path: "/design-requests", element: <DesignRequestsScreen /> },
   {
     key: "crew",
-    label: "Crew & Gigs",
+    label: "Crew and Gigs",
     icon: Briefcase,
     path: "/crew",
     pages: [
@@ -132,7 +122,18 @@ export const NAV: NavItem[] = [
 // (it was one page at "/"), so these cover the screens as they were named
 // and the old Settings tabs.
 export const LEGACY_REDIRECTS: [from: string, to: string][] = [
-  ["/", "/overview"],
+  ["/", "/today"],
+  // Block F3a: the menu was renamed and reordered. Everything that was ever
+  // bookmarked, or sent in an email or a digest, still lands in the right
+  // place, and whatever was after the "?" comes along (LegacyRedirect).
+  ["/overview", "/today"],
+  ["/scheduling", "/bookings"],
+  ["/scheduling/bookings", "/bookings"],
+  ["/scheduling/inventory-status", "/inventory/availability"],
+  ["/scheduling/units", "/inventory/availability"],
+  ["/packages", "/inventory/packages"],
+  ["/design-requests", "/leads?view=requests"],
+  ["/design-requests/open", "/leads?view=requests"],
   ["/settings/general", "/settings/booking-rules"],
   // Block A12: Settings went from nine pages to seven.
   ["/settings/business-rules", "/settings/booking-rules"],
@@ -144,20 +145,34 @@ export const LEGACY_REDIRECTS: [from: string, to: string][] = [
   ["/settings/message-log", "/messages/sent-log"],
   ["/settings/skills", "/crew/skills"],
   ["/settings/lead-columns", "/settings/notifications"],
-  ["/scheduling/units", "/scheduling/inventory-status"],
   ["/crew/crew", "/crew/members"],
   ["/crew/people", "/crew/members"],
-  ["/design-requests/open", "/design-requests?status=Open"],
   ["/gigs", "/crew/gigs"],
-  ["/bookings", "/scheduling/bookings"],
   ["/log", "/messages/sent-log"],
 ];
+
+// Where an old address goes, keeping what came after the "?" (a link to one
+// booking, /scheduling/bookings?booking=abc, must still open that booking).
+// When the new address has its own "?", both sets are kept and the new one wins.
+export function redirectTarget(to: string, search: string): string {
+  const [path, own] = to.split("?");
+  const q = new URLSearchParams(search);
+  for (const [k, v] of new URLSearchParams(own ?? "")) q.set(k, v);
+  // The old Design requests list took ?status=Open; the inbox has no use for it.
+  if (path === "/leads" && q.get("view") === "requests") q.delete("status");
+  const qs = q.toString();
+  return qs ? `${path}?${qs}` : path;
+}
+
+export function LegacyRedirect({ to }: { to: string }) {
+  const { search } = useLocation();
+  return <Navigate to={redirectTarget(to, search)} replace />;
+}
 
 // The tab the old in-page tabs would have been on, as a query string, sent
 // to the right page. Applies to a group's root address: /settings?tab=log.
 export const LEGACY_TABS: Record<string, Record<string, string>> = {
   "/settings": { general: "/settings/booking-rules", messages: "/messages/templates", log: "/messages/sent-log", "message-log": "/messages/sent-log", skills: "/crew/skills" },
-  "/scheduling": { bookings: "/scheduling/bookings", units: "/scheduling/inventory-status" },
   "/crew": { gigs: "/crew/gigs", crew: "/crew/members", skills: "/crew/skills" },
 };
 
@@ -178,14 +193,10 @@ export function GroupRoot({ item, tabs }: { item: NavItem; tabs?: Record<string,
 // Where navigate(screen, params) goes.
 export function screenToPath(screen: ScreenKey, params: ScreenParams = {}): string {
   const item = NAV.find((n) => n.key === screen);
-  if (!item) return "/overview";
+  if (!item) return "/today";
   const base = item.landing ?? item.pages?.[0].path ?? item.path;
   const q = new URLSearchParams();
-  if (screen === "leads") {
-    if (params.leadStatus) q.set("status", params.leadStatus);
-    if (params.leadFollowUp) q.set("followUp", "1");
-    if (params.leadStaleDays !== undefined) q.set("staleDays", String(params.leadStaleDays));
-  }
+  if (screen === "leads" && params.leadView) q.set("view", params.leadView);
   if (screen === "crew") {
     if (params.gigStatus) q.set("status", params.gigStatus);
     if (params.gigId) q.set("gig", params.gigId);
@@ -204,5 +215,5 @@ export function breadcrumbFor(pathname: string): { label: string; to?: string }[
       return [{ label: item.label }];
     }
   }
-  return [{ label: "Overview" }];
+  return [{ label: "Today" }];
 }

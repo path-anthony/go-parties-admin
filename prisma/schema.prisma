@@ -45,6 +45,12 @@ model Account {
   retainerReminderDay1      Int      @default(1) @map("retainer_reminder_day_1")
   retainerReminderDay2      Int      @default(3) @map("retainer_reminder_day_2")
   retainerReminderDay3      Int      @default(7) @map("retainer_reminder_day_3")
+  // Block F3a. A signed-in customer who holds a date on the policy path and
+  // does not pay gets an email with their pay link 1 and 3 days later.
+  holdReminderEmails        Boolean  @default(true) @map("hold_reminder_emails")
+  // Block F3a. When on, pay links in messages open the storefront's own pay
+  // page (<store>/pay/<token>) instead of the admin address.
+  payLinksOpenStorefront    Boolean  @default(false) @map("pay_links_open_storefront")
   // Share of the total taken as the deposit. One global value for now.
   depositPercentage         Decimal  @default(20) @map("deposit_percentage") @db.Decimal(5, 2)
   // Days before the event after which a cancellation is no longer free. One
@@ -368,6 +374,10 @@ model LeadActivity {
   id        String   @id @default(cuid())
   leadId    String   @map("lead_id")
   text      String
+  // Block F3a: what kind of entry it is, for the History list: call, text,
+  // email (a contact staff logged), status (a move), or null for a plain note
+  // and everything written before F3a.
+  kind      String?
   createdAt DateTime @default(now()) @map("created_at")
   // The staff member who caused the entry (null when the system or a
   // customer did). The name is kept with the row so the log still reads
@@ -540,6 +550,12 @@ model Booking {
   // The last time staff or the system sent the pay link, and who.
   payLinkSentAt            DateTime? @map("pay_link_sent_at")
   payLinkSentByName        String?   @map("pay_link_sent_by_name")
+  // Block F3a. Where the booking was made: "storefront" (a customer at
+  // checkout) or "staff". A booking can now hang on a lead that came from
+  // somewhere else (a website lead who later books in the store), so the
+  // lead's source no longer says this. Null on bookings made before F3a;
+  // those still read their lead's source.
+  origin                   String?
   createdAt                DateTime  @default(now()) @map("created_at")
   updatedAt                DateTime  @default(now()) @updatedAt @map("updated_at")
 
@@ -906,6 +922,17 @@ model Lead {
   notes            String?
   theme            String?
   itemsReturned    Json?     @map("items_returned")
+  // Block F3a: working a lead. When staff first and last reached out, the
+  // next step they set ("Not ready": a date and a note), why it was lost,
+  // and when the store link was last sent.
+  firstContactedAt DateTime? @map("first_contacted_at")
+  lastContactedAt  DateTime? @map("last_contacted_at")
+  followUpOn       DateTime? @map("follow_up_on") @db.Date
+  followUpNote     String?   @map("follow_up_note")
+  lostReason       String?   @map("lost_reason")
+  lostNote         String?   @map("lost_note")
+  lostAt           DateTime? @map("lost_at")
+  storeLinkSentAt  DateTime? @map("store_link_sent_at")
   createdAt        DateTime  @default(now()) @map("created_at")
   updatedAt        DateTime  @default(now()) @updatedAt @map("updated_at")
 

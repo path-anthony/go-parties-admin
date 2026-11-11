@@ -3,7 +3,7 @@ import { Link, Navigate, Route, Routes, useLocation, useNavigate } from "react-r
 import { Menu } from "lucide-react";
 import { useIsOwner } from "../lib/me";
 import { NavigationContext, type ScreenKey, type ScreenParams } from "../lib/navigation";
-import { LEGACY_REDIRECTS, LEGACY_TABS, NAV, GroupRoot, breadcrumbFor, screenToPath, visiblePages } from "../nav";
+import { LEGACY_REDIRECTS, LEGACY_TABS, LegacyRedirect, NAV, GroupRoot, breadcrumbFor, screenToPath, visiblePages } from "../nav";
 import { AccountMenu } from "./AccountMenu";
 import { AskGoPanel } from "./AskGoPanel";
 import { NotificationBell } from "./NotificationBell";
@@ -53,7 +53,7 @@ export function AdminShell() {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [askGoOpen, setAskGoOpen] = useState(false);
   // A visit counter keys the page, so being sent to the page you are already
-  // on with new filters (an Overview card) reloads it fresh.
+  // on with new filters reloads it fresh.
   const [visit, setVisit] = useState(0);
   const isOwner = useIsOwner();
 
@@ -111,9 +111,9 @@ export function AdminShell() {
                   : [<Route key={item.path} path={item.path} element={<div key={visit}>{item.element}</div>} />],
               )}
               {LEGACY_REDIRECTS.map(([from, to]) => (
-                <Route key={from} path={from} element={<Navigate to={to} replace />} />
+                <Route key={from} path={from} element={<LegacyRedirect to={to} />} />
               ))}
-              <Route path="*" element={<Navigate to="/overview" replace />} />
+              <Route path="*" element={<Navigate to="/today" replace />} />
             </Routes>
           </div>
         </div>

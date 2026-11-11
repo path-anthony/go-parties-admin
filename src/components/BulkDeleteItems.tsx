@@ -62,7 +62,7 @@ export function BulkDeleteItems({
               </li>
             ))}
           </ul>
-          <p>Remove them from those bookings in Scheduling, or cancel the bookings, or leave them out of the selection.</p>
+          <p>Remove them from those bookings in Bookings, or cancel the bookings, or leave them out of the selection.</p>
         </div>
       )}
 

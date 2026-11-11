@@ -115,7 +115,7 @@ export function SchedulingScreen({ view = "bookings", openBookingId }: { view?: 
   return (
     <div className="screen screen-wide">
       <div className="screen-head">
-        <h2>{view === "units" ? "Inventory status" : "Bookings"}</h2>
+        <h2>{view === "units" ? "Availability" : "Bookings"}</h2>
         <p className="muted">
           {view === "units"
             ? "Every physical unit and its manual status."

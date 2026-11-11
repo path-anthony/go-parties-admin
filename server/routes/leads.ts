@@ -79,7 +79,11 @@ router.get("/", async (_req, res) => {
 });
 
 router.post("/", async (req, res) => {
-  const { customerName, contact, occasion, dateOfInterest, notes, status } = req.body ?? {};
+  const { customerName, contact, occasion, dateOfInterest, notes, status, source } = req.body ?? {};
+  // Block F3a: "phone" (they called or came in) or "manual" (anything else staff add).
+  if (source !== undefined && source !== "phone" && source !== "manual") {
+    return res.status(400).json({ error: "source must be phone or manual" });
+  }
 
   const name = normalizeText(customerName);
   if (!name) {
@@ -102,7 +106,7 @@ router.post("/", async (req, res) => {
   const lead = await prisma.lead.create({
     data: {
       accountId: account.id,
-      source: "manual",
+      source: source ?? "manual",
       status: status ?? (await getDefaultStatus(account.id)),
       customerName: name,
       contact: contactText,

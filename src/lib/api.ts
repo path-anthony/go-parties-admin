@@ -60,7 +60,7 @@ import type {
   SkillRow,
   Unit,
   UnitPatch,
- HeroSlide, PayLinkView, RefundRecord, CancellationRequestView, MoneyOverview } from "./types";
+ HeroSlide, PayLinkView, RefundRecord, CancellationRequestView, MoneyOverview, Inbox, LeadDetail, TodayView } from "./types";
 
 export const AUTH_EXPIRED_EVENT = "auth:expired";
 
@@ -679,3 +679,32 @@ export function setWeddingOverride(bookingId: string, weddingOverride: boolean |
 }
 
 export const weddingPrintUrl = (bookingId: string) => `/api/bookings/${bookingId}/wedding-details/print`;
+
+// ---- Block F3a: the Leads inbox, the Today view and the lead actions ----------------
+export function getInbox(): Promise<Inbox> {
+  return fetch("/api/inbox").then(asJson<Inbox>);
+}
+export function getToday(): Promise<TodayView> {
+  return fetch("/api/today").then(asJson<TodayView>);
+}
+export function getLeadDetail(id: string): Promise<LeadDetail> {
+  return fetch(`/api/leads/${id}/detail`).then(asJson<LeadDetail>);
+}
+export function getDesignRequest(id: string): Promise<DesignRequest> {
+  return fetch(`/api/design-requests/${id}`).then(asJson<DesignRequest>);
+}
+export function logLeadContact(id: string, kind: "call" | "text" | "email", note: string | null): Promise<{ movedTo: string | null }> {
+  return fetch(`/api/leads/${id}/contact`, jsonRequest("POST", { kind, note })).then(asJson<{ movedTo: string | null }>);
+}
+export function sendLeadStoreLink(id: string): Promise<{ sent: string[]; movedTo: string | null }> {
+  return fetch(`/api/leads/${id}/store-link`, jsonRequest("POST", {})).then(asJson<{ sent: string[]; movedTo: string | null }>);
+}
+export function setLeadFollowUp(id: string, date: string | null, note: string | null): Promise<{ followUpOn: string | null }> {
+  return fetch(`/api/leads/${id}/follow-up`, jsonRequest("POST", { date, note })).then(asJson<{ followUpOn: string | null }>);
+}
+export function markLeadLost(id: string, reason: string, note: string | null): Promise<{ status: string }> {
+  return fetch(`/api/leads/${id}/lost`, jsonRequest("POST", { reason, note })).then(asJson<{ status: string }>);
+}
+export function reopenLead(id: string): Promise<{ status: string }> {
+  return fetch(`/api/leads/${id}/reopen`, jsonRequest("POST", {})).then(asJson<{ status: string }>);
+}

@@ -29,7 +29,15 @@ export async function ensurePayToken(bookingId: string): Promise<string> {
   return (await prisma.booking.findUniqueOrThrow({ where: { id: bookingId }, select: { payToken: true } })).payToken as string;
 }
 
-export const payLinkFor = (token: string): string => `${apiBase()}/pay/${token}`;
+// Where a pay link in a message points. Normally the admin address, which
+// sends the customer straight to what they owe. Block F3a: with "Pay links
+// open the storefront pay page" switched on (Settings, Integrations) it is
+// the store's own page at <store>/pay/<token>. The admin address keeps
+// working either way, so a link already sent never breaks.
+export function payLinkFor(token: string, toStorefront = false): string {
+  const store = process.env.STOREFRONT_URL?.replace(/\/$/, "");
+  return toStorefront && store ? `${store}/pay/${token}` : `${apiBase()}/pay/${token}`;
+}
 
 // "Thu, Sep 10": the day the balance is due, from the event day and the
 // balance due setting.
@@ -39,10 +47,10 @@ export function balanceDueDateText(eventDate: Date, balanceDueDays: number): str
 
 // The values a message about money needs, for one booking: the link, what is
 // owed now, the real balance and its due day. Pure.
-export function payValues(b: { payToken: string | null; eventDate: Date; status: string; tier: number | null; agreement?: { contractStatus: string | null } | null }, money: Money, balanceDueDays: number): Record<string, string> {
+export function payValues(b: { payToken: string | null; eventDate: Date; status: string; tier: number | null; agreement?: { contractStatus: string | null } | null }, money: Money, balanceDueDays: number, toStorefront = false): Record<string, string> {
   const owed = owedStep(b, money);
   const out: Record<string, string> = { balanceDueDate: balanceDueDateText(b.eventDate, balanceDueDays) };
-  if (b.payToken) out.payLink = payLinkFor(b.payToken);
+  if (b.payToken) out.payLink = payLinkFor(b.payToken, toStorefront);
   if (owed.amountCents !== null) out.amountDue = usd(owed.amountCents);
   if (money.balanceDueCents !== null) out.balanceDue = usd(money.balanceDueCents);
   return out;
@@ -89,7 +97,7 @@ export async function sendPayLink(bookingId: string, why: "created" | "signed" |
     const owed = await owedFor(bookingId);
     const { booking } = owed;
     if (owed.step === "closed" || owed.step === "nothing" || owed.amountCents === null) return { step: owed.step, amountCents: null, sent: false, why: WHY_NOT[owed.step] ?? WHY_NOT.nothing };
-    const payLink = payLinkFor(await ensurePayToken(bookingId));
+    const payLink = payLinkFor(await ensurePayToken(bookingId), owed.settings.payLinksOpenStorefront);
     const amountDue = usd(owed.amountCents);
     const recipient = { phone: booking.phone, email: booking.email };
     const manual = why === "manual" ? `:manual:${Date.now()}` : "";
