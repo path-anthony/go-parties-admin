@@ -1,4 +1,5 @@
 import { prisma } from "./db.js";
+import type { ReviewRules } from "./review.js";
 import { BUSINESS_TIME_ZONE, todayEastern } from "./validate.js";
 
 // Account-wide settings that the rest of the server reads. Today: the
@@ -49,6 +50,12 @@ export async function getSettings(accountId: string) {
       digestEmail: true,
       digestEnabled: true,
       requireCustomerAccount: true,
+      reviewAmountKids: true,
+      reviewAmountAdult: true,
+      reviewAmountWedding: true,
+      reviewAmountCorporate: true,
+      reviewAmountDefault: true,
+      requestResponseDays: true,
     },
   });
   return {
@@ -93,6 +100,14 @@ export async function getSettings(accountId: string) {
     digestEnabled: account.digestEnabled,
     // Block A5: whether a storefront hold needs a signed-in customer.
     requireCustomerAccount: account.requireCustomerAccount,
+    // Block F2: review by amount, per occasion group, and the promise to
+    // customers whose order is in review.
+    reviewAmountKids: Number(account.reviewAmountKids),
+    reviewAmountAdult: Number(account.reviewAmountAdult),
+    reviewAmountWedding: Number(account.reviewAmountWedding),
+    reviewAmountCorporate: Number(account.reviewAmountCorporate),
+    reviewAmountDefault: Number(account.reviewAmountDefault),
+    requestResponseDays: account.requestResponseDays,
   };
 }
 
@@ -130,4 +145,9 @@ export function isRush(dateText: string, minHours: number, now: Date = new Date(
 export async function rushFor(accountId: string, date: Date): Promise<boolean> {
   const { minBookingNoticeHours } = await getSettings(accountId);
   return isRush(date.toISOString().slice(0, 10), minBookingNoticeHours);
+}
+
+// The review amounts as the rule reads them.
+export function reviewRulesOf(s: { reviewAmountKids: number; reviewAmountAdult: number; reviewAmountWedding: number; reviewAmountCorporate: number; reviewAmountDefault: number }): ReviewRules {
+  return { kids: s.reviewAmountKids, adult: s.reviewAmountAdult, wedding: s.reviewAmountWedding, corporate: s.reviewAmountCorporate, other: s.reviewAmountDefault };
 }

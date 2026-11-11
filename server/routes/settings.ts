@@ -40,6 +40,9 @@ publicSettingsRouter.get("/public", availabilityLimiter, async (_req, res) => {
     // a hold needs an account, so the storefront can ask before the hold.
     balanceDueDays: settings.balanceDueDays,
     requireCustomerAccount: settings.requireCustomerAccount,
+    // Block F2: business days in which staff contact a customer whose order
+    // went to review.
+    requestResponseDays: settings.requestResponseDays,
     policy: publicPolicy(policy),
   });
 });
@@ -99,6 +102,12 @@ router.patch("/", async (req, res) => {
     digestEmail?: string;
     digestEnabled?: boolean;
     requireCustomerAccount?: boolean;
+    reviewAmountKids?: number;
+    reviewAmountAdult?: number;
+    reviewAmountWedding?: number;
+    reviewAmountCorporate?: number;
+    reviewAmountDefault?: number;
+    requestResponseDays?: number;
   } = {};
 
   if ("minBookingNoticeHours" in body) {
@@ -133,6 +142,23 @@ router.patch("/", async (req, res) => {
       return res.status(400).json({ error: `unknown occasion${unknown.length === 1 ? "" : "s"}: ${unknown.join(", ")}. Pick from the list in Settings.` });
     }
     data.reviewOccasions = [...new Set(canonical as string[])];
+  }
+  // Block F2: the review amount per occasion group, and the default.
+  for (const key of ["reviewAmountKids", "reviewAmountAdult", "reviewAmountWedding", "reviewAmountCorporate", "reviewAmountDefault"] as const) {
+    if (key in body) {
+      const amount = body[key];
+      if (typeof amount !== "number" || !Number.isFinite(amount) || amount < 0 || amount > MAX_THRESHOLD) {
+        return res.status(400).json({ error: `The review amount must be a dollar amount from 0 to ${MAX_THRESHOLD}` });
+      }
+      data[key] = Math.round(amount * 100) / 100;
+    }
+  }
+  if ("requestResponseDays" in body) {
+    const days = body.requestResponseDays;
+    if (typeof days !== "number" || !Number.isInteger(days) || days < 1 || days > 30) {
+      return res.status(400).json({ error: "The number of business days must be a whole number from 1 to 30" });
+    }
+    data.requestResponseDays = days;
   }
   if ("depositPercentage" in body) {
     const pct = body.depositPercentage;

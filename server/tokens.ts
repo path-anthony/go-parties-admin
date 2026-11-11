@@ -69,6 +69,7 @@ export const TOKEN_CATALOG: TokenInfo[] = [
   { key: "eventType", label: "Type of event", example: "Sweet 16" },
   { key: "eventAddress", label: "Event address", example: "12 Main St, Farmington" },
   { key: "eventMapLink", label: "Google Maps link to the event address (a note when there is none)", example: "https://www.google.com/maps/search/?api=1&query=41.719800,-72.832100&query_place_id=ChIJexample" },
+  { key: "responseDays", label: "Business days we promise to contact a customer whose order is in review", example: "3" },
   { key: "daysUntilEvent", label: "Days until the event", example: "7" },
   { key: "balanceDue", label: "Balance due", example: "$800.00" },
   { key: "depositAmount", label: "Retainer amount", example: "$200.00" },

@@ -4,7 +4,9 @@ import { getDefaultAccount } from "../account.js";
 import { prisma } from "../db.js";
 import { aiGate, companyPhone } from "../ai.js";
 import { botCheck } from "../botCheck.js";
+import { contactLine, leadContactFrom, type LeadContact } from "../leadContact.js";
 import { getDefaultStatus } from "../leadStatuses.js";
+import { notifyNewLead } from "../notifications.js";
 import { safeErr } from "../log.js";
 import { safeInline, stripControlKeepNewlines } from "../sanitize.js";
 import { canonicalOccasion } from "../../src/lib/occasions.js";
@@ -32,18 +34,20 @@ type ConversationMessage = { role: "user" | "assistant"; content: string };
 type LeadItem = { id: string; name: string; category: string; price: number | null; priceUnit: string | null };
 
 // Fire-and-forget: logs a Lead only once a turn commits to a real
-// recommendation, never on a clarifying-question turn — an abandoned or
-// still-in-progress conversation must never show up in Leads. Never
-// awaited on the response path, and errors are swallowed (logged, not
-// thrown): a slow or failed insert must not add latency or block the
-// customer's answer.
-function logLead(accountId: string, theme: string, items: LeadItem[], total: number, suggestConcierge = false) {
+// recommendation, never on a clarifying-question turn, and (Block F2) only
+// when there is somebody to reach: a name, an email or a phone. A chat with
+// none of the three makes no lead. Never awaited on the response path, and
+// errors are swallowed (logged, not thrown): a slow or failed insert must not
+// add latency or block the customer's answer.
+function logLead(accountId: string, who: LeadContact | null, theme: string, items: LeadItem[], total: number, suggestConcierge = false) {
+  if (!who) return;
   getDefaultStatus(accountId)
     .then((status) =>
       prisma.lead.create({
-        data: { accountId, source: "ask-go", status, theme, itemsReturned: { items, total, suggestConcierge } },
+        data: { accountId, source: "ask-go", status, customerName: who.name, contact: contactLine(who), theme, itemsReturned: { items, total, suggestConcierge } },
       }),
     )
+    .then((lead) => notifyNewLead(lead))
     .catch((err: unknown) => {
       console.error("[lead] failed to log lead:", safeErr(err));
     });
@@ -224,6 +228,8 @@ router.post("/", botCheck("recommend", { minAgeApplies: (req) => Array.isArray(r
   if (!budget.ok) return res.json({ ready: false, suggestConcierge: false, limit: "daily-cap", message: budget.message });
 
   const account = await getDefaultAccount();
+  // Block F2: who is asking, when the request or a signed-in account says.
+  const who = await leadContactFrom(req, (req.body ?? {}) as Record<string, unknown>);
   // theme is derived from every user turn so far, joined — used only for the
   // Lead row (logged just once, on the turn that commits to ready:true).
   const theme = messages
@@ -241,7 +247,7 @@ router.post("/", botCheck("recommend", { minAgeApplies: (req) => Array.isArray(r
   });
 
   if (catalogItems.length === 0) {
-    logLead(account.id, theme, [], 0);
+    logLead(account.id, who, theme, [], 0);
     return res.json({ ready: true, message: "No priced items in the catalog yet.", items: [], total: 0, suggestConcierge: false });
   }
 
@@ -312,7 +318,7 @@ router.post("/", botCheck("recommend", { minAgeApplies: (req) => Array.isArray(r
 
   const total = recommended.reduce((sum, item) => sum + Number(item.price), 0);
 
-  logLead(account.id, theme, toLeadItems(recommended), total, suggestConcierge);
+  logLead(account.id, who, theme, toLeadItems(recommended), total, suggestConcierge);
 
   // What goes back to the customer is the same allowlist the public catalog
   // uses, nothing internal. The total stays the base prices: no add-on has

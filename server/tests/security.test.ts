@@ -19,7 +19,7 @@ import { findExpiredHolds } from "../holds.js";
 import { attemptLogin, isLockedOut } from "../loginLimit.js";
 import { maskEmail, maskPhone, redact, safeErr } from "../log.js";
 import { releaseBooking } from "../bookingOps.js";
-import { categoryNeedsReview, reviewReasons } from "../review.js";
+import { reviewDecision } from "../review.js";
 import { MAX_MESSAGES, MAX_MESSAGE_CHARS, buildSystem, catalogLine, parseMessages } from "../routes/recommend.js";
 import { safeInline, safeText, stripControl } from "../sanitize.js";
 import { corsPolicy, customerWriteGuard, isPublicRoute, securityHeaders } from "../security.js";
@@ -252,15 +252,12 @@ test("security headers", async () => {
 // ---- item 8: review enforcement --------------------------------------------
 
 test("review rules use every input the customer cannot omit", () => {
-  const list = ["Wedding", "Corporate"];
-  assert.ok(categoryNeedsReview("Wedding Packages", list));
-  assert.ok(categoryNeedsReview("corporate", list));
-  assert.ok(!categoryNeedsReview("Inflatables", list));
-  const base = { total: 100, fullReviewThreshold: 15000, reviewOccasions: list };
-  assert.deepEqual(reviewReasons({ ...base, occasions: ["Birthday", "Reception only"] }), ["occasion"], "a harmless stated occasion no longer hides the package's own");
-  assert.deepEqual(reviewReasons({ ...base, occasions: [], categories: ["Wedding Decor"] }), ["occasion"]);
-  assert.deepEqual(reviewReasons({ ...base, total: 20000, occasions: [] }), ["threshold"]);
-  assert.deepEqual(reviewReasons({ ...base, occasions: ["Birthday"], categories: ["Games"] }), []);
+  const rules = { kids: 10000, adult: 10000, wedding: 5000, corporate: 5000, other: 10000 };
+  // A harmless stated occasion does not hide what the package is sold for.
+  assert.deepEqual(reviewDecision({ total: 6000, occasion: "Birthday", packageOccasions: ["Reception only"], rules }).reasons, ["threshold"]);
+  assert.deepEqual(reviewDecision({ total: 6000, occasion: "Birthday", packageOccasions: [], rules }).reasons, []);
+  assert.deepEqual(reviewDecision({ total: 20000, occasion: null, rules }).reasons, ["threshold"]);
+  assert.deepEqual(reviewDecision({ total: 100, occasion: "Wedding", rules }).reasons, [], "a small wedding order checks out online");
 });
 
 // ---- item 11: lows ---------------------------------------------------------

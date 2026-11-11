@@ -8,7 +8,7 @@ import { contractLogo, numbersFrom } from "./contract/goLoad.js";
 import { currentTerms, serviceRows, termsVersionById } from "./contract/goTerms.js";
 import { apiBase } from "./contract/links.js";
 import { needsCrew } from "./gigs.js";
-import { getSettings } from "./settings.js";
+import { getSettings, reviewRulesOf } from "./settings.js";
 import { addDays, atEastern, easternDay } from "./automation/time.js";
 import { decideTier, type Tier, type TierReason } from "./tiers.js";
 
@@ -133,11 +133,11 @@ export async function resolveCart(accountId: string, cart: QuoteCart, opts: { en
   };
 }
 
-export async function tierFor(accountId: string, resolved: ResolvedCart): Promise<{ tier: Tier; reasons: TierReason[] }> {
+export async function tierFor(accountId: string, resolved: ResolvedCart, occasion: string | null = null): Promise<{ tier: Tier; reasons: TierReason[]; reviewReason: string | null }> {
   const s = await getSettings(accountId);
   return decideTier(
-    { total: resolved.total, occasions: resolved.occasions, categories: resolved.categories, crewed: resolved.crewed },
-    { fullReviewThreshold: s.fullReviewThreshold, reviewOccasions: s.reviewOccasions, contractRequiredOver: s.contractRequiredOver, contractRequiredForCrewed: s.contractRequiredForCrewed },
+    { total: resolved.total, occasion, packageOccasions: resolved.pkg?.occasions ?? [], crewed: resolved.crewed },
+    { review: reviewRulesOf(s), contractRequiredOver: s.contractRequiredOver, contractRequiredForCrewed: s.contractRequiredForCrewed },
   );
 }
 

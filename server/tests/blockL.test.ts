@@ -79,14 +79,14 @@ test("the design request acknowledgement is a real, editable, transactional trig
   assert.equal(t.wired, true);
   assert.equal(t.emailDefaultOn, true);
   for (const text of [t.sms, t.emailBody]) {
-    assert.match(text, /Big events get a personal look\. We'll reach out within one business day\./);
+    assert.match(text, /contact you within \{\{responseDays\}\} business days/);
     assert.match(text, /\{\{companyPhone\}\}/);
     assert.match(text, /\{\{companyName\}\}/);
     assert.doesNotMatch(text.replace(/\{\{companyName\}\}/g, ""), /!|—/);
   }
-  const r = renderMessage(t.sms, { customer_first_name: "Pat", company_name: "GO! Event Group", company_phone: "(860) 555-0100" }, t.tokens);
+  const r = renderMessage(t.sms, { customer_first_name: "Pat", company_name: "GO! Event Group", company_phone: "(860) 555-0100", response_days: "3" }, t.tokens);
   assert.deepEqual([r.empty, r.notAllowed], [[], []]);
-  assert.match(r.text, /^Hi Pat, this is GO! Event Group\. Big events get a personal look\./);
+  assert.match(r.text, /^Hi Pat, this is GO! Event Group\. We got your request and a person will contact you within 3 business days\./);
 });
 
 test("every 'not sending yet' reason is a current plain-English reason", () => {

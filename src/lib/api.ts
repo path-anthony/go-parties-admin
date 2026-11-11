@@ -433,7 +433,7 @@ export function getDesignRequests(status?: "Open" | "Converted" | "Dismissed"): 
   return fetch(`/api/design-requests${status ? `?status=${status}` : ""}`).then(asJson<DesignRequest[]>);
 }
 
-export function updateDesignRequest(id: string, patch: { status?: "Open" | "Dismissed"; notes?: string | null }): Promise<DesignRequest> {
+export function updateDesignRequest(id: string, patch: { status?: "Open" | "Dismissed"; notes?: string | null; reason?: string; tellCustomer?: boolean }): Promise<DesignRequest> {
   return fetch(`/api/design-requests/${id}`, jsonRequest("PATCH", patch)).then(asJson<DesignRequest>);
 }
 

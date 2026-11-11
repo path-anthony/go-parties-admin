@@ -70,6 +70,22 @@ export function normalizePhone(value: unknown): string | null {
   return digits.length >= 7 && digits.length <= 15 ? digits : null;
 }
 
+// Block F2: what the storefront must send as a phone. Ten digits (a leading
+// 1 is dropped), area code and exchange not starting with 0 or 1, and not
+// one digit ten times. Staff entry is never held to this. Returns what to
+// tell the customer, or null when the number is fine.
+export const PHONE_INVALID_MESSAGE = "Enter a 10 digit US phone number, like (860) 555-0142.";
+export function usPhoneDigits(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  let digits = value.replace(/\D/g, "");
+  if (digits.length === 11 && digits.startsWith("1")) digits = digits.slice(1);
+  if (digits.length !== 10) return null;
+  if (/^[01]/.test(digits) || /^[01]/.test(digits.slice(3))) return null;
+  if (/^(\d)\1{9}$/.test(digits)) return null;
+  return digits;
+}
+export const phoneRefusal = { error: PHONE_INVALID_MESSAGE, reason: "phone-invalid", field: "phone" } as const;
+
 export function passwordProblem(value: unknown, ...mustNotEqual: (string | null)[]): string | null {
   if (typeof value !== "string") return "password is required";
   if (value.length < MIN_PASSWORD_LENGTH) return `password must be at least ${MIN_PASSWORD_LENGTH} characters`;

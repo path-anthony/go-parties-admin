@@ -73,11 +73,11 @@ router.post("/", async (req, res) => {
     if (err instanceof AddonSelectionError) return res.status(400).json({ error: err.message, reason: err.reason });
     throw err;
   }
-  const { tier, reasons } = await tierFor(account.id, resolved);
+  const { tier, reasons } = await tierFor(account.id, resolved, cart.occasion);
   const settings = await getSettings(account.id);
   const total = resolved.total;
   if (tier === 3) {
-    return res.json({ tier, reasons, total, retainerPercent: settings.depositPercentage, retainerAmount: total === null ? null : Math.round(total * settings.depositPercentage) / 100, policy: null, contract: null, quoteExpiresAt: null, address });
+    return res.json({ tier, reasons, total, retainerPercent: settings.depositPercentage, retainerAmount: total === null ? null : Math.round(total * settings.depositPercentage) / 100, policy: null, contract: null, quoteExpiresAt: null, address, responseDays: settings.requestResponseDays });
   }
   if (tier === 2) {
     const q = await issueQuote(account.id, cart, resolved);

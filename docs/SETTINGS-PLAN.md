@@ -258,10 +258,14 @@ Every line below is the text on the screen, listed straight from `src/settingsCo
 
 - **Short-notice window (hours).** An event starting sooner than this is marked RUSH. It still goes through. 72 means anything within 3 days is rush. 0 turns it off.
 
-**Staff review.** Some bookings go to Design Requests for your team to look at before a date is held. The customer sees that you'll be in touch instead of a hold. Applies to new bookings right away.
+**Review rules.** An order at or over the amount for its occasion goes to your team in Design requests before a date is held. The customer pays nothing yet and is told you'll be in touch. Under the amount, they check out and pay as normal. Applies to new orders right away.
 
-- **Send to staff review over ($).** A booking with a total above this goes to staff review. 15000 means a $15,001 booking is reviewed and a $15,000 one isn't.
-- **Always send these occasions to staff review.** Tick a whole group, like Wedding, or single occasions. Those bookings go to staff review whatever the price.
+- **Wedding ($).** 5000 means a wedding order of $5,000 or more is reviewed, and a $4,999 one checks out online. Counts any Wedding occasion or a wedding package.
+- **Corporate ($).** 5000 means a corporate order of $5,000 or more is reviewed. Smaller ones check out online.
+- **Kids party ($).** 10000 means a kids party order of $10,000 or more is reviewed.
+- **Adult party ($).** 10000 means an adult party order of $10,000 or more is reviewed.
+- **Everything else ($).** Used when an order has no occasion. 10000 means $10,000 or more is reviewed.
+- **Contact the customer within (business days).** 3 means customers in review are told "We will contact you within 3 business days". A request still open after that raises a bell alert every day until it's handled.
 
 **Contracts and checkout.** Decides what a customer signs at checkout: the rental policy checkbox for small rentals, or the GO contract for bigger or crewed bookings. Applies to new bookings right away.
 

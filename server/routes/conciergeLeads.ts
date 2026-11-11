@@ -3,6 +3,7 @@ import { notifyNewLead } from "../notifications.js";
 import { getDefaultAccount } from "../account.js";
 import { botCheck } from "../botCheck.js";
 import { prisma } from "../db.js";
+import { contactLine, leadContactFrom } from "../leadContact.js";
 import { getDefaultStatus } from "../leadStatuses.js";
 import { safeInline } from "../sanitize.js";
 import { INVALID, isOneOf, normalizeDate, normalizeText } from "../validate.js";
@@ -30,7 +31,8 @@ function shortText(value: unknown): string | null | typeof INVALID {
 // the CRM when Calendly's own notification arrives. No name or contact
 // is taken here; Calendly collects that. The lead is source "concierge",
 // tagged "concierge" and with where it came from, so it reads as its own
-// kind of lead on the board. Nothing here waits on anything slow.
+// kind of lead on the board. Nothing here waits on anything slow. Since
+// Block F2 a request with no name, email or phone makes no lead at all.
 router.post("/", botCheck("concierge"), async (req, res) => {
   const body = (req.body ?? {}) as Record<string, unknown>;
   if (!isOneOf(ENTRY_POINTS, body.source)) {
@@ -48,10 +50,15 @@ router.post("/", botCheck("concierge"), async (req, res) => {
 
   const account = await getDefaultAccount();
   const from = ENTRY_LABEL[body.source];
+  // Block F2: a lead is made only when there is somebody to reach (a name,
+  // an email or a phone, sent with the request or from a signed-in account).
+  // With none of the three the customer still goes to Calendly, which takes
+  // their details, and nothing is added to Leads.
+  const who = await leadContactFrom(req, body);
+  if (!who) return res.json({ ok: true, leadId: null });
   const lines = [
     `Asked to talk to a person from ${from} and was sent to Calendly (${CALENDLY_URL}).`,
     context ? `Was looking at: ${context}.` : null,
-    "Name and contact come with the Calendly booking.",
   ].filter((line): line is string => line !== null);
 
   const lead = await prisma.lead.create({
@@ -60,6 +67,8 @@ router.post("/", botCheck("concierge"), async (req, res) => {
       source: "concierge",
       status: await getDefaultStatus(account.id),
       tags: ["concierge", body.source === "checkout" ? "from checkout" : "from Ask GO"],
+      customerName: who.name,
+      contact: contactLine(who),
       occasion,
       theme: context,
       dateOfInterest: date,

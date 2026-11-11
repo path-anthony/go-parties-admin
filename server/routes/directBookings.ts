@@ -2,7 +2,7 @@ import { Prisma } from "../../src/generated/prisma/client.js";
 import { Router } from "express";
 import { getDefaultAccount } from "../account.js";
 import { parseAddonSelections } from "../addons.js";
-import { currentCustomer } from "../customerAuth.js";
+import { currentCustomer, phoneRefusal, usPhoneDigits } from "../customerAuth.js";
 import { botCheck } from "../botCheck.js";
 import { createDirectBooking, MAX_UNITS_PER_BOOKING, type HoldSignature } from "../directBooking.js";
 import { isInvalidDelivery, parseDelivery } from "../delivery.js";
@@ -172,6 +172,9 @@ router.post("/", botCheck("direct-booking"), async (req, res) => {
   if (typeof contact === "string") {
     return res.status(400).json({ error: contact });
   }
+  // Block F2: the store must send a real US phone, whether it was typed or
+  // came from the account. Staff bookings never come through here.
+  if (!usPhoneDigits(contact.phone)) return res.status(400).json(phoneRefusal);
   const itemIds = resolveItemIds(body);
   if (typeof itemIds === "string") {
     return res.status(400).json({ error: itemIds });
@@ -391,12 +394,26 @@ staffBookingRouter.post("/", async (req, res) => {
     return res.status(400).json({ error: "Confirm that the customer agreed to the cancellation and retainer policy.", reason: "agreement-required" });
   }
   let designRequestId: string | null = null;
+  const carried: { place?: ExactPlace; pin?: { setupLat: number | null; setupLng: number | null; setupNotes: string | null }; eventAddressSameAsHome?: boolean; guestCount?: number | null } = {};
   if (body.designRequestId !== undefined && body.designRequestId !== null && body.designRequestId !== "") {
     if (typeof body.designRequestId !== "string") return res.status(400).json({ error: "designRequestId must be a design request id" });
-    const request = await prisma.designRequest.findFirst({ where: { id: body.designRequestId, accountId: account.id }, select: { status: true } });
+    const request = await prisma.designRequest.findFirst({
+      where: { id: body.designRequestId, accountId: account.id },
+      select: { status: true, address: true, placeId: true, deliveryComponents: true, addressLat: true, addressLng: true, setupLat: true, setupLng: true, setupNotes: true, eventAddressSameAsHome: true, guestCount: true },
+    });
     if (!request) return res.status(404).json({ error: "design request not found" });
     if (request.status !== "Open") return res.status(409).json({ error: "That design request was already turned into a booking or dismissed.", reason: "request-unavailable" });
     designRequestId = body.designRequestId;
+    // Block F2: what the customer gave with the request goes onto the
+    // booking. The exact place and the pin only fit while the address is the
+    // one they gave; the setup notes, the tick and the guest count always do.
+    const sameAddress = address !== null && request.address !== null && address.trim() === request.address.trim();
+    if (sameAddress && request.placeId && request.addressLat !== null && request.addressLng !== null) {
+      carried.place = { placeId: request.placeId, formattedAddress: request.address as string, lat: request.addressLat, lng: request.addressLng, components: (request.deliveryComponents ?? { streetNumber: "", route: "", city: "", state: "", zip: "" }) as ExactPlace["components"] };
+    }
+    carried.pin = { setupLat: sameAddress ? request.setupLat : null, setupLng: sameAddress ? request.setupLng : null, setupNotes: request.setupNotes };
+    carried.eventAddressSameAsHome = request.eventAddressSameAsHome;
+    carried.guestCount = request.guestCount;
   }
 
   let totalOverride: number | null | undefined;
@@ -424,7 +441,10 @@ staffBookingRouter.post("/", async (req, res) => {
     selections,
     packageId,
     totalOverride,
-    guestCount: staffGuestCount,
+    guestCount: staffGuestCount ?? carried.guestCount ?? null,
+    place: carried.place ?? null,
+    pin: carried.pin ?? null,
+    eventAddressSameAsHome: carried.eventAddressSameAsHome === true,
   });
   res.status(result.status).json(result.body);
 });

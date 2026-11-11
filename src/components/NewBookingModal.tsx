@@ -226,7 +226,7 @@ export function NewBookingModal({
       if (result.reviewRequired) {
         // Over the threshold or an occasion that needs review: it became a
         // design request, and nothing was held.
-        setReviewMessage("This one needs review, so it was sent to Design requests instead of being held. Nothing is locked yet.");
+        setReviewMessage(`${result.reviewReason ? `${result.reviewReason}, so this` : "This one needs review, so it"} was sent to Design requests instead of being held. Nothing is locked yet.`);
         setBusy(false);
         onReview?.();
         return;
@@ -285,7 +285,7 @@ export function NewBookingModal({
                     </optgroup>
                   ))}
                 </select>
-                <span className="muted field-help">Wedding and Corporate, and anything over the threshold, are sent to Design requests.</span>
+                <span className="muted field-help">An order at or over the review amount for its occasion (Settings, Booking rules) is sent to Design requests instead of being held.</span>
               </label>
               <label>
                 Balance payment
