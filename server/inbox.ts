@@ -100,6 +100,9 @@ export type InboxLead = {
   followUpNote: string | null;
   lostReason: string | null;
   bookings: InboxBooking[];
+  // Block F3b: the storefront requests that hang on this lead. A request
+  // makes (or finds) its lead the moment it arrives.
+  designRequests?: InboxRequest[];
 };
 
 export type InboxRequest = {
@@ -114,6 +117,9 @@ export type InboxRequest = {
   cart: unknown;
   createdAt: Date;
   dismissReason: string | null;
+  // Block F3b: the lead this request hangs on. Null only on requests that
+  // arrived before F3b; those are still their own row.
+  leadId?: string | null;
 };
 
 export type Bucket = "new" | "follow-up" | "booked" | "lost";
@@ -139,6 +145,9 @@ export type InboxRow = {
   followUpOn: string | null;
   bookingId: string | null;
   cancellationRequestId: string | null;
+  // Block F3b: an open storefront request on this lead. The row opens the
+  // request (Convert, Dismiss) while it waits.
+  requestId: string | null;
 };
 
 const dayText = (d: Date) => d.toISOString().slice(0, 10);
@@ -172,11 +181,15 @@ export function bucketOf(lead: Pick<InboxLead, "status" | "firstContactedAt" | "
 const currentBooking = (lead: Pick<InboxLead, "bookings">) => [...lead.bookings].filter((b) => !DEAD.has(b.status)).sort((a, b) => a.eventDate.getTime() - b.eventDate.getTime())[0] ?? null;
 export const openCancellation = (lead: Pick<InboxLead, "bookings">) => lead.bookings.flatMap((b) => b.cancellationRequests.filter((c) => c.status === "Open").map((c) => ({ ...c, bookingId: b.id })))[0] ?? null;
 
+// Block F3b: the storefront request on this lead that still waits on staff.
+export const openRequestOf = (lead: Pick<InboxLead, "designRequests">) => (lead.designRequests ?? []).find((r) => r.status === "Open") ?? null;
+
 // When the lead was last worked: a logged contact, or failing that any change.
 const lastTouch = (lead: Pick<InboxLead, "lastContactedAt" | "updatedAt">) => lead.lastContactedAt ?? lead.updatedAt;
 
 export function nextActionFor(lead: InboxLead, bucket: Bucket, today: string): NextAction {
   if (openCancellation(lead)) return { code: "cancellation", label: "Approve or decline the cancellation request", urgent: true };
+  if (openRequestOf(lead)) return { code: "request", label: "Review it, then convert or dismiss", urgent: true };
   if (bucket === "booked") {
     const b = currentBooking(lead);
     if (!b) return { code: "booked", label: "Marked Booked. No booking is linked yet.", urgent: false };
@@ -220,7 +233,11 @@ export function leadRow(lead: InboxLead, newStage: string | null, today: string)
   const parts = contactParts(lead.contact);
   const cancel = openCancellation(lead);
   const b = currentBooking(lead);
-  const tabs: InboxTab[] = ["all", bucket];
+  // Block F3b: while a storefront request waits, the lead is listed under
+  // Storefront requests (and All), not under New or Follow up, so it is
+  // counted once.
+  const request = openRequestOf(lead);
+  const tabs: InboxTab[] = request ? ["all", "requests"] : ["all", bucket];
   if (cancel) tabs.push("cancellations");
   // A lead whose booking came from a storefront request still reads as one.
   const fromRequest = lead.bookings.some((x) => x.designRequest);
@@ -230,20 +247,21 @@ export function leadRow(lead: InboxLead, newStage: string | null, today: string)
     id: lead.id,
     tabs,
     bucket,
-    source: fromRequest && lead.source === "manual" ? "Storefront" : sourceWords(lead.source),
+    source: (fromRequest || request) && lead.source === "manual" ? "Storefront" : sourceWords(lead.source),
     name: lead.customerName?.trim() || "No name yet",
     phone: parts.phone,
     email: parts.email,
     contactText: lead.contact,
-    wants: leadWants(lead),
-    eventDate: b ? dayText(b.eventDate) : lead.dateOfInterest ? dayText(lead.dateOfInterest) : null,
+    wants: request ? requestWants(request) : leadWants(lead),
+    eventDate: request ? dayText(request.eventDate) : b ? dayText(b.eventDate) : lead.dateOfInterest ? dayText(lead.dateOfInterest) : null,
     createdAt: lead.createdAt.toISOString(),
     ageDays: Math.max(0, daysBetween(dayText(lead.createdAt), today)),
-    stage: lead.status,
+    stage: request ? "Storefront request" : lead.status,
     nextAction: nextActionFor(lead, bucket, today),
     followUpOn: lead.followUpOn ? dayText(lead.followUpOn) : null,
     bookingId: b?.id ?? lead.bookings[0]?.id ?? null,
     cancellationRequestId: cancel?.id ?? null,
+    requestId: request?.id ?? null,
   };
 }
 
@@ -252,6 +270,8 @@ export function leadRow(lead: InboxLead, newStage: string | null, today: string)
 // booking made from it has a lead, and that lead is the row.
 export function requestRow(r: InboxRequest, today: string): InboxRow | null {
   if (r.status === "Converted") return null;
+  // Block F3b: a request with a lead is that lead's row, never a second one.
+  if (r.leadId) return null;
   const open = r.status === "Open";
   return {
     key: `request:${r.id}`,
@@ -273,6 +293,7 @@ export function requestRow(r: InboxRequest, today: string): InboxRow | null {
     followUpOn: null,
     bookingId: null,
     cancellationRequestId: null,
+    requestId: open ? r.id : null,
   };
 }
 

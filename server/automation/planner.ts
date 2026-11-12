@@ -234,6 +234,11 @@ export type LeadInput = {
   paused: boolean;
   dateOfInterest: string | null;
   contact: Contact;
+  // Block F3b: staff have taken the lead over. Once they log a contact or
+  // set a follow up date, the automatic follow ups stop. A lead with an order
+  // in review counts as taken over too: a person is already working it.
+  staffContacted?: boolean;
+  followUpSet?: boolean;
 };
 
 export function planLead(lead: LeadInput, f: Facts): Plan {
@@ -252,7 +257,11 @@ export function planLead(lead: LeadInput, f: Facts): Plan {
       ? "Stopped: moved to Booked"
       : isLostStage(lead.stage)
         ? "Stopped: marked Lost"
-        : null;
+        : lead.staffContacted
+          ? "Stopped: staff logged a contact"
+          : lead.followUpSet
+            ? "Stopped: staff set a follow up date"
+            : null;
   const items = planSeries(
     {
       id: "lead_nurture",

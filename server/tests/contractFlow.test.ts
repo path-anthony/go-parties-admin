@@ -77,6 +77,8 @@ before(async () => {
 after(async () => {
   globalThis.fetch = realFetch;
   const logs = await prisma.messageLog.deleteMany({ where: { OR: [{ bookingId: { in: made.bookings } }, { designRequestId: { in: made.requests } }] } });
+  // Block F3b: a request has its own lead from the moment it arrives.
+  made.leads.push(...(await prisma.designRequest.findMany({ where: { id: { in: made.requests }, leadId: { not: null } }, select: { leadId: true } })).map((x) => x.leadId as string));
   const r = await prisma.designRequest.deleteMany({ where: { id: { in: made.requests } } });
   const b = await prisma.booking.deleteMany({ where: { id: { in: made.bookings } } });
   const l = await prisma.lead.deleteMany({ where: { id: { in: made.leads } } });

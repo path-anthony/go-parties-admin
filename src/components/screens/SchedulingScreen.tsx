@@ -1,11 +1,8 @@
-import { type FormEvent, type KeyboardEvent, useEffect, useState } from "react";
-import { isInactiveStage } from "../../lib/bookingStatus";
-import { ChevronRight } from "lucide-react";
+import { type FormEvent, useEffect, useState } from "react";
 import {
   createUnit,
   getBookings,
   getItems,
-  getLeads,
   getUnits,
   updateUnit,
 } from "../../lib/api";
@@ -13,18 +10,12 @@ import {
   UNIT_STATUSES,
   type Booking,
   type Item,
-  type Lead,
   type NewUnit,
   type Unit,
   type UnitPatch,
   type UnitStatus,
 } from "../../lib/types";
-import { BookingModal } from "../BookingModal";
-import { AgreementChip, BalanceLabel } from "../AgreementChip";
-import { BookingStatusTag } from "../BookingStatusTag";
-import { NewBookingModal } from "../NewBookingModal";
 import { EditableCell } from "../EditableCell";
-import { RushTag } from "../RushTag";
 
 type ItemsById = Map<string, Item>;
 
@@ -48,51 +39,30 @@ function sortUnits(units: Unit[], itemsById: ItemsById): Unit[] {
   );
 }
 
-function sortBookings(bookings: Booking[]): Booking[] {
-  return [...bookings].sort(
-    (a, b) =>
-      a.eventDate.localeCompare(b.eventDate) ||
-      a.createdAt.localeCompare(b.createdAt),
-  );
-}
-
-// One screen, two pages under Scheduling in the sidebar: Bookings and
-// Inventory status. They share their data, so both routes render this with
-// a view; there are no in-page tabs.
-export function SchedulingScreen({ view = "bookings", openBookingId }: { view?: "bookings" | "units"; openBookingId?: string } = {}) {
+// Inventory > Availability: every physical unit and its manual status. The
+// bookings list that used to share this screen is BookingsScreen (Block F3b).
+export function SchedulingScreen({ view = "units" }: { view?: "units" } = {}) {
   const [items, setItems] = useState<Item[] | null>(null);
   const [units, setUnits] = useState<Unit[] | null>(null);
   const [bookings, setBookings] = useState<Booking[] | null>(null);
-  const [leads, setLeads] = useState<Lead[] | null>(null);
-  const [weddingMissingOnly, setWeddingMissingOnly] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  // The booking popup, by id: looked up in bookings on each render so a
-  // save inside the popup shows in it and in the row behind it.
-  const [openId, setOpenId] = useState<string | null>(openBookingId ?? null);
-  // Bookings are the daily view; the units have their own page,
-  // searchable, since there are hundreds of them.
   const tab = view;
   const [unitSearch, setUnitSearch] = useState("");
-  const [newOpen, setNewOpen] = useState(false);
 
   useEffect(() => {
-    Promise.all([getItems(), getUnits(), getBookings(), getLeads()])
-      .then(([itemList, unitList, bookingList, leadList]) => {
+    Promise.all([getItems(), getUnits(), getBookings()])
+      .then(([itemList, unitList, bookingList]) => {
         setItems(sortItems(itemList));
         setUnits(unitList);
         setBookings(bookingList);
-        setLeads(leadList);
       })
       .catch((err) =>
         setError(err instanceof Error ? err.message : "Failed to load"),
       );
   }, []);
 
-  const openBooking = openId
-    ? (bookings ?? []).find((b) => b.id === openId)
-    : undefined;
   const ready =
-    items !== null && units !== null && bookings !== null && leads !== null;
+    items !== null && units !== null && bookings !== null;
   const itemsById: ItemsById = new Map(
     (items ?? []).map((item) => [item.id, item]),
   );
@@ -198,188 +168,11 @@ export function SchedulingScreen({ view = "bookings", openBookingId }: { view?: 
               </>
             )}
 
-            {tab === "bookings" && (
-              <>
-                <div className="scheduling-actions">
-                  <button type="button" className="btn-primary" onClick={() => setNewOpen(true)}>
-                    New booking
-                  </button>
-                  <span className="muted">For a customer booking by phone or in person. Same availability and locks as the storefront.</span>
-                </div>
-                <div className="filter-row">
-                  <label className="checkbox-label filter-check">
-                    <input type="checkbox" checked={weddingMissingOnly} onChange={(e) => setWeddingMissingOnly(e.target.checked)} />
-                    Wedding details missing, event within 45 days
-                  </label>
-                  {weddingMissingOnly && <span className="filter-count">{bookings.filter((b) => b.weddingDetailsMissing).length} of {bookings.length} bookings</span>}
-                </div>
-                {bookings.length === 0 ? (
-                  <p className="muted">Nothing here yet.</p>
-                ) : weddingMissingOnly && !bookings.some((b) => b.weddingDetailsMissing) ? (
-                  <p className="muted">Every wedding within 45 days has its details in.</p>
-                ) : (
-                  <div className="table-scroll">
-                    <table className="items-table scheduling-table">
-                      <thead>
-                        <tr>
-                          <th>Date</th>
-                          <th>Time</th>
-                          <th>Customer</th>
-                          <th>Occasion</th>
-                          <th>Status</th>
-                          <th>Agreement</th>
-                          <th>Items</th>
-                          <th aria-label="Open" />
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {bookings.filter((b) => !weddingMissingOnly || b.weddingDetailsMissing).map((booking) => (
-                          <BookingSummaryRow
-                            key={booking.id}
-                            booking={booking}
-                            units={units}
-                            itemsById={itemsById}
-                            onOpen={() => setOpenId(booking.id)}
-                          />
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-              </>
-            )}
           </section>
 
-          {newOpen && (
-            <NewBookingModal
-              onClose={() => setNewOpen(false)}
-              onCreated={async (bookingId) => {
-                // Reload what it touched: the booking, the units it now holds, and
-                // the lead it created.
-                const [bookingList, unitList, leadList] = await Promise.all([getBookings(), getUnits(), getLeads()]);
-                setBookings(sortBookings(bookingList));
-                setUnits(unitList);
-                setLeads(leadList);
-                setNewOpen(false);
-                setOpenId(bookingId);
-              }}
-            />
-          )}
-
-          {openBooking && (
-            <BookingModal
-              booking={openBooking}
-              leads={leads}
-              units={units}
-              items={items}
-              bookings={bookings}
-              onUpdated={(updated) =>
-                setBookings((prev) =>
-                  sortBookings(
-                    (prev ?? []).map((b) =>
-                      b.id === updated.id ? updated : b,
-                    ),
-                  ),
-                )
-              }
-              onClose={() => setOpenId(null)}
-            />
-          )}
         </>
       )}
     </div>
-  );
-}
-
-function formatDay(eventDate: string): string {
-  return new Date(eventDate).toLocaleDateString("en-US", {
-    weekday: "short",
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-    timeZone: "UTC",
-  });
-}
-
-// One line per booking. Everything else, and all editing, is in the popup.
-function BookingSummaryRow({
-  booking,
-  units,
-  itemsById,
-  onOpen,
-}: {
-  booking: Booking;
-  units: Unit[];
-  itemsById: ItemsById;
-  onOpen: () => void;
-}) {
-  const held = booking.unitIds
-    .map((id) => units.find((u) => u.id === id))
-    .filter((u): u is Unit => !!u);
-  const liveGigs = booking.gigs.filter((g) => g.status !== "Cancelled");
-  const names = [
-    ...new Set([
-      ...held.map((u) => itemsById.get(u.itemId)?.name ?? "Unknown item"),
-      ...liveGigs.map((g) => g.itemName),
-    ]),
-  ];
-  const count = held.length + liveGigs.length;
-
-  function handleKey(e: KeyboardEvent<HTMLTableRowElement>) {
-    if (e.target !== e.currentTarget) return;
-    if (e.key === "Enter" || e.key === " ") {
-      e.preventDefault();
-      onOpen();
-    }
-  }
-
-  return (
-    <tr
-      className="catalog-row"
-      onClick={onOpen}
-      onKeyDown={handleKey}
-      tabIndex={0}
-      aria-haspopup="dialog"
-      aria-label={`Open the booking for ${booking.customerName} on ${formatDay(booking.eventDate)}`}
-    >
-      <td className="booking-date">{formatDay(booking.eventDate)}</td>
-      <td className={booking.eventTime ? "booking-time" : "booking-time muted"}>
-        {booking.eventTime ?? "No time"}
-      </td>
-      <td className="catalog-name">
-        {booking.customerName}
-        <RushTag rush={booking.rush} cancelled={isInactiveStage(booking.status)} />
-      </td>
-      <td className={booking.occasion ? undefined : "muted"}>{booking.occasion ?? "Not given"}</td>
-      <td>
-        <BookingStatusTag booking={booking} />
-      </td>
-      <td>
-        <AgreementChip agreement={booking.agreement} />
-        <div>
-          <BalanceLabel preference={booking.balancePaymentPreference} />
-        </div>
-      </td>
-      <td className={count === 0 ? "muted" : ""}>
-        {count === 0 ? "None" : `${count} ${count === 1 ? "item" : "items"}`}
-        {names.length > 0 && (
-          <span className="muted booking-item-names">
-            {" "}
-            · {names.join(", ")}
-          </span>
-        )}
-        {booking.addons.length > 0 && (
-          <span className="muted booking-item-names">
-            {" "}
-            · {booking.addons.length}{" "}
-            {booking.addons.length === 1 ? "add-on" : "add-ons"}
-          </span>
-        )}
-      </td>
-      <td className="catalog-chevron">
-        <ChevronRight size={14} />
-      </td>
-    </tr>
   );
 }
 

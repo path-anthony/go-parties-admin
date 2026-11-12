@@ -1,7 +1,7 @@
 import { type FormEvent, type ReactNode, useCallback, useEffect, useState } from "react";
 import { useNavigate as useRouterNavigate } from "react-router-dom";
 import { X } from "lucide-react";
-import { addLeadActivity, getBookings, getDesignRequest, getInbox, getLeadActivity, getLeadDetail, getUnits, logLeadContact, markLeadLost, reopenLead, sendLeadStoreLink, setLeadFollowUp, updateDesignRequest, updateLead } from "../lib/api";
+import { addLeadActivity, getDesignRequest, getInbox, getLeadActivity, getLeadDetail, logLeadContact, markLeadLost, reopenLead, sendLeadStoreLink, setLeadFollowUp, updateDesignRequest, updateLead } from "../lib/api";
 import type { DesignRequest, InboxRow, LeadActivity, LeadDetail, LeadPatch, LeadPrefill } from "../lib/types";
 import { AutomationTimeline } from "./AutomationTimeline";
 import { EditableCell } from "./EditableCell";
@@ -21,7 +21,7 @@ const prettyPhone = (ten: string) => `(${ten.slice(0, 3)}) ${ten.slice(3, 6)}-${
 
 export type PopupTarget = { kind: "lead" | "request"; id: string };
 
-function Part({ n, title, help, children }: { n: number; title: string; help: string; children: ReactNode }) {
+export function Part({ n, title, help, children }: { n: number; title: string; help: string; children: ReactNode }) {
   return (
     <section className="lead-part" aria-label={title}>
       <h3>
@@ -34,7 +34,7 @@ function Part({ n, title, help, children }: { n: number; title: string; help: st
 }
 
 // Phone and email as things to tap: call, text, email.
-function ContactLinks({ phone, email }: { phone: string | null; email: string | null }) {
+export function ContactLinks({ phone, email }: { phone: string | null; email: string | null }) {
   if (!phone && !email) return <p className="muted">No phone number or email address yet. Add one to the contact line below.</p>;
   return (
     <div className="lead-contact-links">
@@ -57,7 +57,7 @@ function ContactLinks({ phone, email }: { phone: string | null; email: string | 
   );
 }
 
-function Fact({ label, children }: { label: string; children: ReactNode }) {
+export function Fact({ label, children }: { label: string; children: ReactNode }) {
   return (
     <div className="lead-fact">
       <span className="detail-field-label">{label}</span>
@@ -350,7 +350,7 @@ function LeadBody({ id, row: givenRow, onClose, onChanged }: { id: string; row: 
                 What was said
                 <textarea rows={2} value={note} onChange={(e) => setNote(e.target.value)} maxLength={1000} placeholder="Left a voicemail, wants a quote for 80 guests" disabled={busy} />
               </label>
-              <span className="muted field-help">This writes the contact in History. It does not send anything. The first contact moves a new lead to Contacted.</span>
+              <span className="muted field-help">This writes the contact in History. It does not send anything. The first contact moves a new lead to Contacted, and automatic follow up texts and emails to this lead stop from then on.</span>
               <div className="form-actions">
                 <button type="submit" className="btn-primary" disabled={busy}>
                   {busy ? "Saving…" : "Save contact"}
@@ -381,7 +381,7 @@ function LeadBody({ id, row: givenRow, onClose, onChanged }: { id: string; row: 
                 Note
                 <input value={note} onChange={(e) => setNote(e.target.value)} maxLength={500} placeholder="Waiting on the venue, call after the 15th" disabled={busy} />
               </label>
-              <span className="muted field-help">Use this when they are not ready to book. The lead shows under Nurture on Today when the day comes.</span>
+              <span className="muted field-help">Use this when they are not ready to book. The lead shows under Nurture on Today when the day comes. While a date is set, automatic follow up texts and emails to this lead are held back: the follow up is yours.</span>
               <div className="form-actions">
                 <button type="submit" className="btn-primary" disabled={busy || followDate === ""}>
                   Save follow up
@@ -519,12 +519,11 @@ function LeadBody({ id, row: givenRow, onClose, onChanged }: { id: string; row: 
           lead={prefill}
           onClose={() => setBuilding(false)}
           onReview={() => setBuilding(false)}
-          onCreated={async () => {
-            await Promise.all([getBookings(), getUnits()]);
+          onCreated={(bookingId, said) => {
+            // Block F3b: land on the booking, with what was sent.
             setBuilding(false);
-            setNotice("Booking made and linked to this lead. The lead moved to Booked.");
-            await load();
             onChanged();
+            go(`/bookings?view=upcoming&booking=${bookingId}`, { state: { flash: said ?? null } });
           }}
         />
       )}
@@ -535,6 +534,7 @@ function LeadBody({ id, row: givenRow, onClose, onChanged }: { id: string; row: 
 // ---- a storefront request --------------------------------------------------------------
 
 function RequestBody({ id, onClose, onChanged }: { id: string; onClose: () => void; onChanged: () => void }) {
+  const go = useRouterNavigate();
   const [r, setR] = useState<DesignRequest | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -544,11 +544,17 @@ function RequestBody({ id, onClose, onChanged }: { id: string; onClose: () => vo
   const [reason, setReason] = useState("");
   const [tell, setTell] = useState(false);
   const [notes, setNotes] = useState("");
+  // Block F3b: the request hangs on a lead, so contacts are logged there.
+  const [activity, setActivity] = useState<LeadActivity[] | null>(null);
+  const [logging, setLogging] = useState(false);
+  const [kind, setKind] = useState<"call" | "text" | "email">("call");
+  const [said, setSaid] = useState("");
 
   const load = useCallback(async () => {
     const got = await getDesignRequest(id);
     setR(got);
     setNotes(got.notes ?? "");
+    if (got.leadId) setActivity(await getLeadActivity(got.leadId).catch(() => []));
   }, [id]);
   useEffect(() => {
     let live = true;
@@ -557,6 +563,10 @@ function RequestBody({ id, onClose, onChanged }: { id: string; onClose: () => vo
         if (!live) return;
         setR(got);
         setNotes(got.notes ?? "");
+        if (got.leadId)
+          void getLeadActivity(got.leadId)
+            .then((entries) => live && setActivity(entries))
+            .catch(() => undefined);
       })
       .catch((err) => live && setError(err instanceof Error ? err.message : "Couldn't load this request"));
     return () => {
@@ -645,8 +655,20 @@ function RequestBody({ id, onClose, onChanged }: { id: string; onClose: () => vo
           <Fact label="Why it needs you">{r.reviewReason ?? "The total is at or over the review amount"}</Fact>
         </Part>
 
-        <Part n={3} title="History" help="Your team's notes on this request. The customer never sees them.">
+        <Part n={3} title="History" help="Every contact you log and every change, newest first, and your team's notes. The customer never sees them.">
           <Fact label="Received">{when(r.createdAt)} ET</Fact>
+          {activity && activity.length > 0 && (
+            <ul className="activity-list">
+              {activity.map((a) => (
+                <li key={a.id} className="activity-entry">
+                  <span className="activity-time">{when(a.createdAt)}</span>
+                  {a.kind && KIND_LABEL[a.kind] ? <strong>{KIND_LABEL[a.kind]}: </strong> : null}
+                  {a.text}
+                  {a.userName && <span className="muted"> · {a.userName}</span>}
+                </li>
+              ))}
+            </ul>
+          )}
           {r.status === "Dismissed" && (
             <Fact label="Dismissed">
               {r.dismissedByName ? `By ${r.dismissedByName}` : ""}
@@ -674,10 +696,56 @@ function RequestBody({ id, onClose, onChanged }: { id: string; onClose: () => vo
                 Convert to a booking
               </button>
               <div className="form-actions">
+                {r.leadId && !logging && (
+                  <button type="button" className="btn-secondary" disabled={busy} onClick={() => setLogging(true)}>
+                    Log a call, text or email
+                  </button>
+                )}
                 <button type="button" className="btn-secondary" disabled={busy} onClick={() => setDismissing(true)}>
                   Dismiss
                 </button>
               </div>
+              {r.leadId && logging && (
+                <form
+                  className="add-item-form"
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    setBusy(true);
+                    setError(null);
+                    void logLeadContact(r.leadId as string, kind, said.trim() || null)
+                      .then(async () => {
+                        setNotice("Logged. It is in History, and automatic follow ups to this lead have stopped.");
+                        setLogging(false);
+                        setSaid("");
+                        await load();
+                        onChanged();
+                      })
+                      .catch((err) => setError(err instanceof Error ? err.message : "That didn't save"))
+                      .finally(() => setBusy(false));
+                  }}
+                >
+                  <div className="filter-row" role="group" aria-label="How you reached them">
+                    {(["call", "text", "email"] as const).map((k) => (
+                      <button key={k} type="button" aria-pressed={kind === k} className={kind === k ? "btn-primary" : "btn-secondary"} onClick={() => setKind(k)}>
+                        {k === "call" ? "Call" : k === "text" ? "Text" : "Email"}
+                      </button>
+                    ))}
+                  </div>
+                  <label>
+                    What was said
+                    <textarea rows={2} value={said} onChange={(e) => setSaid(e.target.value)} maxLength={1000} placeholder="Talked through the tent sizes, sending a quote Friday" disabled={busy} />
+                  </label>
+                  <span className="muted field-help">This writes the contact in History. It does not send anything.</span>
+                  <div className="form-actions">
+                    <button type="submit" className="btn-primary" disabled={busy}>
+                      Save contact
+                    </button>
+                    <button type="button" className="btn-secondary" disabled={busy} onClick={() => setLogging(false)}>
+                      Cancel
+                    </button>
+                  </div>
+                </form>
+              )}
             </>
           )}
           {r.status === "Open" && dismissing && (
@@ -722,12 +790,11 @@ function RequestBody({ id, onClose, onChanged }: { id: string; onClose: () => vo
           request={r}
           onClose={() => setConverting(false)}
           onReview={() => setConverting(false)}
-          onCreated={async () => {
-            await Promise.all([getBookings(), getUnits()]);
+          onCreated={(bookingId, said) => {
+            // Block F3b: land on the booking, with what was sent.
             setConverting(false);
-            setNotice(`Turned ${r.customerName}'s request into a booking. It is in Bookings, and the customer has been sent what they owe next.`);
-            await load();
             onChanged();
+            go(`/bookings?view=upcoming&booking=${bookingId}`, { state: { flash: said ?? null } });
           }}
         />
       )}

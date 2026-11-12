@@ -25,7 +25,3 @@ export function AgreementChip({ agreement }: { agreement: AgreementInfo | null }
     </span>
   );
 }
-
-export function BalanceLabel({ preference }: { preference: string }) {
-  return <span className="muted balance-label">Balance: {preference}</span>;
-}

@@ -247,7 +247,8 @@ async function call(path: string, init: RequestInit & { cookie?: string } = {}):
 }
 const post = (path: string, body: unknown, cookie?: string) => call(path, { method: "POST", body: JSON.stringify(body), cookie });
 const get = (path: string, cookie?: string) => call(path, { cookie });
-const day = (n: number) => addDays(new Date().toISOString().slice(0, 10), n);
+// Days are counted from today in Eastern time, as the app counts them.
+const day = (n: number) => addDays(new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York" }).format(new Date()), n);
 const settle = (ms = 600) => new Promise((r) => setTimeout(r, ms));
 let n = 0;
 const leadCount = () => prisma.lead.count({ where: { accountId, OR: [{ customerName: { startsWith: ZZ } }, { contact: { contains: "zz-f3a-" } }] } });
@@ -258,7 +259,7 @@ async function addLead(over: Record<string, unknown> = {}) {
   return r.json as { id: string; status: string; source: string; contact: string };
 }
 type Tab = { key: string; label: string; count: number };
-type Row = { key: string; kind: string; id: string; tabs: string[]; bucket: string; source: string; stage: string; nextAction: { code: string; label: string }; bookingId: string | null; followUpOn: string | null };
+type Row = { key: string; requestId: string | null; kind: string; id: string; tabs: string[]; bucket: string; source: string; stage: string; nextAction: { code: string; label: string }; bookingId: string | null; followUpOn: string | null };
 const inbox = async () => (await get("/api/inbox")).json as unknown as { tabs: Tab[]; rows: Row[]; lostReasons: string[] };
 const rowOf = async (id: string) => (await inbox()).rows.find((r) => r.id === id)!;
 
@@ -353,7 +354,7 @@ test("the three actions: contact moves a new lead to Contacted once; not ready s
   assert.ok(stored.firstContactedAt && stored.lastContactedAt && stored.lastContactedAt >= stored.firstContactedAt);
 
   // Not ready: a date, not in the past.
-  assert.equal((await post(`/api/leads/${l.id}/follow-up`, { date: day(-1), note: "x" })).json.reason, "date-past");
+  assert.equal((await post(`/api/leads/${l.id}/follow-up`, { date: day(-2), note: "x" })).json.reason, "date-past");
   assert.equal((await post(`/api/leads/${l.id}/follow-up`, { date: "soon" })).status, 400);
   const fu = await post(`/api/leads/${l.id}/follow-up`, { date: day(5), note: "Waiting on the venue" });
   assert.equal(fu.json.followUpOn, day(5));
@@ -484,8 +485,9 @@ test("a storefront request is a row in the inbox, is counted, and its converted 
   assert.equal(sent.status, 202, JSON.stringify(sent.json));
   const requestId = sent.json.designRequestId as string;
   let box = await inbox();
-  const row = box.rows.find((r) => r.key === `request:${requestId}`)!;
-  assert.deepEqual([row.kind, row.source, row.stage, row.nextAction.label, row.tabs.includes("requests")], ["request", "Storefront", "Storefront request", "Review it, then convert or dismiss", true]);
+  // Block F3b: the request has a lead from the start, and that lead is the row.
+  const row = box.rows.find((r) => r.requestId === requestId)!;
+  assert.deepEqual([row.kind, row.source, row.stage, row.nextAction.label, row.tabs.includes("requests")], ["lead", "Storefront", "Storefront request", "Review it, then convert or dismiss", true]);
   const waiting = box.tabs.find((t) => t.key === "requests")!.count;
   assert.ok(waiting >= 1);
   assert.equal((await get(`/api/design-requests/${requestId}`)).json.id, requestId, "the popup can read one request");
@@ -496,7 +498,7 @@ test("a storefront request is a row in the inbox, is counted, and its converted 
   assert.equal(c.status, 201, JSON.stringify(c.json));
   box = await inbox();
   assert.equal(box.tabs.find((t) => t.key === "requests")!.count, waiting - 1, "the count drops when it is converted");
-  assert.equal(box.rows.some((r) => r.key === `request:${requestId}`), false);
+  assert.equal(box.rows.some((r) => r.requestId === requestId), false);
   const leadRow = box.rows.find((r) => r.bookingId === c.json.bookingId)!;
   assert.deepEqual([leadRow.kind, leadRow.bucket, leadRow.source], ["lead", "booked", "Storefront"]);
   // Every tab's number is the number of rows in it.

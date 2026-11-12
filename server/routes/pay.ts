@@ -8,6 +8,9 @@ import { owedFor, payLinkFor, usd } from "../payLink.js";
 import { PaymentError, createPaymentSession, paymentStatus } from "../payments.js";
 import { currentPolicy, fillPolicyText } from "../policy.js";
 import { customerStage } from "../portal.js";
+import { bookingItemLines } from "../bookingItems.js";
+import { daysBefore } from "../contract/goMoney.js";
+import { POLICY_FACTS_SELECT, acceptPolicy, policyStateOf } from "../policyAccept.js";
 import { StripeError } from "../stripe/client.js";
 
 // Block F1. The pay link. One private address per booking,
@@ -116,6 +119,20 @@ payApiRouter.get("/:token", async (req, res) => {
   }
   // A small rental has no contract: the rental policy is what applies.
   const policy = b.tier !== 2 ? await currentPolicy(b.accountId) : null;
+  // Block F3b: what is on the booking, and whether the customer has accepted
+  // the policy themselves (here, or at checkout in the store).
+  const more = await prisma.booking.findUniqueOrThrow({
+    where: { id: b.id },
+    select: { ...POLICY_FACTS_SELECT, policyAcceptedText: true, policyAcceptedVersionId: true, guestCount: true, eventTime: true, package: { select: { name: true } }, units: { select: { unit: { select: { item: { select: { name: true } } } } } }, gigs: { select: { itemName: true, skill: true, status: true } } },
+  });
+  const accepted = policyStateOf(more);
+  // Once accepted on the pay link, the text shown is the one they accepted.
+  const shownPolicy =
+    more.policyAcceptedAt && more.policyAcceptedText && more.policyAcceptedVersionId
+      ? { id: more.policyAcceptedVersionId, version: more.policyAcceptedVersion ?? 0, text: more.policyAcceptedText }
+      : policy && policy.text.trim() !== ""
+        ? { id: policy.id, version: policy.version, text: fillPolicyText(policy.text, owed.settings) }
+        : null;
   res.setHeader("Cache-Control", "no-store");
   res.json({
     step: owed.step,
@@ -130,9 +147,35 @@ payApiRouter.get("/:token", async (req, res) => {
     balancePaid: owed.money.balancePaid,
     contractLink,
     // The numbers in the text are already filled in; show it as it is.
-    policy: policy && policy.text.trim() !== "" ? { id: policy.id, version: policy.version, text: fillPolicyText(policy.text, owed.settings) } : null,
+    policy: b.tier !== 2 ? shownPolicy : null,
+    // Block F3b. policyRequired: this booking has a policy to accept (false on
+    // a contract booking). policyAccepted: the customer has accepted it.
+    policyRequired: accepted.needed,
+    policyAccepted: accepted.by === "customer",
+    policyAcceptedAt: accepted.by === "customer" ? accepted.at : null,
+    eventTime: more.eventTime,
+    guestCount: more.guestCount,
+    package: more.package?.name ?? null,
+    items: bookingItemLines(more.units, more.gigs),
+    balance: owed.money.balanceDueCents === null ? null : owed.money.balanceDueCents / 100,
+    balanceDueDate: owed.money.totalCents === null ? null : daysBefore(b.eventDate.toISOString().slice(0, 10), owed.settings.balanceDueDays),
     hasAccount: b.customer !== null,
   });
+});
+
+// Block F3b. The customer ticked the policy box on the pay screen. Records the
+// time and the exact version and text on the booking. Send the id of the
+// policy the screen showed, so a policy saved in between is caught.
+payApiRouter.post("/:token/policy", async (req, res) => {
+  const found = await bookingByToken(String(req.params.token));
+  if (!found) return res.status(404).json({ error: "That pay link isn't known.", reason: "not-found" });
+  const body = (req.body ?? {}) as Record<string, unknown>;
+  if (body.accept !== true) return res.status(400).json({ error: "Send accept: true when the customer ticks the policy box.", reason: "accept-required", field: "accept" });
+  if (body.policyId !== undefined && body.policyId !== null && (typeof body.policyId !== "string" || body.policyId.length > 60)) return res.status(400).json({ error: "policyId must be the id of the policy shown.", reason: "policy-invalid", field: "policyId" });
+  const result = await acceptPolicy(found.id, { policyId: typeof body.policyId === "string" ? body.policyId : null });
+  res.setHeader("Cache-Control", "no-store");
+  if (!result.ok) return res.status(result.status).json({ error: result.error, reason: result.reason, ...(result.policy ? { policy: result.policy } : {}) });
+  res.status(result.created ? 201 : 200).json({ policyAccepted: true, policyAcceptedAt: result.acceptedAt.toISOString(), policyVersion: result.version });
 });
 
 // An embedded Checkout Session for what is owed, the same as the signed-in

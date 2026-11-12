@@ -89,6 +89,17 @@ Worked out from the record every time, never stored. Every lead is in exactly on
 
 "Storefront requests" are the store orders waiting for review (they have no lead until converted). "Cancellation requests" are booked leads whose customer has asked to cancel.
 
+## Changed since this audit: Block F3b (2026-11-15), bookings and the guided New booking
+
+- **Bookings list.** Bookings opens on **Needs action**, with the views Upcoming, Past and Cancelled beside it (filters on one list, kept in the address as `?view=`). A booking needs action when its contract is unsigned, its policy is not accepted, its retainer is unpaid, its balance is overdue, a cancellation is requested, its wedding details are missing within 45 days, or it has a crew spot with nobody assigned within 7 days. Each row says which. Search is by customer name, email or phone; filters are a date range and the status.
+- **One status in words.** A row shows exactly one of: Awaiting contract, Awaiting retainer, Confirmed, Balance due, Cancellation requested, Cancelled, Done. "Balance due" shows once the balance is within 14 days of its due day or past it. These are words for the list only (`server/bookingsList.ts`); the stored stage, the amounts and the moment a booking is Confirmed are exactly as Block F1 left them. "No agreement on file" and "Balance: Manual" are gone from Bookings.
+- **Booking popup.** A wide popup in the lead popup's style, always in this order: Who, What and where, Money, Paperwork, History, Next action, with one main button. Every earlier booking function is still in it, under the part it belongs to.
+- **Policy acceptance.** The customer accepts the rental policy themselves on the pay page (`POST /api/pay/:token/policy`); the time, the version and the exact text are stored on the booking, and staff read "Policy accepted by customer on <date>". A customer who ticked the box at checkout in the store counts too. The staff "customer agreed" tick is no longer required to make a phone booking; when ticked it reads "Staff confirmed by phone", which is a record of a conversation and not the customer's acceptance.
+- **A storefront request is a lead from the start.** The request makes a lead (source Storefront) the moment it arrives, or joins the open lead with the same email or phone. Converting moves that lead to Booked; dismissing moves it to Lost; reopening brings it back. Requests that arrived before this block have no lead and still show as their own row until they are converted or dismissed.
+- **Automatic follow ups stop when staff take over.** The day 3 and day 10 follow up to a hand-entered lead stop for good once staff log a call, text or email on it, and are held back while a follow up date is set.
+- **Guided New booking.** Three steps: Who, What and when, Review and send. See "E. Booking by phone, step by step" below.
+- **For the storefront.** The pay link's data now has the items, the balance due date and the policy state; a customer's bookings have the guest count, the policy state and the outcome of a cancellation request (`docs/S9-CONTRACT.md` sections 10 to 14).
+
 ## Daily process for staff
 
 Written as steps to follow. Start every day on **Today** and work the columns left to right: Close the sale, Nurture, After the sale. Each line has one button.
@@ -99,10 +110,10 @@ Written as steps to follow. Start every day on **Today** and work the columns le
 2. Open **Today**. It is under Close the sale, "New leads, not contacted". Press **Contact**.
 3. The popup opens. Read **1. Who** (name, phone, email, where it came from, when) and **2. What they want** (their message, occasion, date).
 4. Tap **Call**, **Text** or **Email** in part 1 to reach them from your own phone or mail.
-5. In **4. Next action** press **Log your first contact**. Pick Call, Text or Email, write what was said, and save. The lead moves to Contacted on its own and leaves the New list.
+5. In **4. Next action** press **Log your first contact**. Pick Call, Text or Email, write what was said, and save. The lead moves to Contacted on its own and leaves the New list. From this moment the automatic follow up texts and emails to this lead stop: the follow up is yours.
 6. Choose how they will buy:
    - They will book themselves: press **Send store link**. They get a text and an email with the store address.
-   - You will book it for them: press **Build a booking for them**. New booking opens filled in from the lead. Add the items and the date, tick that they agreed to the policy, and create it. The lead moves to Booked on its own and the customer is sent the contract or the pay link.
+   - You will book it for them: press **Build a booking for them**. New booking opens on step 2 with the customer already filled in. Follow "E. Booking by phone, step by step" from its step 4. The lead moves to Booked on its own and the customer is sent the contract or the pay link.
    - They are not ready: press **Not ready**, pick the day to come back to them, and add a note.
 7. On that day the lead is on Today under Nurture, "Follow ups due today or overdue". Press **Follow up** and repeat from step 4.
 8. If they book in the store themselves with the same email or phone, the lead moves to Booked on its own. Nothing to do.
@@ -113,7 +124,7 @@ Written as steps to follow. Start every day on **Today** and work the columns le
 1. Go to **Leads** and press **Add a lead**.
 2. Type the name and the phone or email. Leave "How they reached us" on **Phone or in person**. Add the occasion and date if you know them. Press **Add lead**.
 3. Open the lead from the list. You have already spoken to them, so press **Log your first contact**, choose Call, write what was said, and save.
-4. If they are ready now: press **Build a booking for them** and make the booking while they are on the phone. Leave "Send the customer what they owe" ticked so they get the contract or the pay link at once.
+4. If they are ready now: press **Build a booking for them** and make the booking while they are on the phone (see E below). Press **Create and send to customer** so they get the contract or the pay link at once.
 5. If they want to look first: press **Send store link**.
 6. If they need time: press **Not ready** and set the follow up day.
 7. From here it is the same as steps 7 to 9 of a website lead.
@@ -121,12 +132,12 @@ Written as steps to follow. Start every day on **Today** and work the columns le
 ### C. A storefront request (an order the store sent for review)
 
 1. The customer checks out, their total is at or over the review amount, and they are told a person will be in touch within the number of business days in Settings. Nothing is held and nothing is charged.
-2. The bell shows "Request for review". On **Today** it is under Close the sale, "Storefront requests waiting". Press **Review**.
+2. The request makes a lead at once, with the source Storefront (or joins the lead that customer already has, by the same email or phone). The bell shows "Request for review". On **Today** it is under Close the sale, "Storefront requests waiting", and in **Leads** it is in All and in Storefront requests. Press **Review**.
 3. Read **1. Who** and **2. What they want**: items, date, guest count, occasion, address with a map link, setup notes, total, and why it needs you.
-4. Call or email the customer. Write what was agreed in **Staff notes** in part 3 and press Save notes.
-5. To go ahead: press **Convert to a booking**. New booking opens filled in from the request. Change anything you agreed (the price included), tick that they agreed to the policy, and create it.
-6. The date is now held. The customer is sent what they owe next: the contract to sign (over the contract amount, or with crew) or the link to pay the retainer. The request leaves the list, and the booking's lead is in the Booked view.
-7. To turn it down: press **Dismiss**, give the reason (for your team only), and tick "Tell the customer by email" if they should hear from you.
+4. Call or email the customer. Press **Log a call, text or email** in part 4 so the contact is in History, and write what was agreed in **Staff notes** in part 3 and press Save notes.
+5. To go ahead: press **Convert to a booking**. New booking opens on step 2, filled in from the request. Change anything you agreed, go to **Review and send** (the price can be changed there), and press **Create and send to customer**. You land on the booking, with a line saying what was sent and to where.
+6. The date is now held. The customer is sent what they owe next: the contract to sign (over the contract amount, or with crew) or the link to pay the retainer. The request leaves the list, and the same lead moves to the Booked view.
+7. To turn it down: press **Dismiss**, give the reason (for your team only), and tick "Tell the customer by email" if they should hear from you. The same lead moves to Lost. Reopening the request brings the lead back.
 8. A request still open after the promised number of business days raises "Request still waiting" every morning until it is converted or dismissed.
 
 ### D. A cancellation request
@@ -139,11 +150,35 @@ Written as steps to follow. Start every day on **Today** and work the columns le
 6. If you agreed to give money back, make the refund in Stripe yourself. Then press **Write down a refund** under the request and record the amount, date and how. The admin never sends money.
 7. After Approve the lead moves to the Lost view with "Booking cancelled".
 
+### E. Booking by phone, step by step
+
+Use this when a customer calls or walks in and wants to book now. It is three steps in one popup. Each step has one line of help at the top.
+
+1. Go to **Bookings** and press **New booking**. (From a lead, press **Build a booking for them** instead and start at step 4 below: the customer is already filled in.)
+2. **Step 1, Who.** Type the name, phone or email in the search box. If the person is already a lead or has a store account, press **Use this lead** or **Use this customer**. If there is no match, type their name, phone and email in the three boxes. The phone and email are where the contract or pay link will be sent, so read them back to the customer.
+3. Press **Next: What and when**.
+4. **Step 2, What and when.** Pick the event date first, then type the time.
+5. Choose **Items and services** or **A package**.
+   - Items and services: search, then press **Add** on each one. Set the quantity. Anything that is not free that day is shown greyed with "Not free" and cannot be added.
+   - A package: press **Pick** on the package. A package with an item that is not free that day says which item and cannot be picked. A package priced per guest needs the guest count.
+6. Answer any option marked with a star (a flavor, a size).
+7. Pick the occasion and type the guest count.
+8. Type the event address and press **Look up address**. "Found" means it is an exact street address and the crew will get a map link. If it is not found you can still book and fix the address later.
+9. Type the setup notes the customer gives you (where to set up, a gate code, where the power is).
+10. Press **Next: Review and send**.
+11. **Step 3, Review and send.** Read the total back to the customer. Change it only if you agreed a different price.
+12. Read the box under it. It says the retainer amount, whether this customer gets the short rental policy or the contract and why, whether the order goes to review instead of being held, and exactly what the customer will be sent.
+13. Press **Create and send to customer**. (To make the booking without sending anything, tick "Create without sending anything to the customer" first; the button then reads **Create without sending**.)
+14. You land on the booking popup. The line at the top says what was sent and to where, for example "The pay link for the retainer of $45.00 was sent by text to +18605550142 and by email to sarah@example.com."
+15. If the review box said the order goes to review, the button reads **Send to review**. Nothing is held. The order is in Leads under Storefront requests: follow process C.
+16. Tell the customer what happens next. Small rental: they open the pay link, read and accept the rental policy, and pay the retainer; the booking is then Confirmed. Contract booking: they sign from the link, then pay the retainer.
+17. The booking stays in **Bookings, Needs action** until it is done. The row says why: "Policy not accepted", "Retainer unpaid", "Contract unsigned". Open it and press the main button under **6. Next action** to send the link again.
+
 ### What Today shows, and what clears each line
 
 | Column | Line | It goes away when |
 |---|---|---|
-| Close the sale | New leads, not contacted | You log a contact, send the store link, build a booking, or mark it Lost |
+| Close the sale | New leads, not contacted | You log a contact, send the store link, build a booking, or mark it Lost. A lead whose storefront request is waiting is listed under the next line instead |
 | Close the sale | Storefront requests waiting | You convert or dismiss it |
 | Close the sale | Contracts unsigned | The customer signs (open the booking to send the link again) |
 | Close the sale | Retainers unpaid | The retainer is paid (open the booking to send the pay link) |

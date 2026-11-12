@@ -10,6 +10,7 @@ import { MessageTemplatesPage, MessagesUpcomingPage, SentLogPage } from "./compo
 import { NotificationsScreen } from "./components/screens/NotificationsScreen";
 import { PackagesScreen } from "./components/screens/PackagesScreen";
 import { SchedulingScreen } from "./components/screens/SchedulingScreen";
+import { BookingsScreen } from "./components/screens/BookingsScreen";
 import { BookingRulesPage, BusinessPage, ContractAndPolicyPage, HomePhotosPage, IntegrationsPage, MessagesAndNotificationsPage } from "./components/screens/SettingsPages";
 import { SkillsPage } from "./components/screens/SkillsPage";
 import { TeamPage } from "./components/screens/TeamPage";
@@ -44,10 +45,6 @@ export type NavItem = {
   hiddenFromSidebar?: boolean;
 };
 
-function BookingsRoute() {
-  const [q] = useSearchParams();
-  return <SchedulingScreen view="bookings" openBookingId={q.get("booking") ?? undefined} />;
-}
 
 function GigsRoute() {
   const [q] = useSearchParams();
@@ -64,7 +61,7 @@ export const NAV: NavItem[] = [
   // The views (New, Storefront requests, ...) and the open lead live in the
   // address: /leads?view=requests, /leads?lead=<id>, /leads?request=<id>.
   { key: "leads", label: "Leads", icon: Contact, path: "/leads", element: <LeadsInboxScreen /> },
-  { key: "bookings", label: "Bookings", icon: CalendarDays, path: "/bookings", element: <BookingsRoute /> },
+  { key: "bookings", label: "Bookings", icon: CalendarDays, path: "/bookings", element: <BookingsScreen /> },
   {
     key: "inventory",
     label: "Inventory",

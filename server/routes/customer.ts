@@ -56,10 +56,14 @@ const WITH_UNIT_DETAILS = {
   addons: { orderBy: { createdAt: "asc" as const } },
   gigs: BOOKING_GIGS_SELECT,
   // Block T1: the contract and the money, for the portal's steps.
-  agreement: { select: { id: true, format: true, signingToken: true, contractStatus: true, contractSentAt: true, contractUrl: true, contractDocument: { select: { signedAt: true, documentJson: true } } } },
+  agreement: { select: { id: true, checkboxChecked: true, agreedAt: true, policyVersion: { select: { version: true } }, format: true, signingToken: true, contractStatus: true, contractSentAt: true, contractUrl: true, contractDocument: { select: { signedAt: true, documentJson: true } } } },
   payments: { select: { kind: true, status: true, amountCents: true, refundedCents: true, paidAt: true }, orderBy: { createdAt: "asc" as const } },
   // Block F1: a cancellation request waiting on staff.
-  cancellationRequests: { where: { status: "Open" }, select: { id: true, reason: true, createdAt: true }, orderBy: { createdAt: "desc" as const }, take: 1 },
+  // Block F3b: newest first, whatever became of them, plus what the policy
+  // state reads.
+  cancellationRequests: { select: { id: true, status: true, reason: true, createdAt: true, decidedAt: true }, orderBy: { createdAt: "desc" as const }, take: 5 },
+  lead: { select: { source: true } },
+  designRequest: { select: { id: true } },
 } as const;
 
 type PortalRow = Parameters<typeof serializeCustomerBooking>[0] & Parameters<typeof portalFields>[0];

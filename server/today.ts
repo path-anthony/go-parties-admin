@@ -47,7 +47,8 @@ const age = (days: number) => (days === 0 ? "today" : days === 1 ? "1 day ago" :
 const daysUntil = (today: string, day: string) => Math.round((Date.parse(`${day}T00:00:00Z`) - Date.parse(`${today}T00:00:00Z`)) / 86_400_000);
 const inDays = (n: number) => (n === 0 ? "today" : n === 1 ? "tomorrow" : `in ${n} days`);
 
-const rowOpen = (r: InboxRow): TodayItem["open"] => ({ kind: r.kind, id: r.id });
+// A lead with a storefront request waiting opens the request (Convert, Dismiss).
+const rowOpen = (r: InboxRow): TodayItem["open"] => (r.requestId ? { kind: "request", id: r.requestId } : { kind: r.kind, id: r.id });
 const who = (r: InboxRow) => `${r.name} · ${r.source}`;
 const what = (r: InboxRow) => [r.wants, r.eventDate ? `event ${short(r.eventDate)}` : null].filter(Boolean).join(" · ");
 
@@ -57,7 +58,8 @@ export function buildToday(rows: InboxRow[], bookings: TodayBooking[], today: st
   const bookingItem = (b: TodayBooking, key: string, detail: string, button: string): TodayItem => ({ key: `${key}:${b.id}`, open: { kind: "booking", id: b.id }, title: `${b.customerName} · event ${short(b.eventDate)}`, detail, button });
 
   // ---- Close the sale
-  const fresh = rows.filter((r) => r.kind === "lead" && r.bucket === "new").sort(oldestFirst);
+  // A lead whose storefront request is waiting is listed once, under requests.
+  const fresh = rows.filter((r) => r.kind === "lead" && r.bucket === "new" && !r.requestId).sort(oldestFirst);
   const requests = rows.filter((r) => r.tabs.includes("requests")).sort(oldestFirst);
   const unsigned = bookings.filter((b) => b.needsSignature).sort(byEvent);
   const unpaid = bookings.filter((b) => !b.needsSignature && (b.retainerOwedCents ?? 0) > 0).sort(byEvent);

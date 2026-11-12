@@ -36,6 +36,8 @@ const LEAD_INCLUDE = {
     },
     orderBy: { createdAt: "asc" as const },
   },
+  // Block F3b: the storefront requests that hang on the lead.
+  designRequests: { where: { status: { not: "Converted" } }, orderBy: { createdAt: "desc" as const } },
 } as const;
 
 type LeadRow = Awaited<ReturnType<typeof loadLeadRows>>[number];
@@ -45,6 +47,7 @@ function loadLeadRows(accountId: string) {
 
 const toInboxLead = (l: LeadRow): InboxLead => ({
   ...l,
+  designRequests: l.designRequests as InboxRequest[],
   bookings: l.bookings.map((b) => ({ ...b, itemNames: [...b.units.map((u) => u.unit.item.name), ...b.gigs.map((g) => g.itemName)], packageName: b.package?.name ?? null })),
 });
 
