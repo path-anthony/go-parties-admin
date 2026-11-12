@@ -3,6 +3,7 @@ import { stripeConfigured } from "./stripe/client.js";
 import { daysBefore } from "./contract/goMoney.js";
 import { displayStatus } from "../src/lib/bookingStatus.js";
 import { bookingMapsUrl } from "./delivery.js";
+import { policyStateOf, type PolicyFacts } from "./policyAccept.js";
 
 // Block T1. The customer portal's view of a booking: the stage in the
 // customer's words, the steps left to do, the contract and the money. Pure
@@ -22,9 +23,22 @@ export type PortalBooking = {
   balancePaid: boolean;
   eventDate: Date;
   // Block F1: a cancellation request still waiting on staff, if any.
-  cancellationRequests?: { id: string; reason: string | null; createdAt: Date }[];
+  // Block F3b: newest first, whatever became of each, so the store can show
+  // the outcome without remembering it on the device. A row with no status
+  // is one still waiting.
+  cancellationRequests?: { id: string; reason: string | null; createdAt: Date; status?: string; decidedAt?: Date | null }[];
+  guestCount?: number | null;
+  // Block F3b: what policyStateOf reads.
+  origin?: string | null;
+  policyAcceptedAt?: Date | null;
+  policyAcceptedVersion?: number | null;
+  lead?: { source: string } | null;
+  designRequest?: { id: string } | null;
   agreement?: {
     id: string;
+    checkboxChecked?: boolean;
+    agreedAt?: Date;
+    policyVersion?: { version: number } | null;
     format: string | null;
     signingToken: string | null;
     contractStatus: string | null;
@@ -113,6 +127,36 @@ export function customerDelivery(b: PortalBooking): { formattedAddress: string; 
   return { formattedAddress: b.address, setupLat: b.setupLat, setupLng: b.setupLng, setupNotes: b.setupNotes, verified: b.addressCheck === "verified" };
 }
 
+const isOpen = (r: { status?: string }) => r.status === undefined || r.status === "Open";
+const pending = (b: PortalBooking) => b.cancellationRequests?.find(isOpen) ?? null;
+
+// Block F3b. Whether the customer has accepted the rental policy themselves
+// (at checkout or on the pay page). A contract booking has none to accept.
+export function customerPolicy(b: PortalBooking) {
+  const a = b.agreement;
+  const facts: PolicyFacts = {
+    tier: b.tier,
+    origin: b.origin ?? null,
+    policyAcceptedAt: b.policyAcceptedAt ?? null,
+    policyAcceptedVersion: b.policyAcceptedVersion ?? null,
+    agreement: a && a.checkboxChecked !== undefined && a.agreedAt ? { checkboxChecked: a.checkboxChecked, agreedAt: a.agreedAt, policyVersion: a.policyVersion ?? null } : null,
+    lead: b.lead ?? null,
+    designRequest: b.designRequest ?? null,
+  };
+  const s = policyStateOf(facts);
+  return { policyRequired: s.needed, policyAccepted: s.by === "customer", policyAcceptedAt: s.by === "customer" ? s.at : null };
+}
+
+// Block F3b. The newest request to cancel and what became of it: waiting,
+// approved or declined, with the dates. Null when the customer never asked.
+// Staff notes on the decision never leave the server.
+export function customerCancellation(b: PortalBooking): { id: string; status: "waiting" | "approved" | "declined"; requestedAt: string; decidedAt: string | null; reason: string | null } | null {
+  const r = b.cancellationRequests?.[0];
+  if (!r) return null;
+  const status = r.status === "Approved" ? "approved" : r.status === "Declined" ? "declined" : "waiting";
+  return { id: r.id, status, requestedAt: r.createdAt.toISOString(), decidedAt: status === "waiting" ? null : (r.decidedAt?.toISOString() ?? null), reason: r.reason };
+}
+
 // Everything Block T1 adds to the customer booking response.
 export function portalFields(b: PortalBooking, settings: PortalSettings) {
   const money = amountsFor(b, b.payments, settings);
@@ -127,7 +171,11 @@ export function portalFields(b: PortalBooking, settings: PortalSettings) {
     rescheduleMode: b.tier === 2 || b.tier === 3 ? ("request" as const) : ("self" as const),
     // Block F1: set while a cancellation request waits on staff. The booking
     // itself is unchanged until they decide.
-    pendingRequest: b.cancellationRequests?.[0] ? { type: "cancellation" as const, id: b.cancellationRequests[0].id, status: "open" as const, requestedAt: b.cancellationRequests[0].createdAt.toISOString(), reason: b.cancellationRequests[0].reason } : null,
+    pendingRequest: pending(b) ? { type: "cancellation" as const, id: pending(b)!.id, status: "open" as const, requestedAt: pending(b)!.createdAt.toISOString(), reason: pending(b)!.reason } : null,
+    // Block F3b.
+    guestCount: b.guestCount ?? null,
+    ...customerPolicy(b),
+    cancellation: customerCancellation(b),
     delivery: customerDelivery(b),
     // Block A9: a Google Maps link to the exact event address, when known.
     mapsUrl: bookingMapsUrl(b),

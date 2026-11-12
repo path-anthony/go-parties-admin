@@ -374,13 +374,15 @@ test("dismiss needs a reason, can email the customer, clears the bell, and reads
   const noReason = await patch(`/api/design-requests/${id}`, { status: "Dismissed" });
   assert.equal(noReason.status, 400);
   assert.equal(noReason.json.reason, "reason-required");
+  // The "we got your request" email goes after the hold replies; let it land first.
+  await new Promise((r) => setTimeout(r, 2500));
   emails.length = 0;
   const quiet = await patch(`/api/design-requests/${id}`, { status: "Dismissed", reason: "Outside our area" });
   assert.equal(quiet.status, 200, JSON.stringify(quiet.json));
   assert.equal(quiet.json.dismissReason, "Outside our area");
   assert.equal(quiet.json.dismissedByName, "ZZ Owner");
   assert.equal("customerTold" in quiet.json, false);
-  assert.equal(emails.length, 0, "not ticked, not sent");
+  assert.equal(emails.length, 0, `not ticked, not sent: ${emails.map((e) => e.subject).join(" | ")}`);
   assert.equal(await prisma.notification.count({ where: { dedupeKey: `design-request:${id}`, readAt: null } }), 0, "the bell alert is cleared");
   let mine = await get("/api/customer/requests", cookie);
   assert.equal((mine.json.requests as Record<string, unknown>[])[0].status, "closed");

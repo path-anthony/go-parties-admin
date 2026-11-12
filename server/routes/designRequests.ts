@@ -13,6 +13,8 @@ const STATUSES = ["Open", "Converted", "Dismissed"] as const;
 const MAX_NOTES = 2000;
 const MAX_REASON = 300;
 
+import { LeadActionError, markLost, reopenLead } from "../inboxLoad.js";
+import { isLostStage } from "../../src/lib/leadStages.js";
 const router = Router();
 
 function serialize<T extends { total: unknown; placeId: string | null; addressLat: number | null; addressLng: number | null; setupLat: number | null; setupLng: number | null }>(request: T) {
@@ -88,6 +90,21 @@ router.patch("/:id", async (req, res) => {
   if (Object.keys(data).length === 0) return res.status(400).json({ error: "no editable fields provided" });
 
   let updated = await prisma.designRequest.update({ where: { id: existing.id }, data });
+  // Block F3b: the request's lead follows it. Dismissed closes the lead as
+  // Lost (the reason stays with staff); reopened brings it back. Neither can
+  // stop the request itself from saving.
+  if (existing.leadId && data.status && data.status !== existing.status) {
+    try {
+      const lead = await prisma.lead.findFirst({ where: { id: existing.leadId, accountId: account.id }, select: { id: true, status: true, bookings: { select: { status: true } } } });
+      const live = lead?.bookings.some((b) => b.status !== "Cancelled" && b.status !== "Released") ?? false;
+      if (lead && data.status === "Dismissed" && !live && !isLostStage(lead.status)) await markLost(account.id, lead.id, "Other", `Storefront request dismissed: ${data.dismissReason}`);
+      else if (lead && data.status === "Open" && isLostStage(lead.status)) await reopenLead(account.id, lead.id);
+      else if (lead) await prisma.leadActivity.create({ data: { leadId: lead.id, kind: "status", text: data.status === "Dismissed" ? `Storefront request dismissed: ${data.dismissReason}` : "Storefront request reopened.", ...actorFields() } });
+    } catch (err) {
+      if (!(err instanceof LeadActionError)) throw err;
+      await prisma.leadActivity.create({ data: { leadId: existing.leadId, kind: "status", text: data.status === "Dismissed" ? `Storefront request dismissed: ${data.dismissReason}` : "Storefront request reopened.", ...actorFields() } });
+    }
+  }
   // What happened to the "Tell the customer" email, when it was asked for.
   let customerTold: { sent: boolean; why: string | null } | null = null;
   if (dismissing) {

@@ -28,7 +28,7 @@ const PUBLIC_ROUTES: RegExp[] = [
   /^\/bookings\/tier$/,
   /^\/payments\/status$/,
   // Block F1: the pay link as JSON, for a storefront pay screen.
-  /^\/pay\/[^/]+(\/session)?$/,
+  /^\/pay\/[^/]+(\/(session|policy))?$/,
   /^\/leads\/concierge$/,
   /^\/recommend$/,
   /^\/customer(\/|$)/,

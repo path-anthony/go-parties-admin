@@ -1,6 +1,7 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import { useNavigate as useRouterNavigate } from "react-router-dom";
 import { X } from "lucide-react";
-import { addBookingUnit, getBookings, getPolicy, removeBookingGig, removeBookingUnit, setBookingAddons, updateBooking } from "../lib/api";
+import { addBookingUnit, getBookingSummary, getBookings, getPolicy, removeBookingGig, removeBookingUnit, setBookingAddons, updateBooking } from "../lib/api";
 import { BALANCE_PREFERENCES, type BalancePreference, isInactiveStage } from "../lib/bookingStatus";
 import { deltaLabel, describeAddon } from "../lib/addons";
 import { leadTitle } from "../lib/leads";
@@ -12,6 +13,7 @@ import {
   type BookingGig,
   type BookingPatch,
   type BookingStatus,
+  type BookingSummary,
   type Item,
   type Lead,
   type Unit,
@@ -21,11 +23,11 @@ import { AutomationTimeline } from "./AutomationTimeline";
 import { ContractDetails } from "./ContractDetails";
 import { RecordMessages } from "./RecordMessages";
 import { SendMessageControls } from "./SendMessageControls";
-import { AgreementChip } from "./AgreementChip";
 import { BookingStatusTag } from "./BookingStatusTag";
 import { RushTag } from "./RushTag";
 import { PaymentsSection } from "./PaymentsSection";
-import { PayLinkControl, RefundLog } from "./MoneyControls";
+import { CancellationRequests, PayLinkControl, RefundLog } from "./MoneyControls";
+import { ContactLinks, Fact, Part } from "./LeadPopup";
 import { DeliverySection } from "./DeliverySection";
 import { bookingMapsUrl } from "../lib/maps";
 import { WeddingDetailsPanel } from "./WeddingDetailsPanel";
@@ -44,7 +46,10 @@ function freeCount(item: Item, date: string, units: Unit[], bookings: Booking[])
   return units.filter((u) => u.itemId === item.id && u.status === "Available" && !held.has(u.id)).length;
 }
 
-// Everything about one booking, in a popup like the item and package ones.
+// Block F3b. Everything about one booking, in a wide popup in the same style
+// as the lead popup, always in this order: Who, What and where, Money,
+// Paperwork, History, Next action. Every booking function is still here; it
+// only moved under the part it belongs to.
 // Text fields save when they're left; selects and checkboxes save on
 // change. A date change is a reschedule: the server re-claims a free unit
 // of every item on the new date under the same lock a customer's booking
@@ -58,6 +63,7 @@ export function BookingModal({
   bookings,
   onUpdated,
   onClose,
+  flash,
 }: {
   booking: Booking;
   leads: Lead[];
@@ -66,8 +72,37 @@ export function BookingModal({
   bookings: Booking[];
   onUpdated: (booking: Booking) => void;
   onClose: () => void;
+  // A line to show at the top, such as what was just sent to the customer.
+  flash?: string | null;
 }) {
+  const go = useRouterNavigate();
   const [busy, setBusy] = useState(false);
+  // The status in words, the money, the paperwork and the history, worked
+  // out by the server (GET /api/bookings/:id/summary) and read again after
+  // every change.
+  const [summary, setSummary] = useState<BookingSummary | null>(null);
+  const stamp = `${booking.id}:${booking.updatedAt}:${booking.status}:${booking.retainerPaid}:${booking.balancePaid}:${booking.unitIds.length}:${booking.gigs.length}`;
+  useEffect(() => {
+    let live = true;
+    getBookingSummary(booking.id)
+      .then((got) => live && setSummary(got))
+      .catch(() => undefined);
+    return () => {
+      live = false;
+    };
+  }, [booking.id, stamp]);
+  const refresh = useCallback(() => {
+    void getBookingSummary(booking.id)
+      .then(setSummary)
+      .catch(() => undefined);
+    void getBookings()
+      .then((all) => {
+        const fresh = all.find((b) => b.id === booking.id);
+        if (fresh) onUpdated(fresh);
+      })
+      .catch(() => undefined);
+  }, [booking.id, onUpdated]);
+  const jump = (id: string) => document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "center" });
   // Refusals from the click and change controls (adding a unit to a full
   // date, an add-on the item doesn't offer) are shown in full here.
   const [notice, setNotice] = useState<string | null>(null);
@@ -126,41 +161,55 @@ export function BookingModal({
   // item was deleted, say) still get shown.
   const looseAddons = booking.addons.filter((a) => !heldItems.some((i) => i.id === a.itemId) && !gigItems.some((i) => i.id === a.itemId));
 
+  const row = summary?.row ?? null;
+  const money = summary?.money ?? null;
+  const paper = summary?.paperwork ?? null;
+  const next = row?.nextAction ?? null;
+  const phoneDigits = (booking.phone ?? "").replace(/\D/g, "").replace(/^1(?=\d{10}$)/, "");
+  const day = (ymd: string) => new Date(`${ymd.slice(0, 10)}T12:00:00Z`).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", year: "numeric", timeZone: "UTC" });
+  const whenText = (iso: string) => new Date(iso).toLocaleString("en-US", { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit", timeZone: "America/New_York" });
+  const runNext = () => {
+    if (!next) return;
+    if (next.code === "send-pay-link") jump("booking-pay-link");
+    else if (next.code === "send-contract") jump("booking-contract");
+    else if (next.code === "wedding-details") jump("booking-wedding");
+    else if (next.code === "assign-crew") go("/crew/gigs");
+  };
+
   return (
     <div className="modal-backdrop" onClick={onClose}>
-      <div className="modal" role="dialog" aria-modal="true" aria-label={`Booking for ${who}`} onClick={(e) => e.stopPropagation()}>
+      <div className="modal modal-wide" role="dialog" aria-modal="true" aria-label={`Booking for ${who}`} onClick={(e) => e.stopPropagation()}>
         <div className="modal-head">
-          <h2>
-            {who}
-            <span className="booking-pill">
-              <BookingStatusTag booking={booking} />
+          <div>
+            <h2>
+              {who}
+              <RushTag rush={booking.rush} cancelled={cancelled} />
+            </h2>
+            <span className="muted">
+              Booking · {day(date)}
+              {booking.eventTime ? `, ${booking.eventTime}` : ""} · <strong data-testid="booking-status">{row?.status ?? "Loading"}</strong>
+              {row && row.needs.length > 0 ? ` · ${row.needs.map((n) => n.label).join(" · ")}` : ""}
             </span>
-            <RushTag rush={booking.rush} cancelled={cancelled} />
-            {booking.tier && (
-              <span className="booking-pill">
-                <span className="achip achip-none">{booking.tier === 1 ? "Tier 1: rental policy" : booking.tier === 2 ? "Tier 2: contract" : "Tier 3: reviewed"}</span>
-              </span>
-            )}
-            {booking.retainerOverdue && !cancelled && (
-              <span className="booking-pill">
-                <span className="achip achip-unchecked">Retainer overdue</span>
-              </span>
-            )}
-            {booking.disputeFlaggedAt && (
-              <span className="booking-pill">
-                <span className="achip achip-unchecked">Payment disputed</span>
-              </span>
-            )}
-          </h2>
+          </div>
           <button type="button" className="icon-btn" onClick={onClose} aria-label="Close">
             <X size={16} />
           </button>
         </div>
 
+        {flash && (
+          <p className="bulk-result" role="status" data-testid="booking-flash">
+            {flash}
+          </p>
+        )}
         {booking.rush && !cancelled && (
           <p className="rush-banner" role="note">
             <strong>RUSH.</strong> Booked with less than the minimum notice. It is confirmed in the system, but check with the
             customer and the crew before you count on it.
+          </p>
+        )}
+        {booking.disputeFlaggedAt && (
+          <p className="stage-warning" role="note">
+            <strong>Payment disputed.</strong> The customer's bank has questioned a payment on this booking. See the payments under Money.
           </p>
         )}
 
@@ -170,232 +219,65 @@ export function BookingModal({
           </p>
         )}
 
-        <div className="catalog-detail">
-          <div className="detail-field">
-            <span className="detail-field-label">Event date</span>
-            <EditableCell type="date" value={date} ariaLabel={`Event date for ${who}`} onSave={(eventDate) => save({ eventDate })} />
-          </div>
-          <div className="detail-field">
-            <span className="detail-field-label">Time</span>
-            <EditableCell
-              value={booking.eventTime ?? ""}
-              placeholder="Add time"
-              ariaLabel={`Event time for ${who}`}
-              onSave={(eventTime) => save({ eventTime: eventTime === "" ? null : eventTime })}
-            />
-          </div>
-          <div className="detail-field">
-            <span className="detail-field-label">Customer name</span>
-            <EditableCell value={who} ariaLabel={`Customer name for ${who}`} onSave={(customerName) => save({ customerName })} />
-          </div>
-          <div className="detail-field">
-            <span className="detail-field-label">Phone</span>
-            <EditableCell
-              value={booking.phone ?? ""}
-              placeholder="Add phone"
-              ariaLabel={`Phone for ${who}`}
-              onSave={(phone) => save({ phone })}
-            />
-          </div>
-          <div className="detail-field">
-            <span className="detail-field-label">Email</span>
-            <EditableCell
-              value={booking.email ?? ""}
-              placeholder="Add email"
-              ariaLabel={`Email for ${who}`}
-              onSave={(email) => save({ email })}
-            />
-          </div>
-          <div className="detail-field">
-            <span className="detail-field-label">Occasion</span>
-            <span className={booking.occasion ? undefined : "muted"}>{booking.occasion ?? "Not given"}</span>
-          </div>
-          <div className="detail-field">
-            <span className="detail-field-label">Address</span>
-            <EditableCell
-              value={booking.address ?? ""}
-              placeholder="Add address"
-              ariaLabel={`Address for ${who}`}
-              onSave={(address) => save({ address: address === "" ? null : address })}
-            />
-            {bookingMapsUrl(booking) && (
-              <a className="muted field-help" href={bookingMapsUrl(booking) ?? undefined} target="_blank" rel="noreferrer">
-                {booking.placeId && booking.addressCheck === "verified" ? "Open the exact place in Google Maps" : "Open in Google Maps"}
-              </a>
-            )}
-          </div>
-          <div className="status-control" role="group" aria-label={`Status for ${who}`}>
-            <span className="status-now">
-              <span className="detail-field-label">Status</span>
-              <BookingStatusTag booking={booking} />
-            </span>
-            <label>
-              <span className="detail-field-label">Stage</span>
+        <div className="lead-popup-grid booking-popup-grid">
+          <Part n={1} title="Who" help="The customer and how to reach them. Tap to call, text or email. Changes save when you leave a field.">
+            <ContactLinks phone={phoneDigits.length === 10 ? phoneDigits : null} email={booking.email} />
+            <Fact label="Customer name">
+              <EditableCell value={who} ariaLabel={`Customer name for ${who}`} onSave={(customerName) => save({ customerName })} />
+            </Fact>
+            <Fact label="Phone">
+              <EditableCell value={booking.phone ?? ""} placeholder="Add phone" ariaLabel={`Phone for ${who}`} onSave={(phone) => save({ phone })} />
+            </Fact>
+            <Fact label="Email">
+              <EditableCell value={booking.email ?? ""} placeholder="Add email" ariaLabel={`Email for ${who}`} onSave={(email) => save({ email })} />
+            </Fact>
+            <label className="detail-field">
+              <span className="detail-field-label">Lead</span>
               <select
-                value={booking.status}
+                value={booking.leadId ?? ""}
                 disabled={busy}
-                aria-label={`Stage for ${who}`}
-                onChange={(e) => run(() => updateBooking(booking.id, { status: e.target.value as BookingStatus }))}
+                aria-label={`Lead for ${who}`}
+                onChange={(e) => run(() => updateBooking(booking.id, { leadId: e.target.value === "" ? null : e.target.value }))}
               >
-                {(booking.status as string) === "Released" && (
-                  <option value="Released" disabled>
-                    Released (unpaid hold lapsed)
-                  </option>
-                )}
-                {BOOKING_STAGES.map((s) => (
-                  <option key={s} value={s}>
-                    {s}
+                <option value="">No lead</option>
+                {leads.map((lead) => (
+                  <option key={lead.id} value={lead.id}>
+                    {leadLabel(lead)}
                   </option>
                 ))}
               </select>
             </label>
-            <label className="checkbox-label">
-              <input
-                type="checkbox"
-                checked={booking.retainerPaid}
-                disabled={busy}
-                onChange={(e) => run(() => updateBooking(booking.id, { retainerPaid: e.target.checked }))}
-              />
-              Retainer paid
-            </label>
-            <span className="muted field-help">
-              Confirmed is worked out, not set. A small rental with no contract is Confirmed as soon as its retainer is paid. A contract booking is Confirmed when it is Signed and the retainer is paid.
-            </span>
-          </div>
-          <div className="status-control" role="group" aria-label={`Agreement and balance for ${who}`}>
-            <span className="status-now">
-              <span className="detail-field-label">Agreement</span>
-              <AgreementChip agreement={booking.agreement} />
-            </span>
-            <label>
-              <span className="detail-field-label">Balance payment</span>
-              <select
-                value={booking.balancePaymentPreference}
-                disabled={busy}
-                aria-label={`Balance payment preference for ${who}`}
-                onChange={(e) => run(() => updateBooking(booking.id, { balancePaymentPreference: e.target.value as BalancePreference }))}
-              >
-                {BALANCE_PREFERENCES.map((b) => (
-                  <option key={b} value={b}>
-                    {b}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <span className="muted field-help">Balance payment is recorded only. Nothing is charged or sent yet.</span>
-            <AgreementDetail booking={booking} />
-          </div>
-          <div className="status-control" role="group" aria-label={`Contract and messages for ${who}`}>
-            <span className="status-now">
-              <span className="detail-field-label">Contract</span>
-              <span className={booking.agreement?.contractStatus === "Signed" ? "achip achip-yes" : booking.agreement?.contractStatus === "Sent" ? "achip achip-unchecked" : "achip achip-none"}>
-                {booking.agreement?.contractStatus === "Signed" ? "Signed" : booking.agreement?.contractStatus === "Sent" ? "Sent, not signed" : "Not sent"}
-              </span>
-            </span>
-            {booking.agreement?.contractStatus === "Signed" && booking.agreement.contractUrl && (
-              <a className="btn-secondary" href={booking.agreement.contractUrl} target="_blank" rel="noreferrer">
-                Open the signed PDF
+            {booking.leadId && (
+              <a className="muted field-help" href={`/leads?lead=${booking.leadId}`}>
+                Open this customer's lead
               </a>
             )}
-            {booking.agreement?.contractStatus !== "Signed" && (
-              <a className="btn-secondary" href={`/api/contract-admin/preview/${booking.id}.pdf`} target="_blank" rel="noreferrer">
-                Preview the contract PDF
-              </a>
-            )}
-            <label className="checkbox-label">
-              <input
-                type="checkbox"
-                checked={booking.balancePaid}
-                disabled={busy}
-                onChange={(e) => run(() => updateBooking(booking.id, { balancePaid: e.target.checked }))}
-              />
-              Balance paid
-            </label>
-            <SendMessageControls
-              target={{ bookingId: booking.id }}
-              label="Text the customer"
-              onContractSent={() => {
-                // The send moved the stage; show it here and in the row behind.
-                void getBookings()
-                  .then((all) => {
-                    const fresh = all.find((b) => b.id === booking.id);
-                    if (fresh) onUpdated(fresh);
-                  })
-                  .catch(() => undefined);
-              }}
-            />
-            <span className="muted field-help">
-              Stage changes text the customer automatically. Send contract link texts the signing link and moves a Held booking
-              to Contract Sent; setting the stage to Contract Sent does the same thing. Looking at the contract preview sends
-              nothing. A signed contract is never sent again by a stage change. Every send is logged under Messages.
-            </span>
-          </div>
-          <ContractDetails booking={booking} onSave={save} />
-          <PaymentsSection
-            bookingId={booking.id}
-            onChanged={() => {
-              void getBookings()
-                .then((all) => {
-                  const fresh = all.find((b) => b.id === booking.id);
-                  if (fresh) onUpdated(fresh);
-                })
-                .catch(() => undefined);
-            }}
-          />
-          <PayLinkControl bookingId={booking.id} refreshKey={`${booking.status}:${booking.retainerPaid}:${booking.balancePaid}`} />
-          <RefundLog bookingId={booking.id} />
-          <DeliverySection
-            booking={booking}
-            onChanged={() => {
-              void getBookings()
-                .then((all) => {
-                  const fresh = all.find((b) => b.id === booking.id);
-                  if (fresh) onUpdated(fresh);
-                })
-                .catch(() => undefined);
-            }}
-          />
-          <WeddingDetailsPanel
-            bookingId={booking.id}
-            onChanged={() => {
-              void getBookings()
-                .then((all) => {
-                  const fresh = all.find((b) => b.id === booking.id);
-                  if (fresh) onUpdated(fresh);
-                })
-                .catch(() => undefined);
-            }}
-          />
-          <RecordMessages bookingId={booking.id} />
-          <AutomationTimeline kind="booking" id={booking.id} />
-          <label className="detail-field">
-            <span className="detail-field-label">Lead</span>
-            <select
-              value={booking.leadId ?? ""}
-              disabled={busy}
-              aria-label={`Lead for ${who}`}
-              onChange={(e) => run(() => updateBooking(booking.id, { leadId: e.target.value === "" ? null : e.target.value }))}
-            >
-              <option value="">No lead</option>
-              {leads.map((lead) => (
-                <option key={lead.id} value={lead.id}>
-                  {leadLabel(lead)}
-                </option>
-              ))}
-            </select>
-          </label>
-          <div className="booking-quote">
-            {booking.total !== null ? (
-              <>
-                <span className="detail-field-label">Quoted</span> <strong>{usd(Number(booking.total))}</strong>
-              </>
-            ) : (
-              <span className="muted">No quoted total on this booking.</span>
-            )}
-          </div>
-        </div>
+          </Part>
 
-        <div className="modal-section">
+          <Part n={2} title="What and where" help="What is booked, when and where. Changing the date moves every item to a unit that is free that day, or changes nothing.">
+            <div className="field-row">
+              <Fact label="Event date">
+                <EditableCell type="date" value={date} ariaLabel={`Event date for ${who}`} onSave={(eventDate) => save({ eventDate })} />
+              </Fact>
+              <Fact label="Time">
+                <EditableCell value={booking.eventTime ?? ""} placeholder="Add time" ariaLabel={`Event time for ${who}`} onSave={(eventTime) => save({ eventTime: eventTime === "" ? null : eventTime })} />
+              </Fact>
+            </div>
+            <div className="field-row">
+              <Fact label="Occasion">{booking.occasion ?? "Not given"}</Fact>
+              <Fact label="Guest count">{summary?.where.guestCount ?? "Not given"}</Fact>
+            </div>
+            <Fact label="Event address">
+              <EditableCell value={booking.address ?? ""} placeholder="Add address" ariaLabel={`Address for ${who}`} onSave={(address) => save({ address: address === "" ? null : address })} />
+              {bookingMapsUrl(booking) && (
+                <a className="muted field-help" href={bookingMapsUrl(booking) ?? undefined} target="_blank" rel="noreferrer">
+                  {booking.placeId && booking.addressCheck === "verified" ? "Open the exact place in Google Maps" : "Open the map"}
+                </a>
+              )}
+            </Fact>
+            {!booking.address && <Fact label="Setup notes">{summary?.where.setupNotes ?? "None"}</Fact>}
+            <DeliverySection booking={booking} onChanged={refresh} />
+            <div className="booking-items">
           <span className="detail-field-label">Items and units</span>
           {cancelled && <p className="muted">A cancelled booking holds no units. Set it back to Confirmed to add some.</p>}
           {!cancelled && heldItems.length === 0 && liveGigs.length === 0 && <p className="muted">No items on this booking yet.</p>}
@@ -487,6 +369,146 @@ export function BookingModal({
             none. Adding an item takes whichever of its units is free on this date; a service item takes a gig for the crew
             instead, if someone with the skill is free.
           </p>
+            </div>
+          </Part>
+
+          <Part n={3} title="Money" help="What the booking costs, what has come in and what is owed. The app never charges a card: the customer pays from their pay link.">
+            <div className="field-row">
+              <Fact label="Total">{money ? (money.total === null ? "No price yet" : usd(money.total)) : booking.total !== null ? usd(Number(booking.total)) : "No price yet"}</Fact>
+              <Fact label="Paid">{money ? usd(money.paid) : ""}</Fact>
+            </div>
+            <div className="field-row">
+              <Fact label="Owed now">{money ? (money.owedNow === null ? "Nothing" : `${usd(money.owedNow)} (${money.owedStep === "balance" ? "balance" : "retainer"})`) : ""}</Fact>
+              <Fact label="Balance due date">{money?.balanceDueDate ? `${day(money.balanceDueDate)}${money.balancePaid ? ", paid" : money.balance > 0 ? `, ${usd(money.balance)}` : ""}` : "No date yet"}</Fact>
+            </div>
+            <div id="booking-pay-link">
+              <PayLinkControl bookingId={booking.id} refreshKey={stamp} onSent={refresh} />
+            </div>
+            <PaymentsSection bookingId={booking.id} onChanged={refresh} />
+            <div className="status-control" role="group" aria-label={`Paid by hand for ${who}`}>
+              <label className="checkbox-label">
+                <input type="checkbox" checked={booking.retainerPaid} disabled={busy} onChange={(e) => run(() => updateBooking(booking.id, { retainerPaid: e.target.checked }))} />
+                Retainer paid
+              </label>
+              <label className="checkbox-label">
+                <input type="checkbox" checked={booking.balancePaid} disabled={busy} onChange={(e) => run(() => updateBooking(booking.id, { balancePaid: e.target.checked }))} />
+                Balance paid
+              </label>
+              <span className="muted field-help">Tick these only for money taken outside the app. A payment from the pay link ticks them on its own.</span>
+              <label>
+                <span className="detail-field-label">How the balance will be collected</span>
+                <select
+                  value={booking.balancePaymentPreference}
+                  disabled={busy}
+                  aria-label={`Balance payment preference for ${who}`}
+                  onChange={(e) => run(() => updateBooking(booking.id, { balancePaymentPreference: e.target.value as BalancePreference }))}
+                >
+                  {BALANCE_PREFERENCES.map((b) => (
+                    <option key={b} value={b}>
+                      {b}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <span className="muted field-help">A note for your team only. Nothing is charged or sent because of it.</span>
+            </div>
+            <RefundLog bookingId={booking.id} />
+          </Part>
+
+          <Part n={4} title="Paperwork" help={paper?.path === "contract" ? "This booking is on a contract: the customer signs it, then pays the retainer." : "This booking is on the short rental policy: the customer accepts it on the pay page, then pays the retainer."}>
+            {paper && paper.path === "policy" && (
+              <p className={paper.policy.by === "customer" ? "bulk-result" : "stage-warning"} role="note" data-testid="policy-line">
+                {paper.policy.line}
+              </p>
+            )}
+            {paper?.policy.acceptedText && (
+              <details className="lead-more">
+                <summary>The policy text the customer accepted</summary>
+                <pre className="policy-text-shown">{paper.policy.acceptedText}</pre>
+              </details>
+            )}
+            <div className="status-control" role="group" aria-label={`Contract for ${who}`} id="booking-contract">
+              <span className="status-now">
+                <span className="detail-field-label">Contract</span>
+                <span className={booking.agreement?.contractStatus === "Signed" ? "achip achip-yes" : booking.agreement?.contractStatus === "Sent" ? "achip achip-unchecked" : "achip achip-none"}>
+                  {booking.agreement?.contractStatus === "Signed" ? "Signed" : booking.agreement?.contractStatus === "Sent" ? "Sent, not signed" : paper?.path === "policy" ? "Not needed" : "Not sent"}
+                </span>
+              </span>
+              {booking.agreement?.contractStatus === "Signed" && booking.agreement.contractUrl && (
+                <a className="btn-secondary" href={booking.agreement.contractUrl} target="_blank" rel="noreferrer">
+                  Open the signed PDF
+                </a>
+              )}
+              {booking.agreement?.contractStatus !== "Signed" && (
+                <a className="btn-secondary" href={`/api/contract-admin/preview/${booking.id}.pdf`} target="_blank" rel="noreferrer">
+                  Preview the contract PDF
+                </a>
+              )}
+              <SendMessageControls target={{ bookingId: booking.id }} label="Text the customer" onContractSent={refresh} />
+              <span className="muted field-help">
+                Send contract link texts and emails the signing link, states the retainer amount, and moves the booking to Contract Sent. Looking at the preview sends nothing. A signed contract is never sent again.
+              </span>
+            </div>
+            <ContractDetails booking={booking} onSave={save} />
+            <div id="booking-wedding">
+              <WeddingDetailsPanel bookingId={booking.id} onChanged={refresh} />
+            </div>
+            <details className="lead-more">
+              <summary>Stage and the agreement record</summary>
+              <label>
+                <span className="detail-field-label">Stage</span>
+                <select value={booking.status} disabled={busy} aria-label={`Stage for ${who}`} onChange={(e) => run(() => updateBooking(booking.id, { status: e.target.value as BookingStatus }))}>
+                  {(booking.status as string) === "Released" && (
+                    <option value="Released" disabled>
+                      Released (unpaid hold lapsed)
+                    </option>
+                  )}
+                  {BOOKING_STAGES.map((s) => (
+                    <option key={s} value={s}>
+                      {s}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <span className="muted field-help">
+                The stage moves on its own when a contract is sent or signed. Change it here to correct it, to mark an event Completed, or to cancel a booking. Stage changes text the customer. Confirmed is worked out, not set: a small rental is
+                Confirmed as soon as its retainer is paid, a contract booking when it is Signed and the retainer is paid. In the system this booking reads <BookingStatusTag booking={booking} />
+                {booking.tier ? ` and is ${booking.tier === 1 ? "on the rental policy" : booking.tier === 2 ? "on a contract" : "a reviewed order"}` : ""}.
+              </span>
+              <AgreementDetail booking={booking} />
+            </details>
+          </Part>
+
+          <Part n={5} title="History" help="What has happened on this booking and its lead, newest first, then every message sent and what is scheduled.">
+            {summary && summary.history.length > 0 && (
+              <ul className="activity-list">
+                {summary.history.map((h, i) => (
+                  <li key={`${h.at}-${i}`} className="activity-entry">
+                    <span className="activity-time">{whenText(h.at)}</span>
+                    {h.text}
+                    {h.by && <span className="muted"> · {h.by}</span>}
+                  </li>
+                ))}
+              </ul>
+            )}
+            <RecordMessages bookingId={booking.id} />
+            <AutomationTimeline kind="booking" id={booking.id} />
+          </Part>
+
+          <Part n={6} title="Next action" help={row ? (row.needs.length > 0 ? `This booking is waiting on: ${row.needs.map((n) => n.label).join(", ")}. The button is the next thing to do.` : "Nothing is waiting on this booking.") : "What to do next."}>
+            {next && next.code === "decide-cancellation" && (booking.leadId ? <CancellationRequests leadId={booking.leadId} onDecided={refresh} /> : <a href="/leads?view=cancellations">Open the cancellation request in Leads</a>)}
+            {next && next.code !== "none" && next.code !== "decide-cancellation" && (
+              <button type="button" className="btn-primary lead-main-action" onClick={runNext} data-testid="booking-main-action">
+                {next.label}
+              </button>
+            )}
+            {next && next.code === "none" && <p className="muted">{next.label}</p>}
+            {next && (next.code === "send-pay-link" || next.code === "send-contract" || next.code === "wedding-details") && (
+              <span className="muted field-help">
+                {next.code === "send-pay-link" ? "Takes you to the pay link under Money, where you confirm the amount before it is sent." : next.code === "send-contract" ? "Takes you to the contract under Paperwork, where you send the link." : "Takes you to the wedding details under Paperwork."}
+              </span>
+            )}
+          </Part>
         </div>
 
         <div className="modal-foot">

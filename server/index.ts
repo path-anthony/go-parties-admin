@@ -41,6 +41,7 @@ import { heroAdminRouter, publicHeroRouter, publicMediaRouter } from "./routes/h
 import tierRouter from "./routes/tier.js";
 import { adminPaymentsRouter, publicPaymentsRouter } from "./routes/payments.js";
 import { payApiRouter, payPagesRouter } from "./routes/pay.js";
+import bookingsListRouter from "./routes/bookingsList.js";
 import { bookingMoneyRouter, cancellationRequestsRouter, moneyRouter } from "./routes/money.js";
 import { inboxRouter, leadActionsRouter, todayRouter } from "./routes/inbox.js";
 import stripeWebhookRouter from "./routes/stripeWebhook.js";
@@ -202,6 +203,7 @@ app.use("/api/bookings/direct", directBookingLimiter, directBookingsRouter);
 // an hour) so pricing a cart never spends the five booking attempts.
 app.use("/api/bookings/tier", tierLimiter, tierRouter);
 app.use("/api/bookings/staff", requireAuth, staffBookingRouter);
+app.use("/api/bookings", requireAuth, bookingsListRouter);
 app.use("/api/bookings", requireAuth, adminPaymentsRouter);
 app.use("/api/bookings", requireAuth, bookingMoneyRouter);
 app.use("/api/bookings", requireAuth, adminWeddingRouter);

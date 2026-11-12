@@ -1,4 +1,8 @@
 import type {
+  StaffAddressCheck,
+  BookingSummary,
+  BookingsList,
+  StaffPreview,
   AdminRole,
   AdminUser,
   AuditRow,
@@ -448,6 +452,21 @@ export async function getAvailableItems(date: string): Promise<AvailableItem[]> 
 
 export function searchCustomers(q: string): Promise<CustomerMatch[]> {
   return fetch(`/api/customers?q=${encodeURIComponent(q)}`).then(asJson<CustomerMatch[]>);
+}
+
+// Block F3b: the Bookings list, one booking's summary, and what New booking's
+// review step shows before anything is made.
+export function getBookingsList(): Promise<BookingsList> {
+  return fetch("/api/bookings/list").then(asJson<BookingsList>);
+}
+export function getBookingSummary(id: string): Promise<BookingSummary> {
+  return fetch(`/api/bookings/${id}/summary`).then(asJson<BookingSummary>);
+}
+export function previewStaffBooking(body: { itemIds: string[]; packageId?: string; total: number | null; occasion?: string; converting?: boolean }): Promise<StaffPreview> {
+  return fetch("/api/bookings/staff/preview", jsonRequest("POST", body)).then(asJson<StaffPreview>);
+}
+export function checkStaffAddress(address: string): Promise<StaffAddressCheck> {
+  return fetch("/api/bookings/staff/address-check", jsonRequest("POST", { address })).then(asJson<StaffAddressCheck>);
 }
 
 export function createStaffBooking(request: StaffBookingRequest): Promise<StaffBookingResult> {

@@ -556,6 +556,10 @@ model Booking {
   // lead's source no longer says this. Null on bookings made before F3a;
   // those still read their lead's source.
   origin                   String?
+  policyAcceptedAt         DateTime? @map("policy_accepted_at")
+  policyAcceptedVersionId  String?   @map("policy_accepted_version_id")
+  policyAcceptedVersion    Int?      @map("policy_accepted_version")
+  policyAcceptedText       String?   @map("policy_accepted_text")
   createdAt                DateTime  @default(now()) @map("created_at")
   updatedAt                DateTime  @default(now()) @updatedAt @map("updated_at")
 
@@ -940,6 +944,7 @@ model Lead {
   statusRef  LeadStatus     @relation(fields: [accountId, status], references: [accountId, name], onUpdate: Cascade, onDelete: Restrict)
   activities LeadActivity[]
   bookings   Booking[]
+  designRequests DesignRequest[]
   notifications Notification[]
 
   @@index([accountId])
@@ -1072,14 +1077,17 @@ model DesignRequest {
   dismissedByName          String?  @map("dismissed_by_name")
   customerToldAt           DateTime? @map("customer_told_at")
   bookingId                String?  @unique @map("booking_id")
+  leadId                   String?  @map("lead_id")
   createdAt                DateTime @default(now()) @map("created_at")
   updatedAt                DateTime @default(now()) @updatedAt @map("updated_at")
 
   account   Account    @relation(fields: [accountId], references: [id])
   booking   Booking?   @relation(fields: [bookingId], references: [id], onDelete: SetNull)
+  lead      Lead?      @relation(fields: [leadId], references: [id], onDelete: SetNull)
   agreement Agreement?
 
   @@index([accountId, status])
+  @@index([leadId])
   @@map("design_requests")
 }
 

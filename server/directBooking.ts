@@ -6,7 +6,8 @@ import { NoCrewFree, createGigs, needsCrew } from "./gigs.js";
 import { displayStatus, legacyCustomerStatus } from "../src/lib/bookingStatus.js";
 import { sendDesignRequestAck } from "./notify.js";
 import { sendPayLink, type PayLinkSend } from "./payLink.js";
-import { findLeadMatch } from "./inboxLoad.js";
+import { columnNames, findLeadMatch } from "./inboxLoad.js";
+import { newStageOf } from "./inbox.js";
 import { actorFields } from "./actor.js";
 import { currentPolicy } from "./policy.js";
 import { reviewDecision } from "./review.js";
@@ -220,7 +221,10 @@ export async function createDirectBooking(input: DirectBookingInput): Promise<{ 
   // submission carries the ticked box; when the account requires it, one
   // without it is refused, whether it would become a booking or a design
   // request.
-  const checkboxChecked = input.agreed === true;
+  // Block F3b: a request staff turn into a booking carries the tick the
+  // customer gave in the store, with its time and the version they saw.
+  const carriedTick = designRequestId ? await prisma.agreement.findFirst({ where: { designRequestId, accountId: account.id, checkboxChecked: true }, select: { agreedAt: true, policyVersionId: true, agreedIpHash: true, agreedUserAgent: true } }) : null;
+  const checkboxChecked = input.agreed === true || carriedTick !== null;
   if (!staff && !checkboxChecked && settings.requireAgreementCheckbox) {
     return out(400, { error: "Please agree to the cancellation and retainer policy to continue.", reason: "agreement-required" });
   }
@@ -243,10 +247,46 @@ export async function createDirectBooking(input: DirectBookingInput): Promise<{ 
         : sent
           ? { placeId: sent.placeId, deliveryComponents: sent.components, addressLat: sent.addressLat, addressLng: sent.addressLng }
           : {};
+      // Block F3b: the request gets a lead the moment it arrives, so it is in
+      // the inbox and on Today like every other lead. Staff building from a
+      // lead keep that lead; the same email or phone as an open lead links to
+      // it; anyone else gets a new lead in the first column.
+      const wantsText = pkg ? pkg.name : [...new Set(wanted.map(({ item }) => item.name))].join(", ");
+      let requestLeadId: string | null = null;
+      let requestNear: { id: string; customerName: string | null; createdAt: Date }[] = [];
+      if (staff && input.leadId) {
+        requestLeadId = (await prisma.lead.findFirst({ where: { id: input.leadId, accountId: account.id }, select: { id: true } }))?.id ?? null;
+      } else {
+        const match = await findLeadMatch(account.id, { name, email: contact.email, phone: contact.phone });
+        requestLeadId = match.exact?.id ?? null;
+        requestNear = match.near;
+      }
+      const firstColumn = newStageOf(await columnNames(account.id));
       const request = await prisma.$transaction(async (tx) => {
+        let leadId = requestLeadId;
+        if (!leadId && firstColumn) {
+          leadId = (
+            await tx.lead.create({
+              data: {
+                accountId: account.id,
+                source: staff ? "manual" : "storefront",
+                status: firstColumn,
+                customerName: name,
+                contact: [contact.phone, contact.email].filter(Boolean).join(" · "),
+                occasion: occasion ?? wantsText,
+                dateOfInterest: date,
+                notes: `Storefront request for ${wantsText} on ${dateText}${staff ? ", entered by staff" : ""}. Nothing is held yet.`,
+              },
+            })
+          ).id;
+        }
+        if (leadId) {
+          await tx.leadActivity.create({ data: { leadId, kind: "status", text: `Sent a request for ${wantsText} on ${dateText}${total === null ? "" : `, ${total.toLocaleString("en-US", { style: "currency", currency: "USD" })}`}. It needs a person before it is booked. Nothing is held yet.${requestLeadId ? " Linked to this lead." : ""}`, ...actorFields() } });
+        }
         const created = await tx.designRequest.create({
         data: {
           accountId: account.id,
+          leadId,
           reasons,
           occasion,
           eventDate: date,
@@ -302,6 +342,7 @@ export async function createDirectBooking(input: DirectBookingInput): Promise<{ 
       // when staff enter one they are already talking to the customer.
       if (!staff) void sendDesignRequestAck(request.id);
       await notifyDesignRequest(request);
+      if (!requestLeadId && request.leadId && requestNear.length > 0) void notePossibleMatches(request.leadId, name, requestNear);
       return out(202, {
         reviewRequired: true,
         designRequestId: request.id,
@@ -392,12 +433,16 @@ export async function createDirectBooking(input: DirectBookingInput): Promise<{ 
   // storefront booking (or a storefront request being converted) has the
   // same email or phone as a lead that is still open (matchLead in
   // server/inbox.ts has the rule). Otherwise it gets its own lead, as before.
+  const requestLead = designRequestId ? ((await prisma.designRequest.findFirst({ where: { id: designRequestId, accountId: account.id }, select: { leadId: true } }))?.leadId ?? null) : null;
   let linkLeadId: string | null = null;
   let nearLeads: { id: string; customerName: string | null; createdAt: Date }[] = [];
   if (staff && input.leadId) {
     const named = await prisma.lead.findFirst({ where: { id: input.leadId, accountId: account.id }, select: { id: true } });
     if (!named) return out(404, { error: "That lead was not found.", reason: "lead-not-found" });
     linkLeadId = named.id;
+  } else if (requestLead) {
+    // Block F3b: a request already has its lead. The booking hangs on it.
+    linkLeadId = requestLead;
   } else if (!staff || designRequestId) {
     const match = await findLeadMatch(account.id, { name, email: contact.email, phone: contact.phone });
     linkLeadId = match.exact?.id ?? null;
@@ -454,7 +499,7 @@ export async function createDirectBooking(input: DirectBookingInput): Promise<{ 
         data: {
           leadId: lead.id,
           kind: "status",
-          text: `Booked ${summary} for ${when} ${origin}.${addonNote ? ` Add-ons: ${addonNote}.` : ""}${linked ? (staff && input.leadId ? " Built from this lead." : " Linked to this lead because the email or phone is the same.") + (linked.status !== leadStatus ? ` Moved to ${leadStatus}.` : "") : ""}`,
+          text: `Booked ${summary} for ${when} ${origin}.${addonNote ? ` Add-ons: ${addonNote}.` : ""}${linked ? (staff && input.leadId ? " Built from this lead." : requestLead ? " Made from this lead's storefront request." : " Linked to this lead because the email or phone is the same.") + (linked.status !== leadStatus ? ` Moved to ${leadStatus}.` : "") : ""}`,
           ...actorFields(),
         },
       });
@@ -532,9 +577,10 @@ export async function createDirectBooking(input: DirectBookingInput): Promise<{ 
           accountId: account.id,
           customerId: customer?.id ?? null,
           bookingId: booking.id,
-          policyVersionId: policy.id,
+          policyVersionId: carriedTick?.policyVersionId ?? policy.id,
           checkboxChecked,
           ...evidence,
+          ...(carriedTick ? { agreedAt: carriedTick.agreedAt, agreedIpHash: carriedTick.agreedIpHash, agreedUserAgent: carriedTick.agreedUserAgent } : {}),
           // A tier 2 hold is the GO contract, prepared, sent (at checkout)
           // and signed by the customer in one go; GO's signature is the one
           // the quote carried.
@@ -578,6 +624,9 @@ export async function createDirectBooking(input: DirectBookingInput): Promise<{ 
     // on so the reply can say whether it went.
     let payLinkSend: PayLinkSend | null = null;
     if (staff && input.sendPayLink !== false) payLinkSend = await sendPayLink(result.booking.id, "created");
+    // Block F3b: exactly what went and to where, read back from the send log,
+    // so the booking popup can say it in one line.
+    const sentTo = payLinkSend ? (await prisma.messageLog.findMany({ where: { bookingId: result.booking.id, direction: "outbound", status: "sent", createdAt: { gte: result.booking.createdAt } }, select: { channel: true, recipient: true }, orderBy: { createdAt: "asc" } })).map((m) => ({ channel: m.channel, to: m.recipient })) : [];
     if (designRequestId) void clearRequestAlerts(designRequestId);
 
     // Block T1. A tier 2 hold: the signature taken in checkout is recorded
@@ -699,7 +748,7 @@ export async function createDirectBooking(input: DirectBookingInput): Promise<{ 
       items: bookedItems,
       ...(staff ? { gigs: result.gigs } : {}),
       // Block F1: whether the customer was sent what they owe, and if not, why.
-      ...(staff && payLinkSend ? { payLink: { sent: payLinkSend.sent, step: payLinkSend.step, amountCents: payLinkSend.amountCents, why: payLinkSend.why } } : {}),
+      ...(staff && payLinkSend ? { payLink: { sent: payLinkSend.sent, step: payLinkSend.step, amountCents: payLinkSend.amountCents, why: payLinkSend.why, sentTo } } : {}),
     });
   } catch (err) {
     if (err instanceof DesignRequestUnavailable) {

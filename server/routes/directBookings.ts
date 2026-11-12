@@ -9,7 +9,10 @@ import { isInvalidDelivery, parseDelivery } from "../delivery.js";
 import { NOT_EXACT_MESSAGE, lookupAddress, type ExactPlace } from "../addressLookup.js";
 import { prettyPhone } from "../messageContext.js";
 import { safeInline, stripControl } from "../sanitize.js";
-import { getSettings } from "../settings.js";
+import { getSettings, reviewRulesOf } from "../settings.js";
+import { reviewDecision } from "../review.js";
+import { needsCrew } from "../gigs.js";
+import { baseTier, tier1Amount } from "../tiers.js";
 import { parseGuestCount } from "../packagePricing.js";
 import { refundDaily, takeDaily } from "../usage.js";
 import { prisma } from "../db.js";
@@ -339,6 +342,57 @@ export default router;
 // account, and it can confirm a price other than the computed one.
 export const staffBookingRouter = Router();
 
+// Block F3b. What the Review step of New booking shows before anything is
+// made: the retainer, whether the customer gets the short policy or the
+// contract and why, and whether the order goes to review instead. The same
+// rules the booking itself runs (reviewDecision, baseTier); nothing is
+// written and nothing is held.
+staffBookingRouter.post("/preview", async (req, res) => {
+  const body = (req.body ?? {}) as Record<string, unknown>;
+  const account = await getDefaultAccount();
+  const itemIds = Array.isArray(body.itemIds) ? body.itemIds.filter((id): id is string => typeof id === "string").slice(0, 60) : [];
+  const total = typeof body.total === "number" && Number.isFinite(body.total) && body.total >= 0 ? Math.round(body.total * 100) / 100 : null;
+  const occasion = typeof body.occasion === "string" && body.occasion !== "" ? canonicalOccasion(body.occasion) : null;
+  const converting = body.converting === true;
+  const [settings, items, pkg] = await Promise.all([
+    getSettings(account.id),
+    prisma.item.findMany({ where: { id: { in: itemIds }, accountId: account.id }, select: { name: true, skills: true } }),
+    typeof body.packageId === "string" && body.packageId !== "" ? prisma.package.findFirst({ where: { id: body.packageId, accountId: account.id }, select: { occasions: true } }) : Promise.resolve(null),
+  ]);
+  const money = (n: number) => n.toLocaleString("en-US", { style: "currency", currency: "USD" });
+  const review = converting ? { reasons: [], sentence: null } : reviewDecision({ total, occasion, packageOccasions: pkg?.occasions ?? [], rules: reviewRulesOf(settings) });
+  const crewedItems = items.filter((i) => needsCrew(i)).map((i) => i.name);
+  const base = baseTier({ total, crewed: crewedItems.length > 0 }, { contractRequiredOver: settings.contractRequiredOver, contractRequiredForCrewed: settings.contractRequiredForCrewed });
+  const why =
+    base.tier === 2
+      ? [base.reasons.includes("over-contract-threshold") ? `the total is over ${money(settings.contractRequiredOver)}` : null, base.reasons.includes("crewed") ? `${crewedItems.slice(0, 2).join(" and ")} ${crewedItems.length === 1 ? "needs" : "need"} crew` : null].filter(Boolean).join(" and ")
+      : `the total is ${money(settings.contractRequiredOver)} or less${settings.contractRequiredForCrewed ? " and nothing on it needs crew" : ""}`;
+  const retainer = total === null ? null : base.tier === 1 ? tier1Amount(total, settings.depositPercentage, settings.tier1Collect === "full" ? "full" : "retainer") : tier1Amount(total, settings.depositPercentage, "retainer");
+  res.json({
+    total,
+    review: { required: review.reasons.length > 0, sentence: review.sentence },
+    path: base.tier === 2 ? "contract" : "policy",
+    why: `${base.tier === 2 ? "The customer signs the contract" : "The customer gets the short rental policy"} because ${why}.`,
+    retainerPercent: settings.depositPercentage,
+    retainer,
+    collectsFull: base.tier === 1 && settings.tier1Collect === "full",
+    payLinksOpenStorefront: settings.payLinksOpenStorefront,
+  });
+});
+
+// Block F3b. The address lookup for New booking: what Google finds for the
+// typed address. It only tells staff; a staff booking is never refused over
+// its address, and the booking is checked again after it is made.
+staffBookingRouter.post("/address-check", async (req, res) => {
+  const body = (req.body ?? {}) as Record<string, unknown>;
+  const text = typeof body.address === "string" ? safeInline(body.address, MAX_ADDRESS_LENGTH) : "";
+  if (!text) return res.status(400).json({ error: "Type the address first." });
+  const account = await getDefaultAccount();
+  const o = await lookupAddress(account.id, { text });
+  if (o.kind === "exact") return res.json({ exact: true, formattedAddress: o.place.formattedAddress, reason: null });
+  res.json({ exact: o.kind === "not-exact" ? false : null, formattedAddress: null, reason: o.reason });
+});
+
 staffBookingRouter.post("/", async (req, res) => {
   const body = (req.body ?? {}) as Record<string, unknown>;
 
@@ -390,9 +444,12 @@ staffBookingRouter.post("/", async (req, res) => {
   if (occasion === INVALID) return res.status(400).json({ error: "occasion must be a known occasion, like Wedding or Sweet 16" });
   const balancePaymentPreference = resolveBalancePreference(body);
   if (balancePaymentPreference === INVALID) return res.status(400).json({ error: `balancePaymentPreference must be one of ${BALANCE_PREFERENCES.join(", ")}` });
-  if (body.agreed !== true) {
-    return res.status(400).json({ error: "Confirm that the customer agreed to the cancellation and retainer policy.", reason: "agreement-required" });
-  }
+  // Block F3b: the staff tick is no longer required. It is a record that the
+  // customer agreed by phone; the customer accepts the policy themselves on
+  // the pay page, and that is what the booking shows.
+  if (body.agreed !== undefined && typeof body.agreed !== "boolean") return res.status(400).json({ error: "agreed must be true or false" });
+  const setupNotes = optionalText(body.setupNotes, 500);
+  if (setupNotes === INVALID) return res.status(400).json({ error: "setupNotes must be text up to 500 characters" });
   let designRequestId: string | null = null;
   const carried: { place?: ExactPlace; pin?: { setupLat: number | null; setupLng: number | null; setupNotes: string | null }; eventAddressSameAsHome?: boolean; guestCount?: number | null } = {};
   if (body.designRequestId !== undefined && body.designRequestId !== null && body.designRequestId !== "") {
@@ -427,7 +484,7 @@ staffBookingRouter.post("/", async (req, res) => {
     staff: true,
     occasion,
     balancePaymentPreference,
-    agreed: true,
+    agreed: body.agreed === true,
     designRequestId,
     name,
     contact,
@@ -443,7 +500,7 @@ staffBookingRouter.post("/", async (req, res) => {
     totalOverride,
     guestCount: staffGuestCount ?? carried.guestCount ?? null,
     place: carried.place ?? null,
-    pin: carried.pin ?? null,
+    pin: setupNotes ? { setupLat: carried.pin?.setupLat ?? null, setupLng: carried.pin?.setupLng ?? null, setupNotes: safeInline(setupNotes, 500) } : (carried.pin ?? null),
     eventAddressSameAsHome: carried.eventAddressSameAsHome === true,
     // Block F1: on unless staff unticked "Send it now".
     sendPayLink: body.sendPayLink !== false,

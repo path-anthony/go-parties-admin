@@ -705,7 +705,11 @@ export type StaffBookingRequest = {
   total?: number | null;
   occasion?: string;
   balancePaymentPreference: BalancePreference;
-  agreed: boolean;
+  // Block F3b: optional. A record that the customer agreed by phone.
+  agreed?: boolean;
+  packageId?: string;
+  guestCount?: number;
+  setupNotes?: string;
   designRequestId?: string;
   // Block F3a: the lead this booking is being built from.
   leadId?: string;
@@ -714,11 +718,13 @@ export type StaffBookingRequest = {
 };
 
 export type StaffBookingResult =
-  | { reviewRequired?: false; bookingId: string; leadId: string; stage: DisplayStatus; rush: boolean; total: number | null; payLink?: { sent: boolean; step: string; amountCents: number | null; why: string | null } }
+  | { reviewRequired?: false; bookingId: string; leadId: string; stage: DisplayStatus; rush: boolean; total: number | null; payLink?: { sent: boolean; step: string; amountCents: number | null; why: string | null; sentTo?: { channel: string; to: string }[] } }
   | { reviewRequired: true; designRequestId: string; reasons: ("threshold" | "occasion")[]; reviewReason?: string | null; total: number | null; message: string };
 
 export type DesignRequest = {
   id: string;
+  // Block F3b: the lead this request hangs on (null on older requests).
+  leadId?: string | null;
   status: "Open" | "Converted" | "Dismissed";
   reasons: ("threshold" | "occasion")[];
   occasion: string | null;
@@ -996,6 +1002,8 @@ export type InboxRow = {
   followUpOn: string | null;
   bookingId: string | null;
   cancellationRequestId: string | null;
+  // Block F3b: an open storefront request on this lead.
+  requestId: string | null;
 };
 export type Inbox = { tabs: { key: InboxTabKey; label: string; count: number }[]; rows: InboxRow[]; lostReasons: string[]; contactKinds: string[]; columns: string[] };
 export type LeadDetail = {
@@ -1048,3 +1056,42 @@ export type TodayColumn = { key: "close" | "nurture" | "after"; label: string; h
 export type TodayView = { today: string; moneyIn: MoneyOverview["moneyIn"]; columns: TodayColumn[] };
 // What New booking is filled in from when staff build a booking for a lead.
 export type LeadPrefill = { id: string; name: string; phone: string; email: string; date: string; itemIds: string[] };
+
+// Block F3b: the Bookings list and the booking popup.
+export type BookingViewKey = "needs-action" | "upcoming" | "past" | "cancelled";
+export type BookingNeed = { code: string; label: string };
+export type BookingNextAction = { code: "decide-cancellation" | "send-contract" | "send-pay-link" | "wedding-details" | "assign-crew" | "none"; label: string };
+export type BookingListRow = {
+  id: string;
+  leadId: string | null;
+  views: BookingViewKey[];
+  eventDate: string;
+  eventTime: string | null;
+  customerName: string;
+  email: string | null;
+  phone: string | null;
+  occasion: string | null;
+  items: string;
+  total: number | null;
+  status: string;
+  needs: BookingNeed[];
+  nextAction: BookingNextAction;
+  rush: boolean;
+};
+export type BookingsList = { today: string; views: { key: BookingViewKey; label: string; help: string; count: number }[]; statuses: string[]; rows: BookingListRow[] };
+export type BookingSummary = {
+  today: string;
+  row: BookingListRow;
+  lead: { id: string; name: string | null } | null;
+  where: { address: string | null; mapsUrl: string | null; setupNotes: string | null; guestCount: number | null };
+  money: { total: number | null; paid: number; owedNow: number | null; owedStep: string; retainer: number | null; retainerPaid: boolean; balance: number; balancePaid: boolean; balanceDueDate: string | null };
+  paperwork: {
+    path: "contract" | "policy";
+    policy: { needed: boolean; by: "customer" | "staff" | "nobody"; via: string | null; at: string | null; version: number | null; line: string; acceptedText: string | null };
+    contract: { status: string; sentAt: string | null; signedAt: string | null; pdfUrl: string | null } | null;
+    weddingDetailsMissing: boolean;
+  };
+  history: { at: string; text: string; by: string | null }[];
+};
+export type StaffPreview = { total: number | null; review: { required: boolean; sentence: string | null }; path: "contract" | "policy"; why: string; retainerPercent: number; retainer: number | null; collectsFull: boolean; payLinksOpenStorefront: boolean };
+export type StaffAddressCheck = { exact: boolean | null; formattedAddress: string | null; reason: string | null };

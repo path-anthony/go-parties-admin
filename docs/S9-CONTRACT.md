@@ -1,6 +1,6 @@
 # S9 contract: what the storefront needs from Blocks F2 and F1
 
-Sections 1 to 5 were written 2026-11-12 with admin Block F2. Sections 6 to 9 were added 2026-11-13 with admin Block F1 (the money path). Block F3a (2026-11-14) changed nothing the store calls; it added the pay link switch described in section 6 and one new email, the unpaid hold reminder: a signed-in customer who holds a date on a small rental and does not pay is emailed their pay link 1 and 3 days later. Everything here is live on the admin API (`https://admin.thegoeventgroup.com`, and the old Railway address). Nothing in this file requires the storefront to change before it keeps working: every change is an added field or a new refusal with a plain sentence in `error`. The list under "What the storefront should build" is what makes the new behaviour visible to customers.
+Sections 1 to 5 were written 2026-11-12 with admin Block F2. Sections 6 to 9 were added 2026-11-13 with admin Block F1 (the money path). Block F3a (2026-11-14) changed nothing the store calls; it added the pay link switch described in section 6 and one new email, the unpaid hold reminder: a signed-in customer who holds a date on a small rental and does not pay is emailed their pay link 1 and 3 days later. Block F3b (2026-11-15) added what the store's pay screen and portal asked for: policy acceptance on the pay link, the items and the balance due date in the pay link's data, the guest count and the policy state on a customer's bookings, and the outcome of a cancellation request (sections 10 to 13, all additive). Everything here is live on the admin API (`https://admin.thegoeventgroup.com`, and the old Railway address). Nothing in this file requires the storefront to change before it keeps working: every change is an added field or a new refusal with a plain sentence in `error`. The list under "What the storefront should build" is what makes the new behaviour visible to customers.
 
 ## 1. Review rules result
 
@@ -350,3 +350,152 @@ The store's own promise, "We'll email you a secure payment link", is now kept: b
 3. **Treat `Confirmed` as the paid state for small rentals** (section 8). Anything keyed on `Retainer Paid` for tier 1 should also accept `Confirmed`.
 4. **A pay screen at `/pay/:token`** (section 6), with the policy shown on the policy path and the embedded Stripe form. Until it exists the admin's plain pages do the job.
 5. Optional: on the checkout "pay your retainer" step, say that a reminder with a payment link will follow if they leave.
+
+# Block F3b: what the pay screen and the portal asked for
+
+Four additions, all live on the admin API. Nothing was renamed or removed, and nothing here changes how a payment is taken, how an amount is worked out, or when a booking becomes `Confirmed`.
+
+## 10. Policy acceptance on the pay link (new call)
+
+A booking staff made by phone was agreed to out loud. The pay screen is where the customer reads the rental policy and accepts it themselves. When they tick the box, tell the admin:
+
+### `POST /api/pay/:token/policy`
+
+Request. Send the `id` of the policy the screen showed (from `GET /api/pay/:token`), so a policy saved in between is caught:
+
+```json
+{ "accept": true, "policyId": "cmw..." }
+```
+
+Recorded, HTTP 201:
+
+```json
+{ "policyAccepted": true, "policyAcceptedAt": "2026-11-15T15:04:11.000Z", "policyVersion": 4 }
+```
+
+- The admin stores the time, the policy version, and the exact text the customer saw (numbers filled in) on the booking. Staff then read "Policy accepted by customer on November 15, 2026, on the pay page (version 4)."
+- The first acceptance stands. Calling again answers HTTP 200 with the same `policyAcceptedAt`; nothing is overwritten. No session cookie is used.
+- It does not start a payment. Call `POST /api/pay/:token/session` afterwards as before. The admin does not refuse a payment because the box was not ticked: the store's screen is what requires the tick before showing the pay form.
+
+Refusals:
+
+| HTTP | `reason` | When |
+|---|---|---|
+| 400 | `accept-required` | `accept` was not `true`. Nothing is recorded. |
+| 404 | `not-found` | The token is not known. |
+| 409 | `policy-changed` | `policyId` is not the current policy. The body carries the current one as `policy: { id, version, text }`: show it and ask again. |
+| 409 | `not-needed` | A contract booking. The contract is the agreement; there is no policy to accept. |
+| 409 | `closed` | The booking is cancelled, released or finished. |
+| 409 | `no-policy` | No policy text exists yet. |
+
+```json
+{ "error": "The policy was updated. Please read it again.", "reason": "policy-changed", "policy": { "id": "cmx...", "version": 5, "text": "Cancellation and retainer policy ..." } }
+```
+
+## 11. The pay link's data: policy state, items, balance due date
+
+`GET /api/pay/:token` keeps every field in section 6 and adds the ones marked new:
+
+```json
+{
+  "step": "retainer",
+  "amount": 90,
+  "kind": "retainer",
+  "stage": "Held",
+  "eventDate": "2026-12-26",
+  "customerFirstName": "Sarah",
+  "total": 450,
+  "paid": 0,
+  "retainerPaid": false,
+  "balancePaid": false,
+  "contractLink": null,
+  "policy": { "id": "cmw...", "version": 4, "text": "Cancellation and retainer policy ..." },
+  "hasAccount": false,
+
+  "policyRequired": true,
+  "policyAccepted": false,
+  "policyAcceptedAt": null,
+  "eventTime": "2 PM",
+  "guestCount": 80,
+  "package": null,
+  "items": [
+    { "name": "Portable Bar", "quantity": 2 },
+    { "name": "Bartender", "quantity": 1 }
+  ],
+  "balance": 360,
+  "balanceDueDate": "2026-12-12"
+}
+```
+
+- `policyRequired` is false on a contract booking (and `policy` is null). When it is true and `policyAccepted` is false, show `policy.text` with the checkbox and call section 10 before the pay form.
+- `policyAccepted` is true when the customer has accepted the policy themselves: on this pay screen, or with the checkbox at checkout in the store. A staff "customer agreed" tick does not count. `policyAcceptedAt` is the time, or null.
+- Once accepted on the pay link, `policy` is the text and version they accepted, even if a newer policy has been saved since.
+- `items` are the booking's lines, a name and a count. A service with crew (no physical unit) is a line too. `package` is the package name when the booking is a package, else null; `items` is still filled.
+- `balance` is what is left after the retainer, in dollars (null when nothing is priced). `balanceDueDate` is `YYYY-MM-DD`, the event date less the balance due days setting (null when nothing is priced).
+- `eventTime` and `guestCount` can be null. Still no surname, phone, email or address.
+
+## 12. A customer's bookings: guest count and policy
+
+Each booking in `GET /api/customer/bookings` (and every response that returns a customer booking) now also has:
+
+```json
+{
+  "id": "cmw...",
+  "tier": 1,
+  "stage": "Held",
+  "guestCount": 80,
+  "policyRequired": true,
+  "policyAccepted": true,
+  "policyAcceptedAt": "2026-11-13T15:02:40.000Z"
+}
+```
+
+- `guestCount` is a whole number or null.
+- `policyRequired`, `policyAccepted` and `policyAcceptedAt` mean the same as in section 11. A booking the customer made in the store with the box ticked is `policyAccepted: true` from the start. A booking staff made for them is false until they accept on the pay link.
+
+## 13. A customer's bookings: the outcome of a cancellation request
+
+Each customer booking now carries `cancellation`: the newest request to cancel and what became of it. It is null when the customer never asked. The store no longer has to remember on the device that a request was sent.
+
+Waiting on staff:
+
+```json
+{
+  "id": "cmw...",
+  "stage": "Confirmed",
+  "pendingRequest": { "type": "cancellation", "id": "cmx...", "status": "open", "requestedAt": "2026-11-13T15:04:11.000Z", "reason": "We moved the party" },
+  "cancellation": { "id": "cmx...", "status": "waiting", "requestedAt": "2026-11-13T15:04:11.000Z", "decidedAt": null, "reason": "We moved the party" }
+}
+```
+
+Declined (the booking is unchanged):
+
+```json
+{
+  "stage": "Confirmed",
+  "pendingRequest": null,
+  "cancellation": { "id": "cmx...", "status": "declined", "requestedAt": "2026-11-13T15:04:11.000Z", "decidedAt": "2026-11-14T14:30:00.000Z", "reason": "We moved the party" }
+}
+```
+
+Approved (the booking is cancelled):
+
+```json
+{
+  "stage": "Cancelled",
+  "pendingRequest": null,
+  "cancellation": { "id": "cmx...", "status": "approved", "requestedAt": "2026-11-13T15:04:11.000Z", "decidedAt": "2026-11-14T14:30:00.000Z", "reason": "We moved the party" }
+}
+```
+
+- `status` is `waiting`, `approved` or `declined`. `decidedAt` is null while waiting.
+- `reason` is the customer's own words. Staff notes on the decision never leave the server.
+- When the customer asks again after a decline, `cancellation` is the new request (`waiting`).
+- `pendingRequest` is unchanged from section 8 and is still set only while a request waits.
+
+## 14. What the storefront should build for Block F3b
+
+1. On the pay screen, when `policyRequired` is true and `policyAccepted` is false: show `policy.text` with a checkbox, call `POST /api/pay/:token/policy` with `policyId` when it is ticked, then show the pay form. On `policy-changed`, show the new text and ask again.
+2. On the pay screen, show `items` (or `package`), `eventTime`, `guestCount`, and the balance with `balanceDueDate`.
+3. In My party, show `guestCount`, and "Policy accepted" from `policyAccepted`.
+4. In My party, show the cancellation outcome from `cancellation.status` and its dates, and drop the device memory of a sent request.

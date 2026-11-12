@@ -71,7 +71,8 @@ export function LeadsInboxScreen() {
     const q = new URLSearchParams(params);
     q.delete("lead");
     q.delete("request");
-    if (row) q.set(row.kind, row.id);
+    // A lead with a storefront request waiting opens the request.
+    if (row) q.set(row.requestId ? "request" : row.kind, row.requestId ?? row.id);
     setParams(q, { replace: true });
   };
 

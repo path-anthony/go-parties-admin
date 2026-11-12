@@ -2945,3 +2945,37 @@ a.nav-item {
   .inbox-row { grid-template-columns: 1fr; }
   .today-item { flex-direction: column; align-items: flex-start; }
 }
+
+/* Block F3b: the Bookings list, the booking popup and the guided New booking. */
+.booking-row { grid-template-columns: 150px minmax(150px, 1.2fr) minmax(110px, 0.9fr) minmax(150px, 1.5fr) 100px minmax(190px, 1.4fr); }
+.booking-row-when { display: flex; flex-direction: column; gap: 2px; font-size: 13px; }
+.booking-row-total { font-size: 13px; font-variant-numeric: tabular-nums; }
+.booking-row-status { display: flex; flex-direction: column; gap: 3px; align-items: flex-start; }
+.bstatus { display: inline-block; padding: 2px 9px; border-radius: 999px; background: #fef0c7; color: #93370d; font-size: 12px; font-weight: 700; }
+.bstatus-ok { background: #d1fadf; color: #05603a; }
+.bstatus-quiet { background: #f2f4f7; color: #475467; }
+.bookings-filters label { display: flex; align-items: center; gap: 6px; font-size: 13px; color: #475467; }
+.bookings-filters input[type="date"] { padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; font: inherit; }
+.booking-popup-grid .status-control { margin: 0; }
+.booking-popup-grid .field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 14px; }
+.booking-items { display: flex; flex-direction: column; gap: 8px; border-top: 1px dashed var(--line); padding-top: 8px; }
+.new-booking { width: min(760px, 100%); }
+.step-list { list-style: none; display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 4px; padding: 0; }
+.step-button { border: 1px solid var(--line); background: #fff; border-radius: 999px; padding: 6px 14px; font: inherit; font-size: 13px; color: #475467; cursor: pointer; }
+.step-button.step-current { background: #1c1c1c; border-color: #1c1c1c; color: #fff; font-weight: 700; }
+.step-button:disabled { cursor: default; opacity: 0.6; }
+.unit-row-blocked { opacity: 0.6; }
+.address-lookup { display: flex; gap: 8px; align-items: center; }
+.address-lookup input { flex: 1; min-width: 0; }
+.review-facts { display: flex; flex-direction: column; gap: 8px; border: 1px solid var(--line); border-radius: 8px; padding: 12px; background: #faf7f2; }
+.review-facts p { margin: 0; display: flex; flex-direction: column; gap: 2px; font-size: 14px; }
+@media (max-width: 900px) {
+  .booking-row { grid-template-columns: 1fr 1fr; }
+  .booking-row .inbox-who, .booking-row-status { grid-column: 1 / -1; }
+}
+@media (max-width: 560px) {
+  .booking-row { grid-template-columns: 1fr; }
+  .booking-popup-grid .field-row { grid-template-columns: 1fr; }
+  .address-lookup { flex-direction: column; align-items: stretch; }
+  .bookings-filters label { width: 100%; }
+}

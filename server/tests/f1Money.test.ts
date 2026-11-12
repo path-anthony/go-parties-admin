@@ -324,7 +324,10 @@ test("staff create a small booking: the pay link goes by text and email with the
   emails.length = 0;
   const r = await staffSmall();
   phoneBooking = r.json.bookingId as string;
-  assert.deepEqual(r.json.payLink, { sent: true, step: "retainer", amountCents: 4500, why: null });
+  // Block F3b: the reply also says exactly where it went.
+  const { sentTo, ...sentPay } = r.json.payLink as { sentTo: { channel: string; to: string }[] };
+  assert.deepEqual(sentPay, { sent: true, step: "retainer", amountCents: 4500, why: null });
+  assert.deepEqual(sentTo.map((m) => m.channel), ["sms", "email"]);
   const sent = await logs(phoneBooking, "retainer_requested");
   assert.deepEqual(sent.map((l) => [l.channel, l.status]).sort(), [["email", "sent"], ["sms", "sent"]], "every send is in the Sent log");
   const b = await prisma.booking.findUniqueOrThrow({ where: { id: phoneBooking } });
@@ -381,7 +384,7 @@ test("a converted policy request triggers the pay link send", async () => {
   assert.equal(c.status, 201, JSON.stringify(c.json));
   assert.equal(c.json.tier, 1);
   const id = c.json.bookingId as string;
-  assert.deepEqual(c.json.payLink, { sent: true, step: "retainer", amountCents: 16000, why: null });
+  assert.deepEqual({ ...(c.json.payLink as object), sentTo: undefined }, { sent: true, step: "retainer", amountCents: 16000, why: null, sentTo: undefined });
   const sent = await logs(id, "retainer_requested");
   assert.ok(sent.some((l) => l.channel === "sms" && l.status === "sent") && sent.some((l) => l.channel === "email" && l.status === "sent"));
   assert.ok(texts.some((t) => t.body.includes("$160.00") && t.body.includes("https://api.test/pay/")));

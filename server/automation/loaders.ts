@@ -146,14 +146,14 @@ export async function loadPlans(scope: PlanScope = {}): Promise<Planned[]> {
   if (want("lead")) {
     const leads = await prisma.lead.findMany({
       where: { accountId: base.accountId, ...(scope.leadId ? { id: scope.leadId } : scope.allLeads ? {} : { source: { in: NURTURE_SOURCES } }) },
-      include: { bookings: { select: { id: true } } },
+      include: { bookings: { select: { id: true } }, designRequests: { select: { id: true } } },
     });
     for (const l of leads) {
       const contact = parseContact(l.contact);
       const subject: PlanSubject = { kind: "lead", id: l.id };
       base.valuesFor(subject, { lead: { customerName: l.customerName, occasion: l.occasion, dateOfInterest: l.dateOfInterest } });
       const plan = planLead(
-        { id: l.id, source: l.source, createdAt: l.createdAt, stage: l.status, hasBooking: l.bookings.length > 0, paused: l.automationPaused, dateOfInterest: l.dateOfInterest ? dayText(l.dateOfInterest) : null, contact },
+        { id: l.id, source: l.source, createdAt: l.createdAt, stage: l.status, hasBooking: l.bookings.length > 0, paused: l.automationPaused, dateOfInterest: l.dateOfInterest ? dayText(l.dateOfInterest) : null, contact, staffContacted: l.firstContactedAt !== null || l.lastContactedAt !== null || l.designRequests.length > 0, followUpSet: l.followUpOn !== null },
         base.facts,
       );
       out.push({ journey: "lead", kind: "lead", recordId: l.id, name: l.customerName?.trim() || "Lead", href: `/leads?lead=${l.id}`, contact, plan, send: { context: { leadId: l.id } } });
