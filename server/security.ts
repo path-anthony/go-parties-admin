@@ -30,7 +30,8 @@ const PUBLIC_ROUTES: RegExp[] = [
   // Block F1: the pay link as JSON, for a storefront pay screen.
   /^\/pay\/[^/]+(\/(session|policy))?$/,
   /^\/leads\/concierge$/,
-  /^\/recommend$/,
+  // Block G1: Ask GO, and its opening lines before anything is typed.
+  /^\/recommend(\/starters)?$/,
   /^\/customer(\/|$)/,
   /^\/contracts(\/|$)/,
   /^\/bids(\/|$)/,
