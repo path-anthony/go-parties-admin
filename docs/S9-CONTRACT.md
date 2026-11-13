@@ -499,3 +499,65 @@ Approved (the booking is cancelled):
 2. On the pay screen, show `items` (or `package`), `eventTime`, `guestCount`, and the balance with `balanceDueDate`.
 3. In My party, show `guestCount`, and "Policy accepted" from `policyAccepted`.
 4. In My party, show the cancellation outcome from `cancellation.status` and its dates, and drop the device memory of a sent request.
+
+# Block G1: Ask GO suggested replies
+
+Live on the admin API. Additive: `POST /api/recommend` keeps every field it had and gains one. Nothing about how Ask GO picks items or prices changed.
+
+## 15. `suggestions` on every Ask GO reply
+
+**The field to read is `suggestions`**, an array of strings at the top level of every `POST /api/recommend` response. Each string is a short reply the customer can tap to send as their next message. They are written by the same model call that writes `message`, from the conversation so far, so there is no extra request and no extra wait.
+
+A reply that asks a question (`ready: false`). The suggestions are answers to that question:
+
+```json
+{
+  "ready": false,
+  "message": "Nice, 20 for a bachelor party. What's the budget you're working with?",
+  "suggestConcierge": false,
+  "suggestions": ["Under $1,000", "$1,000 to $2,500", "$2,500 and up", "Not sure yet"]
+}
+```
+
+A reply that recommends items (`ready: true`). The suggestions are next moves for that party and that lineup:
+
+```json
+{
+  "ready": true,
+  "message": "A bar, a cigar lounge and lawn games cover 20 guys for the afternoon, right around $1,800.",
+  "items": [{ "id": "cmw...", "name": "6 ft Portable Bar", "category": "Bar and Cigar", "price": 225 }],
+  "total": 1810,
+  "suggestConcierge": false,
+  "suggestions": ["Add a DJ", "Keep it under $1,500", "Make it for 30", "Looks good, book it"]
+}
+```
+
+Rules the store can rely on:
+
+- `suggestions` is always present and always an array. It holds 2 to 4 strings, or it is empty.
+- **Empty means show no buttons.** It is empty when the model sent none, sent something malformed, or fewer than two survived the checks; and on the replies that make no model call (`limit: "conversation"`, `limit: "daily-cap"`, an empty catalog). The admin never falls back to fixed text, and the store must not either: remove the three hardcoded buttons.
+- Each string is 6 words or fewer, plain text, with no punctuation at the end and no emoji. Show it as it is and send it back as it is: tapping one appends `{ "role": "user", "content": "<the string>" }` to `messages` and posts the conversation again, exactly as if the customer had typed it.
+- They fit the occasion and the audience in the conversation. An adult party (a bachelor party, a 40th, a wedding) never gets a line about kids or parents, and a kids party never gets an adult-only one. The admin checks this after the model as well.
+- The suggestions belong to the reply they came with. When a new reply arrives, replace them; do not keep the old ones.
+- "Looks good, book it" is a message like any other. If the store would rather take the customer to the cart on that tap, match on the lineup being shown (`ready: true`), not on the wording.
+
+## 16. Opening lines before the customer has typed (new call)
+
+### `GET /api/recommend/starters`
+
+No body, no cookie, no bot fields, and no model call. Optional `?occasion=` with the kind the customer picked on the store (`Kids party`, `Adult party`, `Wedding`, `Corporate`) puts that kind first.
+
+```json
+{ "suggestions": ["Backyard birthday for 20 kids", "40th birthday for 40 guests", "Company picnic for 100", "Wedding reception for 120"] }
+```
+
+- Always four strings, one for each kind of party GO does, so the empty chat never reads as a kids party only. They change from day to day and may be cached for a few minutes (`Cache-Control: public, max-age=300`).
+- The same field name, `suggestions`, and the same handling: tapping one sends it as the customer's first message. Each names an occasion and a guest count, so the first reply usually goes straight to the budget question.
+- If the call fails, show no buttons.
+
+## 17. What the storefront should build for Block G1
+
+1. Delete the three hardcoded suggestion buttons under the Ask GO chat.
+2. After every reply, draw one button per string in that reply's `suggestions`. Draw none when it is empty.
+3. Before the first message, draw the buttons from `GET /api/recommend/starters`.
+4. A tap sends the string as the customer's next message.

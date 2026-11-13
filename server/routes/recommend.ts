@@ -3,6 +3,8 @@ import { Router } from "express";
 import { getDefaultAccount } from "../account.js";
 import { prisma } from "../db.js";
 import { aiGate, companyPhone } from "../ai.js";
+import { audienceOf, cleanSuggestions, starterPrompts } from "../askSuggestions.js";
+import { todayEastern } from "../validate.js";
 import { botCheck } from "../botCheck.js";
 import { contactLine, leadContactFrom, type LeadContact } from "../leadContact.js";
 import { getDefaultStatus } from "../leadStatuses.js";
@@ -15,7 +17,7 @@ import type { Item } from "../../src/generated/prisma/client.js";
 
 const router = Router();
 
-const MODEL = process.env.CLAUDE_MODEL ?? "claude-sonnet-5";
+export const MODEL = process.env.CLAUDE_MODEL ?? "claude-sonnet-5";
 // A real message is "1-3 sentences"; anything shorter than this is almost
 // certainly a degenerate output (observed: the model occasionally returns
 // the literal string "placeholder" instead of real reasoning). Retry rather
@@ -130,6 +132,19 @@ const INSTRUCTIONS =
   "Voice: short, sure, chill. 1-3 sentences. No exclamation points, no emoji, no 'Great question', no hype " +
   "words ('unforgettable', 'elevate', 'seamless', 'magical'). Matter-of-fact, then a little warmth. No em " +
   "dashes, use a period or comma instead.\n\n" +
+  "Suggested replies: with every reply, also write 2 to 4 short lines the customer could tap to send next, " +
+  "in the suggestions field. They are the customer's words, not yours. If your message asks a question, " +
+  "they are plausible answers to that exact question and nothing else: for a budget question, two or three " +
+  "dollar ranges that fit the party described so far (its occasion and guest count) plus 'Not sure yet'; for " +
+  "a date question, 'This month', 'Next month', 'Not sure yet'; for a guest count question, ranges like " +
+  "'Under 25' or '50 to 75'; for an occasion question, kinds of party. If your message recommends items, " +
+  "they are sensible next moves for this kind of party and this lineup: add a category that fits and is " +
+  "not in it yet, bring the total down, change the size, or 'Looks good, book it'. Every line must fit the " +
+  "occasion and the people in this conversation. Never mention kids, children or parents for an adult party " +
+  "(a bachelor or bachelorette party, a 30th, a retirement, a wedding, a company event), and never suggest " +
+  "anything adult only for a kids party. Each line is 6 words or fewer, with no punctuation at the end, no " +
+  "emoji and no quotation marks. Never repeat a line the customer has already sent. The suggestions never " +
+  "change which items you pick or what you say.\n\n" +
   "You may only recommend items by the exact id given in the catalog below. Never invent an item, id, or price. " +
   "Pick a set of items that fits the occasion, guest count, and budget as closely as possible, favoring a mix " +
   "of categories over many items from one category. If the budget can't be met with real items, get as close " +
@@ -148,7 +163,7 @@ export function buildSystem(catalogItems: CatalogRow[], subOcc: string | null): 
   return blocks;
 }
 
-const RESPOND_TOOL: Anthropic.Tool = {
+export const RESPOND_TOOL: Anthropic.Tool = {
   name: "respond_to_party_request",
   description:
     "Decide whether you have enough to recommend real items with confidence, or whether one clarifying question " +
@@ -188,10 +203,38 @@ const RESPOND_TOOL: Anthropic.Tool = {
           "one, lean toward the highest-value items across categories, this is 'show me what's possible', not " +
           "a safe middle. Leave empty when ready is false.",
       },
+      suggestions: {
+        type: "array",
+        items: { type: "string" },
+        description:
+          "2 to 4 short replies the customer could tap to send next, in their own words, 6 words or fewer each, " +
+          "no punctuation at the end, no emoji. When ready is false: plausible answers to the one question in " +
+          "message (for budget: dollar ranges that fit this party, plus 'Not sure yet'). When ready is true: " +
+          "next moves that fit this party and this lineup, such as adding a fitting category, lowering the " +
+          "total, changing the size, or 'Looks good, book it'. They must fit the occasion and audience of this " +
+          "conversation: nothing about kids or parents for an adult party, nothing adult only for a kids party.",
+      },
     },
-    required: ["ready", "message", "item_ids", "suggest_concierge"],
+    required: ["ready", "message", "item_ids", "suggest_concierge", "suggestions"],
   },
 };
+
+// The one model call. Tests replace it with setAskGoModel and never call
+// Anthropic.
+export type AskGoModel = (request: Anthropic.MessageCreateParamsNonStreaming) => Promise<Pick<Anthropic.Message, "content" | "stop_reason">>;
+let modelOverride: AskGoModel | null = null;
+export function setAskGoModel(f: AskGoModel | null) {
+  modelOverride = f;
+}
+
+// Block G1. Before the customer has typed anything there is no conversation
+// to read, so no model call is made: these are opening lines, one for each
+// kind of party, that rotate by day. ?occasion= puts that kind first.
+router.get("/starters", (req, res) => {
+  const occasion = typeof req.query.occasion === "string" ? safeInline(req.query.occasion, 40) : "";
+  res.setHeader("Cache-Control", "public, max-age=300");
+  res.json({ suggestions: starterPrompts(todayEastern(), occasion || null) });
+});
 
 // Mounted in index.ts behind markAdmin and the per-IP limiter. The bot check
 // runs here. Ask GO's timestamp is when the conversation started, so on the
@@ -204,7 +247,7 @@ router.post("/", botCheck("recommend", { minAgeApplies: (req) => Array.isArray(r
     // A friendly end to a long conversation, in the shape the storefront
     // already shows as a reply. Nothing is spent.
     const phone = await companyPhone();
-    return res.json({ ready: false, suggestConcierge: false, limit: "conversation", message: `That's as far as I can take this one here. Call or text us${phone ? ` at ${phone}` : ""} and we'll finish it with you.` });
+    return res.json({ ready: false, suggestConcierge: false, suggestions: [], limit: "conversation", message: `That's as far as I can take this one here. Call or text us${phone ? ` at ${phone}` : ""} and we'll finish it with you.` });
   }
   if (!parsed.ok) {
     return res.status(400).json({ error: parsed.error, reason: parsed.reason });
@@ -218,19 +261,19 @@ router.post("/", botCheck("recommend", { minAgeApplies: (req) => Array.isArray(r
   const subOcc = typeof rawSubOcc === "string" && rawSubOcc.trim() !== "" ? (canonicalOccasion(rawSubOcc) ?? safeInline(rawSubOcc, 40)) || null : null;
 
   const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) {
+  if (!apiKey && !modelOverride) {
     return res.status(500).json({ error: "ANTHROPIC_API_KEY is not set on the server" });
   }
   // Budget: every AI request counts, whichever feature makes it.
   // Over the daily cap the answer is a normal reply, so every storefront
   // build shows the sentence instead of a generic error.
   const budget = await aiGate(req, res);
-  if (!budget.ok) return res.json({ ready: false, suggestConcierge: false, limit: "daily-cap", message: budget.message });
+  if (!budget.ok) return res.json({ ready: false, suggestConcierge: false, suggestions: [], limit: "daily-cap", message: budget.message });
 
   const account = await getDefaultAccount();
   // Block F2: who is asking, when the request or a signed-in account says.
   const who = await leadContactFrom(req, (req.body ?? {}) as Record<string, unknown>);
-  // theme is derived from every user turn so far, joined — used only for the
+  // theme is derived from every user turn so far, joined. It is used only for the
   // Lead row (logged just once, on the turn that commits to ready:true).
   const theme = messages
     .filter((m) => m.role === "user")
@@ -248,22 +291,29 @@ router.post("/", botCheck("recommend", { minAgeApplies: (req) => Array.isArray(r
 
   if (catalogItems.length === 0) {
     logLead(account.id, who, theme, [], 0);
-    return res.json({ ready: true, message: "No priced items in the catalog yet.", items: [], total: 0, suggestConcierge: false });
+    return res.json({ ready: true, message: "No priced items in the catalog yet.", items: [], total: 0, suggestConcierge: false, suggestions: [] });
   }
 
-  const anthropic = new Anthropic({ apiKey });
+  const anthropic = modelOverride ? null : new Anthropic({ apiKey: apiKey as string });
+  const callModel: AskGoModel = modelOverride ?? ((request) => (anthropic as Anthropic).messages.create(request));
   const system = buildSystem(catalogItems, subOcc);
+  // Block G1: who the party is for, from the customer's own words and the
+  // occasion they picked, for the backstop check on the suggestions.
+  const audience = audienceOf(`${subOcc ?? ""} ${theme}`);
 
   let ready = false;
   let message = "";
   let requestedIds: string[] = [];
   let suggestConcierge = false;
+  // Block G1: the tap-to-send replies, from the same call as the message.
+  let suggestions: string[] = [];
 
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
-    const response = await anthropic.messages.create({
+    const response = await callModel({
       model: MODEL,
-      // Room for a 1-3 sentence line plus 20 catalog ids; the ids are long.
-      max_tokens: 2048,
+      // Room for a 1-3 sentence line, 20 catalog ids (the ids are long) and
+      // up to four short suggested replies.
+      max_tokens: 2304,
       system,
       messages: messages.map((m) => ({ role: m.role, content: m.content })),
       tools: [RESPOND_TOOL],
@@ -278,10 +328,13 @@ router.post("/", botCheck("recommend", { minAgeApplies: (req) => Array.isArray(r
       continue;
     }
 
-    const input = toolUse.input as { ready?: unknown; message?: unknown; item_ids?: unknown; suggest_concierge?: unknown };
+    const input = toolUse.input as { ready?: unknown; message?: unknown; item_ids?: unknown; suggest_concierge?: unknown; suggestions?: unknown };
     ready = input.ready === true;
     suggestConcierge = input.suggest_concierge === true;
     message = typeof input.message === "string" ? input.message : "";
+    // Missing or malformed suggestions are an empty list, never a reason to
+    // retry and never replaced with fixed text.
+    suggestions = cleanSuggestions(input.suggestions, audience);
     requestedIds = Array.isArray(input.item_ids)
       ? input.item_ids.filter((id): id is string => typeof id === "string").slice(0, MAX_RECOMMENDED_ITEMS)
       : [];
@@ -303,7 +356,7 @@ router.post("/", botCheck("recommend", { minAgeApplies: (req) => Array.isArray(r
   }
 
   if (!ready) {
-    return res.json({ ready: false, message, suggestConcierge: false });
+    return res.json({ ready: false, message, suggestConcierge: false, suggestions });
   }
 
   const catalogById = new Map(catalogItems.map((item: Item) => [item.id, item]));
@@ -327,7 +380,7 @@ router.post("/", botCheck("recommend", { minAgeApplies: (req) => Array.isArray(r
 
   // suggestConcierge is a signal for the storefront to offer a planning
   // call; it never changes what is recommended.
-  res.json({ ready: true, message, items, total, suggestConcierge });
+  res.json({ ready: true, message, items, total, suggestConcierge, suggestions });
 });
 
 export default router;
