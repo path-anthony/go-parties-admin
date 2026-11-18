@@ -59,6 +59,9 @@ export type Item = {
   description: string | null;
   // Block A8: hidden from the store; still bookable by staff.
   hidden: boolean;
+  // Block FIX1: null means the default (off for a per-guest item).
+  countsAgainstStock: boolean | null;
+  maxPerDay: number | null;
   photoUrl: string | null;
   // The crew skills the item needs to run, any number, independent of
   // whether it has units. Booking it creates one gig per skill.
@@ -452,6 +455,8 @@ export type AgreementInfo = {
   confirmByDate?: string | null;
   contractSentAt?: string | null;
   policyVersion: { id: string; version: number };
+  // Block FIX1: the wording as the customer saw it, numbers filled in.
+  policyTextSeen?: string | null;
 };
 
 // Block T1: the delivery location, the address check and the tier.
@@ -556,6 +561,9 @@ export type Booking = {
   addons: BookingAddon[];
   gigs: BookingGig[];
   unitIds: string[];
+  // Block FIX1: items that hold no unit (per-guest catering by default).
+  lines?: BookingLineRow[];
+  guestCount?: number | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -641,6 +649,7 @@ export type AccountSettings = {
   // Block F3a.
   holdReminderEmails: boolean;
   payLinksOpenStorefront: boolean;
+  maxItemsPerBooking: number;
   depositPercentage: number;
   cancellationWindowDays: number;
   requireAgreementCheckbox: boolean;
@@ -1088,10 +1097,23 @@ export type BookingSummary = {
   paperwork: {
     path: "contract" | "policy";
     policy: { needed: boolean; by: "customer" | "staff" | "nobody"; via: string | null; at: string | null; version: number | null; line: string; acceptedText: string | null };
-    contract: { status: string; sentAt: string | null; signedAt: string | null; pdfUrl: string | null } | null;
+    contract: { status: string; sentAt: string | null; signedAt: string | null; pdfUrl: string | null; waitingOn?: string | null } | null;
     weddingDetailsMissing: boolean;
   };
   history: { at: string; text: string; by: string | null }[];
 };
 export type StaffPreview = { total: number | null; review: { required: boolean; sentence: string | null }; path: "contract" | "policy"; why: string; retainerPercent: number; retainer: number | null; collectsFull: boolean; payLinksOpenStorefront: boolean };
 export type StaffAddressCheck = { exact: boolean | null; formattedAddress: string | null; reason: string | null };
+
+// Block FIX1: an item on a booking that holds no unit, as it was priced.
+export type BookingLineRow = { id: string; itemId: string | null; itemName: string; quantity: number; guests: number | null; perGuest: boolean; unitPrice: string | null; lineTotal: string | null };
+
+// Block FIX1: the Rental policy screen.
+export type PolicyScreen = {
+  current: PolicyVersionInfo;
+  versions: PolicyVersionInfo[];
+  asCustomersSeeIt: string;
+  hardcoded: string[];
+  suggested: string | null;
+  draft: { text: string; savedAt: string | null; savedBy: string | null; asCustomersSeeIt: string; hardcoded: string[] } | null;
+};

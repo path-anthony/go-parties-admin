@@ -8,7 +8,7 @@ import { requireAuth, requireOwner } from "./auth.js";
 import { redact, safeErr } from "./log.js";
 import { markAdmin } from "./ai.js";
 import { corsPolicy, customerWriteGuard, securityHeaders } from "./security.js";
-import { conciergeLeadLimiter, directBookingLimiter, externalLeadLimiter, recommendLimiter, tierLimiter } from "./rateLimit.js";
+import { conciergeLeadLimiter, directBookingLimiter, externalLeadLimiter, recommendLimiter, rememberRefusalReason, tierLimiter } from "./rateLimit.js";
 import addonGroupsRouter from "./routes/addonGroups.js";
 import authRouter from "./routes/auth.js";
 import bookingsRouter from "./routes/bookings.js";
@@ -102,10 +102,12 @@ app.use("/api/bookings/tier", customerWriteGuard);
 app.use("/api/webhooks/stripe", express.raw({ type: "*/*", limit: "1mb" }));
 // Public write routes parse a small body first (body-parser skips a body that
 // is already parsed), so a flood of big requests is refused early.
-app.use("/api/recommend", express.json({ limit: "20kb" }));
+// Block FIX1: the conversation plus the current cart.
+app.use("/api/recommend", express.json({ limit: "32kb" }));
 app.use("/api/bookings/direct", express.json({ limit: "50kb" }));
 app.use("/api/bookings/tier", express.json({ limit: "20kb" }));
-app.use("/api/leads/concierge", express.json({ limit: "10kb" }));
+// Block FIX1: room for the Ask GO chat the store may send with it.
+app.use("/api/leads/concierge", express.json({ limit: "32kb" }));
 // Block A11: a whole wedding details form can be saved at once.
 app.use("/api/customer/bookings/:id/wedding-details", express.json({ limit: "128kb" }));
 app.use("/api/customer", express.json({ limit: "20kb" }));
@@ -198,7 +200,8 @@ app.use("/api/hero", publicHeroRouter);
 app.use("/api/media", publicMediaRouter);
 app.use("/api/hero", requireAuth, heroAdminRouter);
 app.use("/api/packages", requireAuth, packagesRouter);
-app.use("/api/bookings/direct", directBookingLimiter, directBookingsRouter);
+// Block FIX1: the limiter reads why a hold was refused (see countsAsHoldAttempt).
+app.use("/api/bookings/direct", rememberRefusalReason, directBookingLimiter, directBookingsRouter);
 // Which agreement a cart needs: public and read-only, its own limiter (60
 // an hour) so pricing a cart never spends the five booking attempts.
 app.use("/api/bookings/tier", tierLimiter, tierRouter);

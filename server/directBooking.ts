@@ -9,7 +9,7 @@ import { sendPayLink, type PayLinkSend } from "./payLink.js";
 import { columnNames, findLeadMatch } from "./inboxLoad.js";
 import { newStageOf } from "./inbox.js";
 import { actorFields } from "./actor.js";
-import { currentPolicy } from "./policy.js";
+import { currentPolicy, fillPolicyText } from "./policy.js";
 import { reviewDecision } from "./review.js";
 import { getSettings, reviewRulesOf, rushFor } from "./settings.js";
 import { getDefaultAccount } from "./account.js";
@@ -24,26 +24,18 @@ import { notifyContractSigned } from "./notify.js";
 import { createPaymentSession, type PaymentOffer } from "./payments.js";
 import { customerStage } from "./portal.js";
 import { HIDDEN_MESSAGE, checkQuote, resolveCart, type QuoteCart } from "./quotes.js";
-import { GuestCountError, isPerGuest, packagePrice } from "./packagePricing.js";
+import { PricingError, countsAgainstStock, priceCart, type Priced } from "./pricing.js";
+import { isPerGuest } from "./packagePricing.js";
+import { DailyMaxReached, claimDailyPlace } from "./stock.js";
 import { baseTier, decideTier, type Tier } from "./tiers.js";
 
 export const MAX_UNITS_PER_BOOKING = 50;
 
 const out = (status: number, body: unknown) => ({ status, body });
 
-// The price a direct booking is quoted at: the package's bundle price, or
-// each priced item times its quantity. Null when nothing has a price.
-function quotedTotal(
-  pkg: { price: unknown; pricingMode: string; basePrice: unknown; minGuests: number | null; maxGuests: number | null } | null,
-  wanted: { item: { price: unknown }; quantity: number }[],
-  guestCount: number | null,
-): number | null {
-  // Block A8: a per-guest package is priced on the count (checked by the caller).
-  if (pkg) return packagePrice(pkg, guestCount);
-  const priced = wanted.filter(({ item }) => item.price !== null);
-  if (priced.length === 0) return null;
-  return Math.round(priced.reduce((sum, { item, quantity }) => sum + Number(item.price) * quantity, 0) * 100) / 100;
-}
+// Block FIX1: the price a direct booking is quoted at comes from the one
+// pricing rule (server/pricing.ts): a package's own price, a per-guest item
+// times the guest count, anything else times its quantity.
 
 // Everything a booking needs, already validated for shape by the caller
 // (the public route for a customer, the staff route for the admin).
@@ -177,28 +169,19 @@ export async function createDirectBooking(input: DirectBookingInput): Promise<{ 
   }
   // Block A8: a hidden item is for staff bookings only.
   if (!staff && found.some((item) => item.hidden)) return out(400, { error: HIDDEN_MESSAGE, reason: "hidden" });
-  const guestCount = isPerGuest(pkg ?? { pricingMode: "fixed" }) ? (input.guestCount ?? null) : null;
-  if (pkg && isPerGuest(pkg)) {
-    try {
-      packagePrice(pkg, guestCount);
-    } catch (err) {
-      if (err instanceof GuestCountError) return out(400, { error: err.message, reason: err.reason });
-      throw err;
-    }
-  }
+  // Block FIX1: every order may carry a guest count; a per-guest item or
+  // package needs one (checked by the pricing rule below).
+  const guestCount = input.guestCount ?? null;
   // Keep the caller's order so the response lines up with the request.
   const items = itemIds.map((id) => found.find((item) => item.id === id)).filter((item) => item !== undefined);
   if (items.length !== itemIds.length) {
     return out(404, { error: itemIds.length === 1 ? "item not found" : "One or more items were not found" });
   }
-  // How many units of each item to hold: the package's quantities, or one.
-  const wanted = items.map((item) => ({
-    item,
-    quantity: pkg ? (pkg.items.find((row) => row.itemId === item.id)?.quantity ?? 1) : (quantities[item.id] ?? 1),
-  }));
-  if (wanted.reduce((sum, w) => sum + w.quantity, 0) > MAX_UNITS_PER_BOOKING) {
-    return out(400, { error: `A booking can hold at most ${MAX_UNITS_PER_BOOKING} units` });
-  }
+  // How many units of each item to hold: the package's quantities, or the
+  // quantity asked for (Block FIX1: the storefront sends it too), or one. A
+  // per-guest item is one line priced on the guest count.
+  const askedQty = (itemId: string) => (pkg ? (pkg.items.find((row) => row.itemId === itemId)?.quantity ?? 1) : (quantities[itemId] ?? 1));
+  const stockOf = (item: (typeof items)[number]) => countsAgainstStock(item);
   let chosen: ChosenAddon[];
   try {
     chosen = await resolveAddons(items, selections);
@@ -208,12 +191,30 @@ export async function createDirectBooking(input: DirectBookingInput): Promise<{ 
     }
     throw err;
   }
-  const quantityOf = (itemId: string) => wanted.find((w) => w.item.id === itemId)?.quantity ?? 1;
-  const addonRows = chosen.map((addon) => ({ ...addon, quantity: quantityOf(addon.itemId) }));
-  const addonsTotal = Math.round(addonRows.reduce((sum, a) => sum + a.priceDelta * a.quantity, 0) * 100) / 100;
+  let priced: Priced;
+  try {
+    priced = priceCart({
+      items: items.map((i) => ({ id: i.id, name: i.name, price: i.price === null ? null : Number(i.price), priceUnit: i.priceUnit })),
+      quantities: Object.fromEntries(items.map((i) => [i.id, askedQty(i.id)])),
+      guestCount,
+      addons: chosen,
+      pkg,
+    });
+  } catch (err) {
+    if (err instanceof PricingError) return out(400, { error: err.message, reason: err.reason, field: err.field });
+    throw err;
+  }
+  const lineOf = (itemId: string) => priced.lines.find((l) => l.itemId === itemId);
+  const wanted = items.map((item) => ({ item, quantity: lineOf(item.id)?.quantity ?? 1 }));
+  if (wanted.filter(({ item }) => stockOf(item)).reduce((sum, w) => sum + w.quantity, 0) > MAX_UNITS_PER_BOOKING) {
+    return out(400, { error: `A booking can hold at most ${MAX_UNITS_PER_BOOKING} units`, reason: "too-many-units" });
+  }
+  // An add-on's price change counts as many times as its item does: per
+  // unit, or per guest on a per-guest item.
+  const addonRows = chosen.map((addon) => ({ ...addon, quantity: lineOf(addon.itemId)?.multiplier ?? 1 }));
+  const addonsTotal = priced.addonsTotal;
   // Nothing priced means nothing to quote, add-ons or not.
-  const baseTotal = quotedTotal(pkg, wanted, guestCount);
-  const computedTotal = baseTotal === null ? null : Math.round((baseTotal + addonsTotal) * 100) / 100;
+  const computedTotal = priced.total;
   // Staff can confirm a different price on the phone; nobody else can.
   const total = totalOverride === undefined ? computedTotal : totalOverride;
 
@@ -223,7 +224,7 @@ export async function createDirectBooking(input: DirectBookingInput): Promise<{ 
   // request.
   // Block F3b: a request staff turn into a booking carries the tick the
   // customer gave in the store, with its time and the version they saw.
-  const carriedTick = designRequestId ? await prisma.agreement.findFirst({ where: { designRequestId, accountId: account.id, checkboxChecked: true }, select: { agreedAt: true, policyVersionId: true, agreedIpHash: true, agreedUserAgent: true } }) : null;
+  const carriedTick = designRequestId ? await prisma.agreement.findFirst({ where: { designRequestId, accountId: account.id, checkboxChecked: true }, select: { agreedAt: true, policyVersionId: true, agreedIpHash: true, agreedUserAgent: true, policyTextSeen: true } }) : null;
   const checkboxChecked = input.agreed === true || carriedTick !== null;
   if (!staff && !checkboxChecked && settings.requireAgreementCheckbox) {
     return out(400, { error: "Please agree to the cancellation and retainer policy to continue.", reason: "agreement-required" });
@@ -312,6 +313,9 @@ export async function createDirectBooking(input: DirectBookingInput): Promise<{ 
               name: item.name,
               quantity,
               price: item.price === null ? null : Number(item.price),
+              // Block FIX1: how the line was priced.
+              ...(lineOf(item.id)?.perGuest ? { perGuest: true, guests: guestCount } : {}),
+              lineTotal: lineOf(item.id)?.lineTotal ?? null,
             })),
             addons: addonRows.map((a) => ({
               itemId: a.itemId,
@@ -333,7 +337,7 @@ export async function createDirectBooking(input: DirectBookingInput): Promise<{ 
         // staff enter carry none: the booking made from it records theirs.
         if (!staff) {
           await tx.agreement.create({
-            data: { accountId: account.id, customerId: customer?.id ?? null, designRequestId: created.id, policyVersionId: policy.id, checkboxChecked, ...evidence },
+            data: { accountId: account.id, customerId: customer?.id ?? null, designRequestId: created.id, policyVersionId: policy.id, checkboxChecked, ...evidence, ...(checkboxChecked && policy.text.trim() !== "" ? { policyTextSeen: fillPolicyText(policy.text, settings) } : {}) },
           });
         }
         return created;
@@ -387,6 +391,8 @@ export async function createDirectBooking(input: DirectBookingInput): Promise<{ 
         eventTime,
         occasion,
         guestCount,
+        // Block FIX1: quantities are part of the quote.
+        quantities: Object.fromEntries(wanted.filter((w) => w.quantity > 1).map((w) => [w.item.id, w.quantity])),
       };
       const resolved = await resolveCart(account.id, cartForQuote);
       const check = await checkQuote(account.id, input.signature.quoteId, input.signature.contentHash, cartForQuote, resolved);
@@ -404,7 +410,8 @@ export async function createDirectBooking(input: DirectBookingInput): Promise<{ 
 
   // An item is promisable through its units, through the crew for its
   // skills, or both. One with neither can't be promised at all.
-  const untracked = items.filter((item) => item._count.units === 0 && !needsCrew(item));
+  // Block FIX1: an item that does not count against stock needs neither.
+  const untracked = items.filter((item) => stockOf(item) && item._count.units === 0 && !needsCrew(item));
   if (untracked.length > 0) {
     return out(409, {
       error:
@@ -457,8 +464,10 @@ export async function createDirectBooking(input: DirectBookingInput): Promise<{ 
       // can name all of them.
       const claimed: { item: (typeof items)[number]; unit: { id: string; label: string } }[] = [];
       const missing: string[] = [];
+      // Block FIX1: what was asked for and what was free, for the message.
+      const shortBy: { name: string; asked: number; free: number }[] = [];
       for (const { item, quantity } of wanted) {
-        if (item._count.units === 0) continue;
+        if (!stockOf(item) || item._count.units === 0) continue;
         const held: string[] = [];
         for (let n = 0; n < quantity; n++) {
           const unit = await lockFreeUnit(tx, item.id, dateText, held);
@@ -466,13 +475,22 @@ export async function createDirectBooking(input: DirectBookingInput): Promise<{ 
           held.push(unit.id);
           claimed.push({ item, unit });
         }
-        if (held.length < quantity) missing.push(item.name);
+        if (held.length < quantity) {
+          missing.push(item.name);
+          shortBy.push({ name: item.name, asked: quantity, free: held.length });
+        }
       }
-      if (missing.length > 0) throw new NoFreeUnits(missing);
+      if (missing.length > 0) throw new NoFreeUnits(missing, shortBy);
+      // Block FIX1: the daily maximum, for every item that has one, after
+      // the unit locks (the same lock order in every transaction). Items
+      // that hold no unit are written as booking lines below.
+      for (const { item } of wanted) await claimDailyPlace(tx, { id: item.id, name: item.name, maxPerDay: item.maxPerDay }, dateText);
+      const lineItems = wanted.filter(({ item }) => !stockOf(item));
 
       const crewItems = wanted.filter(({ item }) => needsCrew(item));
       const summary = [
         ...claimed.map(({ item, unit }) => `${item.name} (${unit.label})`),
+        ...lineItems.map(({ item, quantity }) => (lineOf(item.id)?.perGuest ? `${item.name} (${guestCount} guests)` : quantity > 1 ? `${item.name} x${quantity}` : item.name)),
         ...crewItems
           .filter(({ item }) => item._count.units === 0)
           .map(({ item, quantity }) => (quantity > 1 ? `${item.name} x${quantity} (crew)` : `${item.name} (crew)`)),
@@ -490,7 +508,7 @@ export async function createDirectBooking(input: DirectBookingInput): Promise<{ 
               status: leadStatus,
               customerName: name,
               contact: leadContact,
-              occasion: pkg ? pkg.name : [...new Set(claimed.map(({ item }) => item.name))].join(", "),
+              occasion: pkg ? pkg.name : [...new Set([...claimed.map(({ item }) => item.name), ...lineItems.map(({ item }) => item.name)])].join(", "),
               dateOfInterest: date,
               notes: `Direct booking of ${summary} ${origin}, ${when}.${where}${packageNote}${addonNote ? ` Add-ons: ${addonNote}.` : ""}`,
             },
@@ -514,7 +532,9 @@ export async function createDirectBooking(input: DirectBookingInput): Promise<{ 
           eventAddressSameAsHome: input.eventAddressSameAsHome === true,
           // The per-guest count a package was priced on. A request staff turn
           // into a booking also keeps the count the customer gave with it.
-          guestCount: guestCount ?? (designRequestId ? (input.guestCount ?? null) : null),
+          // Block FIX1: the count the order was priced on. A fixed-price
+          // package still ignores a count (Block A8): it is not stored.
+          guestCount: pkg && !isPerGuest(pkg) ? null : guestCount,
           customerName: name,
           phone: contact.phone,
           email: contact.email,
@@ -544,6 +564,13 @@ export async function createDirectBooking(input: DirectBookingInput): Promise<{ 
           // eventDate is copied onto each join row for the (unitId, eventDate)
           // unique constraint, the database-level backstop behind the lock.
           units: { create: claimed.map(({ unit }) => ({ unitId: unit.id, eventDate: date })) },
+          // Block FIX1: items that hold no unit, with how they were priced.
+          lines: {
+            create: lineItems.map(({ item, quantity }) => {
+              const l = lineOf(item.id);
+              return { itemId: item.id, itemName: item.name, quantity, guests: l?.perGuest ? guestCount : null, perGuest: l?.perGuest ?? false, unitPrice: item.price, lineTotal: l?.lineTotal ?? null, eventDate: date };
+            }),
+          },
           // Names and the delta are copied so the booking stays readable
           // and honest if the option is later renamed, repriced, or removed.
           addons: {
@@ -581,6 +608,9 @@ export async function createDirectBooking(input: DirectBookingInput): Promise<{ 
           checkboxChecked,
           ...evidence,
           ...(carriedTick ? { agreedAt: carriedTick.agreedAt, agreedIpHash: carriedTick.agreedIpHash, agreedUserAgent: carriedTick.agreedUserAgent } : {}),
+          // Block FIX1: the wording as it read when the box was ticked,
+          // numbers filled from Settings then, kept for good.
+          ...(checkboxChecked ? { policyTextSeen: carriedTick?.policyTextSeen ?? (policy.text.trim() === "" ? null : fillPolicyText(policy.text, settings)) } : {}),
           // A tier 2 hold is the GO contract, prepared, sent (at checkout)
           // and signed by the customer in one go; GO's signature is the one
           // the quote carried.
@@ -609,7 +639,7 @@ export async function createDirectBooking(input: DirectBookingInput): Promise<{ 
         if (locked.length === 0 || locked[0].status !== "Open") throw new DesignRequestUnavailable();
         await tx.designRequest.update({ where: { id: designRequestId }, data: { status: "Converted", bookingId: booking.id } });
       }
-      return { booking, lead, claimed, gigs, agreement };
+      return { booking, lead, claimed, gigs, agreement, lineItems };
     });
 
     // A request that became a booking. On the contract path the customer is
@@ -692,6 +722,8 @@ export async function createDirectBooking(input: DirectBookingInput): Promise<{ 
         name: item.name,
         unit: { id: unit.id, label: unit.label } as { id: string; label: string } | null,
       })),
+      // Block FIX1: an item that holds no unit appears once, with no unit.
+      ...result.lineItems.map(({ item }) => ({ id: item.id, name: item.name, unit: null as { id: string; label: string } | null })),
       // A skill-only item has no unit; one entry per unit wanted, not per
       // gig, so an item needing three people still appears once.
       ...result.gigs
@@ -757,6 +789,14 @@ export async function createDirectBooking(input: DirectBookingInput): Promise<{ 
     // NoFreeUnits is the normal loser path. P2002 is the (unitId, eventDate)
     // unique constraint firing anyway, which the lock should make
     // impossible here; it's handled the same way rather than as a 500.
+    if (err instanceof DailyMaxReached) {
+      return out(409, { error: `${err.itemName} is fully booked that day, so nothing was booked. Drop it or try another date.`, reason: "unavailable", unavailable: [err.itemName] });
+    }
+    // Block FIX1: asked for more units than are free: say how many are.
+    if (err instanceof NoFreeUnits && err.shortBy.some((s) => s.asked > 1)) {
+      const parts = err.shortBy.map((s) => (s.free === 0 ? `${s.name} has none free` : `only ${s.free} of ${s.name} ${s.free === 1 ? "is" : "are"} free (you asked for ${s.asked})`));
+      return out(409, { error: `Not enough free that date: ${parts.join("; ")}. Nothing was booked.`, reason: "unavailable", unavailable: err.itemNames, short: err.shortBy });
+    }
     if (err instanceof NoFreeUnits || err instanceof NoCrewFree) {
       const names = err instanceof NoFreeUnits ? err.itemNames : [err.itemName];
       return out(409, {

@@ -135,6 +135,7 @@ export const PAGES: PageSpec[] = [
         blurb: "Decides what a customer signs at checkout: the rental policy checkbox for small rentals, or the GO contract for bigger or crewed bookings. Applies to new bookings right away.",
         fields: [
           { key: "contractRequiredOver", label: "Contract required over ($)", kind: "number", min: 0, step: "0.01", required: true, help: "A booking with a total above this signs the GO contract at checkout. 1000 means $1,001 needs a contract and $1,000 only needs the checkbox." },
+          { key: "maxItemsPerBooking", label: "Most items in one booking", kind: "number", min: 1, max: 50, step: "1", required: true, help: "40 means a customer can hold up to 40 different items in one checkout, and Ask GO's carts fit inside it. A bigger cart is refused with a sentence asking them to call. 50 is the most it can be, because one booking holds at most 50 units." },
           { key: "contractRequiredForCrewed", label: "Contract required for crewed items", kind: "checkbox", help: "On: anything that needs crew, like a DJ or a photographer, always signs the contract, whatever the price." },
         ],
       },

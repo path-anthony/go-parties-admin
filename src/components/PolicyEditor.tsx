@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
-import { getPolicy, savePolicy } from "../lib/api";
-import type { PolicyVersionInfo } from "../lib/types";
+import { activatePolicyDraft, discardPolicyDraft, getPolicy, savePolicy, savePolicyDraft } from "../lib/api";
+import type { PolicyScreen, PolicyVersionInfo } from "../lib/types";
 import { EDITOR_COPY } from "../settingsCopy";
 
 const when = (iso: string) => new Date(iso).toLocaleString("en-US", { dateStyle: "medium", timeStyle: "short", timeZone: "America/New_York" });
@@ -16,11 +16,16 @@ export function PolicyEditor() {
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [open, setOpen] = useState<string | null>(null);
+  // Block FIX1: the draft of the next version and the suggested update.
+  const [screen, setScreen] = useState<PolicyScreen | null>(null);
+  const [nextText, setNextText] = useState("");
 
   async function load() {
     const p = await getPolicy();
     setVersions(p.versions);
     setDraft(p.current.text);
+    setScreen(p);
+    setNextText(p.draft?.text ?? "");
   }
 
   useEffect(() => {
@@ -28,9 +33,26 @@ export function PolicyEditor() {
       .then((p) => {
         setVersions(p.versions);
         setDraft(p.current.text);
+        setScreen(p);
+        setNextText(p.draft?.text ?? "");
       })
       .catch((err) => setError(err instanceof Error ? err.message : "Couldn't load the policy"));
   }, []);
+
+  async function step(fn: () => Promise<unknown>, done: string) {
+    setBusy(true);
+    setError(null);
+    setMessage(null);
+    try {
+      await fn();
+      await load();
+      setMessage(done);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "That didn't save");
+    } finally {
+      setBusy(false);
+    }
+  }
 
   const current = versions?.[0];
   const dirty = current !== undefined && draft !== current.text;
@@ -71,6 +93,61 @@ export function PolicyEditor() {
         {message && <span className="muted">{message}</span>}
         {error && <span className="form-error">{error}</span>}
       </div>
+
+      {screen && (
+        <div className="policy-draft" data-testid="policy-draft">
+          <span className="detail-field-label">What customers read today</span>
+          <span className="muted field-help">The live version with its numbers filled in from Settings. {"{{retainerPercent}}"} is the retainer percent in Booking rules, {"{{balanceDueDays}}"} the balance due days, {"{{cancellationWindowDays}}"} the cancellation window. Change a setting and this text changes with it. A customer who already accepted keeps the wording they accepted.</span>
+          <pre className="policy-text-shown">{screen.asCustomersSeeIt || "(empty)"}</pre>
+          {screen.hardcoded.length > 0 && (
+            <p className="stage-warning" role="note">
+              The live version has these typed in rather than taken from Settings: {screen.hardcoded.join(", ")}. They will not change when Settings change.
+            </p>
+          )}
+
+          <span className="detail-field-label">Draft of the next version</span>
+          <span className="muted field-help">A draft is not shown to anyone. Read it, change it if you want, then press "Make this the live version". The live version above stays in use until then.</span>
+          {!screen.draft && screen.suggested && (
+            <div className="add-item-form">
+              <p className="muted">Suggested update: the same wording, with the retainer percent and matching day counts taken from Settings, and "deposit" changed to "retainer".</p>
+              <pre className="policy-text-shown">{screen.suggested}</pre>
+              <div className="form-actions">
+                <button type="button" className="btn-secondary" disabled={busy} onClick={() => void step(() => savePolicyDraft(screen.suggested as string), "Saved as a draft. Nothing changed for customers.")}>
+                  Save the suggestion as a draft
+                </button>
+              </div>
+            </div>
+          )}
+          {screen.draft && (
+            <div className="add-item-form">
+              <p className="muted">
+                Draft saved{screen.draft.savedBy ? ` by ${screen.draft.savedBy}` : ""}
+                {screen.draft.savedAt ? ` on ${when(screen.draft.savedAt)}` : ""}. Not live.
+              </p>
+              <label>
+                Draft text
+                <textarea className="policy-textarea" value={nextText} onChange={(e) => setNextText(e.target.value)} disabled={busy} aria-label="Draft of the next policy version" />
+              </label>
+              <span className="detail-field-label">How customers would read it</span>
+              <pre className="policy-text-shown">{screen.draft.asCustomersSeeIt}</pre>
+              {screen.draft.hardcoded.length > 0 && <p className="stage-warning">Still typed in: {screen.draft.hardcoded.join(", ")}.</p>}
+              <div className="form-actions">
+                {nextText !== screen.draft.text && (
+                  <button type="button" className="btn-secondary" disabled={busy || nextText.trim() === ""} onClick={() => void step(() => savePolicyDraft(nextText), "Draft saved.")}>
+                    Save draft
+                  </button>
+                )}
+                <button type="button" className="btn-primary" disabled={busy || nextText !== screen.draft.text} onClick={() => void step(() => activatePolicyDraft(), "The draft is now the live version. Earlier versions are kept, and customers who already accepted keep their wording.")}>
+                  Make this the live version
+                </button>
+                <button type="button" className="btn-secondary" disabled={busy} onClick={() => void step(() => discardPolicyDraft(), "Draft discarded.")}>
+                  Discard draft
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {versions && versions.length > 0 && (
         <div className="policy-history">

@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { prisma } from "../db.js";
+import { isPerGuestUnit } from "../pricing.js";
 import { getSettings } from "../settings.js";
 import { apiBase } from "./links.js";
 import { composeGoDocument, goContractMissing, goContractReadinessMessage, goDocumentHash, rollUpServices, type BookedLine, type GoDocument, type GoSignature, type RowOverride } from "./goDocument.js";
@@ -33,8 +34,10 @@ export function numbersFrom(settings: Awaited<ReturnType<typeof getSettings>>): 
 }
 
 const BOOKING_FOR_CONTRACT = {
-  units: { include: { unit: { select: { item: { select: { id: true, name: true, category: true, price: true, skills: true } } } } } },
+  units: { include: { unit: { select: { item: { select: { id: true, name: true, category: true, price: true, priceUnit: true, skills: true } } } } } },
   gigs: { where: { status: { not: "Cancelled" } }, select: { itemId: true, itemName: true } },
+  // Block FIX1: items that hold no unit, as they were priced.
+  lines: { include: { item: { select: { category: true, skills: true } } } },
 } as const;
 
 // The booking's items as contract lines: one per item, with how many units or
@@ -44,9 +47,16 @@ export async function bookedLines(bookingId: string): Promise<BookedLine[]> {
   const lines = new Map<string, BookedLine>();
   for (const row of b.units) {
     const item = row.unit.item;
-    const cur = lines.get(item.id) ?? { itemId: item.id, name: item.name, category: item.category, quantity: 0, unitPriceCents: item.price === null ? null : Math.round(Number(item.price) * 100), needsCrew: item.skills.length > 0 };
+    // Block FIX1: a per-guest item is priced on the booking's guest count.
+    const guests = isPerGuestUnit(item.priceUnit) ? b.guestCount : null;
+    const cur = lines.get(item.id) ?? { itemId: item.id, name: item.name, category: item.category, quantity: 0, unitPriceCents: item.price === null ? null : Math.round(Number(item.price) * 100), needsCrew: item.skills.length > 0, guests };
     cur.quantity += 1;
     lines.set(item.id, cur);
+  }
+  for (const l of b.lines) {
+    const key = l.itemId ?? `line:${l.id}`;
+    if (lines.has(key)) continue;
+    lines.set(key, { itemId: key, name: l.itemName, category: l.item?.category ?? "", quantity: l.quantity, unitPriceCents: l.unitPrice === null ? null : Math.round(Number(l.unitPrice) * 100), needsCrew: (l.item?.skills.length ?? 0) > 0, guests: l.perGuest ? l.guests : null });
   }
   const crewOnly = new Map<string, number>();
   for (const g of b.gigs) {
@@ -120,7 +130,7 @@ export async function buildGoDocument(agreementId: string, opts: { client?: GoSi
       date: b.eventDate.toISOString().slice(0, 10),
       timeFrom: b.timeFrom,
       timeTo: b.timeTo,
-      expectedGuests: b.expectedGuests,
+      expectedGuests: b.expectedGuests ?? b.guestCount,
       ageRange: b.ageRange,
       venueName: b.venueName,
       venueAddress: b.address,
@@ -142,12 +152,12 @@ export async function buildGoDocument(agreementId: string, opts: { client?: GoSi
       go: agreement.goSignerName ? { printedName: agreement.goSignerName, signedAt: (agreement.goSignedAt ?? sentAt).toISOString() } : null,
     },
   });
-  const missing = goContractMissing({ venueName: b.venueName, onsiteContactName: b.onsiteContactName, onsiteContactPhone: b.onsiteContactPhone, expectedGuests: b.expectedGuests, timeFrom: b.timeFrom, timeTo: b.timeTo });
+  const missing = goContractMissing({ venueName: b.venueName, onsiteContactName: b.onsiteContactName, onsiteContactPhone: b.onsiteContactPhone, expectedGuests: b.expectedGuests ?? b.guestCount, timeFrom: b.timeFrom, timeTo: b.timeTo });
   return { agreementId, bookingId: b.id, document, contentHash: goDocumentHash(document), missing, readiness: goContractReadinessMessage(missing) };
 }
 
 // What the booking is missing before its GO contract can go out, in words.
 export async function goReadinessFor(bookingId: string): Promise<string | null> {
-  const b = await prisma.booking.findUniqueOrThrow({ where: { id: bookingId }, select: { venueName: true, onsiteContactName: true, onsiteContactPhone: true, expectedGuests: true, timeFrom: true, timeTo: true } });
+  const b = await prisma.booking.findUniqueOrThrow({ where: { id: bookingId }, select: { venueName: true, onsiteContactName: true, onsiteContactPhone: true, expectedGuests: true, guestCount: true, timeFrom: true, timeTo: true } });
   return goContractReadinessMessage(goContractMissing(b));
 }

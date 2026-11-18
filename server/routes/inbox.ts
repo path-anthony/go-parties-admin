@@ -56,6 +56,7 @@ const BOOKING_DETAIL = {
   setupLng: true,
   package: { select: { name: true } },
   units: { select: { unit: { select: { item: { select: { name: true } } } } } },
+  lines: { select: { itemName: true } },
   gigs: { select: { itemName: true } },
   addons: { select: { itemName: true, groupName: true, addonName: true }, orderBy: { createdAt: "asc" as const } },
 } as const;
@@ -111,7 +112,7 @@ leadActionsRouter.get("/:id/detail", async (req, res) => {
       total: b.total === null ? null : Number(b.total),
       tier: b.tier,
       packageName: b.package?.name ?? null,
-      items: [...b.units.map((u) => u.unit.item.name), ...b.gigs.map((g) => g.itemName)],
+      items: [...b.units.map((u) => u.unit.item.name), ...b.gigs.map((g) => g.itemName), ...b.lines.map((l) => l.itemName)],
       addons: b.addons,
     })),
   });

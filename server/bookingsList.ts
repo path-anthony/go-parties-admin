@@ -41,6 +41,9 @@ export type BookingFacts = {
   // The contract path, not signed yet.
   needsSignature: boolean;
   contractSentAt: string | null;
+  // Block FIX1: what a GO contract is waiting on before it can go out, in
+  // words, or null.
+  contractWaitingOn?: string | null;
   retainerPaid: boolean;
   retainerOwedCents: number | null;
   balanceOwedCents: number | null;
@@ -93,7 +96,7 @@ export function needsActionFor(f: BookingFacts, today: string): Need[] {
   const ahead = f.eventDate >= today;
   const needs: Need[] = [];
   if (f.cancellationRequested) needs.push({ code: "cancellation", label: "Cancellation requested" });
-  if (ahead && f.needsSignature) needs.push({ code: "unsigned", label: f.contractSentAt ? "Contract unsigned" : "Contract not sent" });
+  if (ahead && f.needsSignature) needs.push({ code: "unsigned", label: f.contractWaitingOn ? "Contract waiting on details" : f.contractSentAt ? "Contract unsigned" : "Contract not sent" });
   if (ahead && f.policy.needed && f.policy.by === "nobody") needs.push({ code: "policy", label: "Policy not accepted" });
   if (ahead && !f.needsSignature && (f.retainerOwedCents ?? 0) > 0) needs.push({ code: "retainer", label: `Retainer unpaid, ${usd(f.retainerOwedCents ?? 0)}` });
   if ((f.balanceOwedCents ?? 0) > 0 && f.balanceDueDate !== null && f.balanceDueDate < today) needs.push({ code: "balance-overdue", label: `Balance overdue, ${usd(f.balanceOwedCents ?? 0)} was due ${short(f.balanceDueDate)}` });

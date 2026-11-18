@@ -23,6 +23,7 @@
     "directBookingDailyCap",
     "holdReleaseDays",
     "holdReminderEmails",
+    "maxItemsPerBooking",
     "minBookingNoticeHours",
     "outsidePlannerChargePercent",
     "payLinksOpenStorefront",

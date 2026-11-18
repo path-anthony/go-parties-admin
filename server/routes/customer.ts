@@ -20,6 +20,7 @@ import {
   startCustomerSession,
 } from "../customerAuth.js";
 import { prisma } from "../db.js";
+import { DailyMaxReached } from "../stock.js";
 import { safeInline } from "../sanitize.js";
 import { queueGoogleSync } from "../google/sync.js";
 import { BOOKING_GIGS_SELECT, NoCrewFree } from "../gigs.js";
@@ -52,7 +53,9 @@ const BAD_LOGIN = "That phone or email and password don't match.";
 const router = Router();
 
 const WITH_UNIT_DETAILS = {
-  units: { include: { unit: { include: { item: { select: { id: true, name: true } } } } } },
+  units: { include: { unit: { include: { item: { select: { id: true, name: true, price: true, priceUnit: true } } } } } },
+  // Block FIX1: items that hold no unit.
+  lines: { orderBy: { createdAt: "asc" as const } },
   addons: { orderBy: { createdAt: "asc" as const } },
   gigs: BOOKING_GIGS_SELECT,
   // Block T1: the contract and the money, for the portal's steps.
@@ -420,8 +423,8 @@ router.post("/bookings/:id/reschedule", requireCustomer, customerActionLimiter, 
     res.json(await portalBooking((await ownBooking(customer, booking.id)) as PortalRow));
     queueGoogleSync(booking.id);
   } catch (err) {
-    if (err instanceof NoFreeUnit || err instanceof NoCrewFree || (err as { code?: unknown }).code === "P2002") {
-      const itemName = err instanceof NoFreeUnit || err instanceof NoCrewFree ? err.itemName : "that item";
+    if (err instanceof NoFreeUnit || err instanceof NoCrewFree || err instanceof DailyMaxReached || (err as { code?: unknown }).code === "P2002") {
+      const itemName = err instanceof NoFreeUnit || err instanceof NoCrewFree || err instanceof DailyMaxReached ? err.itemName : "that item";
       return res.status(409).json({
         error: `That date isn't available for ${itemName}. Your booking hasn't changed. Try another date.`,
         reason: "unavailable",

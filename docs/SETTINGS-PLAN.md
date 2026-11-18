@@ -270,6 +270,7 @@ Every line below is the text on the screen, listed straight from `src/settingsCo
 **Contracts and checkout.** Decides what a customer signs at checkout: the rental policy checkbox for small rentals, or the GO contract for bigger or crewed bookings. Applies to new bookings right away.
 
 - **Contract required over ($).** A booking with a total above this signs the GO contract at checkout. 1000 means $1,001 needs a contract and $1,000 only needs the checkbox.
+- **Most items in one booking.** 40 means a customer can hold up to 40 different items in one checkout, and Ask GO's carts fit inside it. A bigger cart is refused with a sentence asking them to call. 50 is the most it can be, because one booking holds at most 50 units.
 - **Contract required for crewed items.** On: anything that needs crew, like a DJ or a photographer, always signs the contract, whatever the price.
 
 **Retainer and balance.** What customers pay at checkout and when the rest is due. Customers see these amounts at checkout and in their account. New bookings use any change. Signed contracts keep the numbers they were signed with.

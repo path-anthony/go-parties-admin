@@ -23,7 +23,9 @@ import { INVALID, looksLikeEmail, normalizeDate, normalizeText, splitContact, to
 const MAX_ADDRESS_LENGTH = 300;
 const MAX_NAME_LENGTH = 100;
 const MAX_TIME_LENGTH = 60;
-const MAX_ITEMS_PER_BOOKING = 10;
+// Block FIX1: the item cap is a setting (Booking rules, "Most items in one
+// booking", default 40); this is only the ceiling it may be set to.
+const MAX_ITEMS_CEILING = 50;
 
 const router = Router();
 
@@ -109,7 +111,7 @@ function resolveBalancePreference(body: Record<string, unknown>): string | typeo
 // itemId (one item) is the original contract and keeps working as is.
 // itemIds (several) is additive. Sending both is ambiguous, so it's
 // refused rather than merged.
-function resolveItemIds(body: Record<string, unknown>): string[] | string {
+export function resolveItemIds(body: Record<string, unknown>, maxItems = MAX_ITEMS_CEILING): string[] | string {
   const { itemId, itemIds } = body;
   if (itemIds !== undefined && itemId !== undefined) return "send itemId or itemIds, not both";
   if (itemIds !== undefined) {
@@ -117,11 +119,29 @@ function resolveItemIds(body: Record<string, unknown>): string[] | string {
       return "itemIds must be a non-empty array of item ids";
     }
     const unique = [...new Set(itemIds)];
-    if (unique.length > MAX_ITEMS_PER_BOOKING) return `itemIds can hold at most ${MAX_ITEMS_PER_BOOKING} items`;
+    if (unique.length > maxItems) return tooManyItems(maxItems);
     return unique;
   }
   if (typeof itemId === "string" && itemId !== "") return [itemId];
   return "itemId or itemIds is required";
+}
+
+// Block FIX1: a plain sentence a customer can act on.
+export const tooManyItems = (max: number) => `A booking can have up to ${max} items. Remove some, or call or text us and we'll put it together with you.`;
+
+// Block FIX1. Units per item, { [itemId]: number }, for the items being
+// booked. Optional; missing means one of each. The storefront and the staff
+// screen send the same shape.
+export function parseQuantities(value: unknown, itemIds: string[]): Record<string, number> | string {
+  if (value === undefined || value === null) return {};
+  if (typeof value !== "object" || Array.isArray(value)) return "quantities must be { [itemId]: number }";
+  const out: Record<string, number> = {};
+  for (const [id, n] of Object.entries(value as Record<string, unknown>)) {
+    if (!itemIds.includes(id)) return "quantities can only name items being booked";
+    if (typeof n !== "number" || !Number.isInteger(n) || n < 1 || n > MAX_UNITS_PER_BOOKING) return `each quantity must be a whole number from 1 to ${MAX_UNITS_PER_BOOKING}`;
+    out[id] = n;
+  }
+  return out;
 }
 
 // Optional. When present it has to be a real Published package on the
@@ -178,10 +198,13 @@ router.post("/", botCheck("direct-booking"), async (req, res) => {
   // Block F2: the store must send a real US phone, whether it was typed or
   // came from the account. Staff bookings never come through here.
   if (!usPhoneDigits(contact.phone)) return res.status(400).json(phoneRefusal);
-  const itemIds = resolveItemIds(body);
+  const itemIds = resolveItemIds(body, settings.maxItemsPerBooking);
   if (typeof itemIds === "string") {
-    return res.status(400).json({ error: itemIds });
+    return res.status(400).json({ error: itemIds, reason: itemIds.startsWith("A booking can have up to") ? "too-many-items" : "items-invalid", max: settings.maxItemsPerBooking });
   }
+  // Block FIX1: units per item, the same shape staff send.
+  const quantities = parseQuantities(body.quantities, itemIds);
+  if (typeof quantities === "string") return res.status(400).json({ error: quantities, reason: "quantity-invalid", field: "quantities" });
   const date = normalizeDate(body.eventDate);
   if (date === null || date === INVALID) {
     return res.status(400).json({ error: "eventDate is required and must be a valid YYYY-MM-DD date" });
@@ -301,6 +324,7 @@ router.post("/", botCheck("direct-booking"), async (req, res) => {
       contact,
       customer: customer ? { id: customer.id, name: customer.name } : null,
       itemIds,
+      quantities,
       date,
       dateText,
       eventTime: cleanTime,
@@ -410,20 +434,10 @@ staffBookingRouter.post("/", async (req, res) => {
   const contact = resolveContact(body, customer ? { phone: customer.phone, email: customer.email } : null);
   if (typeof contact === "string") return res.status(400).json({ error: contact });
 
-  const itemIds = resolveItemIds(body);
+  const itemIds = resolveItemIds(body, (await getSettings(account.id)).maxItemsPerBooking);
   if (typeof itemIds === "string") return res.status(400).json({ error: itemIds });
-  const quantities: Record<string, number> = {};
-  if (body.quantities !== undefined) {
-    const q = body.quantities;
-    if (typeof q !== "object" || q === null || Array.isArray(q)) return res.status(400).json({ error: "quantities must be { [itemId]: number }" });
-    for (const [id, n] of Object.entries(q)) {
-      if (!itemIds.includes(id)) return res.status(400).json({ error: "quantities can only name items being booked" });
-      if (typeof n !== "number" || !Number.isInteger(n) || n < 1 || n > MAX_UNITS_PER_BOOKING) {
-        return res.status(400).json({ error: `each quantity must be a whole number from 1 to ${MAX_UNITS_PER_BOOKING}` });
-      }
-      quantities[id] = n;
-    }
-  }
+  const quantities = parseQuantities(body.quantities, itemIds);
+  if (typeof quantities === "string") return res.status(400).json({ error: quantities });
   const date = normalizeDate(body.eventDate);
   if (date === null || date === INVALID) return res.status(400).json({ error: "eventDate is required and must be a valid YYYY-MM-DD date" });
   const dateText = date.toISOString().slice(0, 10);

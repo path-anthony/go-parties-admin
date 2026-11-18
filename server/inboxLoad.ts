@@ -31,6 +31,7 @@ const LEAD_INCLUDE = {
       designRequest: { select: { id: true } },
       cancellationRequests: { where: { status: "Open" }, select: { id: true, status: true, createdAt: true } },
       units: { select: { unit: { select: { item: { select: { name: true } } } } } },
+      lines: { select: { itemName: true } },
       gigs: { select: { itemName: true } },
       package: { select: { name: true } },
     },
@@ -48,7 +49,7 @@ function loadLeadRows(accountId: string) {
 const toInboxLead = (l: LeadRow): InboxLead => ({
   ...l,
   designRequests: l.designRequests as InboxRequest[],
-  bookings: l.bookings.map((b) => ({ ...b, itemNames: [...b.units.map((u) => u.unit.item.name), ...b.gigs.map((g) => g.itemName)], packageName: b.package?.name ?? null })),
+  bookings: l.bookings.map((b) => ({ ...b, itemNames: [...b.units.map((u) => u.unit.item.name), ...b.gigs.map((g) => g.itemName), ...b.lines.map((l) => l.itemName)], packageName: b.package?.name ?? null })),
 });
 
 export async function columnNames(accountId: string): Promise<string[]> {

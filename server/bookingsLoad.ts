@@ -3,6 +3,7 @@ import { buildBookingsList, bookingRow, type BookingFacts } from "./bookingsList
 import { daysBefore } from "./contract/goMoney.js";
 import { prisma } from "./db.js";
 import { bookingMapsUrl } from "./delivery.js";
+import { goContractMissing, goContractReadinessMessage } from "./contract/goDocument.js";
 import { owedStep, usd } from "./payLink.js";
 import { amountsFor } from "./payments.js";
 import { policyLine, policyStateOf } from "./policyAccept.js";
@@ -14,11 +15,13 @@ import { isWeddingBooking } from "./weddingDetails/logic.js";
 // The rules are in server/bookingsList.ts (pure). Nothing here writes.
 
 const FACTS_INCLUDE = {
-  agreement: { select: { checkboxChecked: true, agreedAt: true, contractStatus: true, contractSentAt: true, contractUrl: true, policyVersion: { select: { version: true } }, contractDocument: { select: { signedAt: true, documentJson: true } } } },
+  agreement: { select: { checkboxChecked: true, agreedAt: true, format: true, contractStatus: true, contractSentAt: true, contractUrl: true, policyVersion: { select: { version: true } }, contractDocument: { select: { signedAt: true, documentJson: true } } } },
   payments: { orderBy: { createdAt: "asc" as const } },
   package: { select: { name: true, occasions: true } },
   weddingDetails: { select: { status: true } },
   units: { select: { unit: { select: { item: { select: { name: true } } } } } },
+  // Block FIX1: items that hold no unit.
+  lines: { select: { itemName: true, quantity: true } },
   gigs: { select: { itemName: true, skill: true, status: true, filledById: true } },
   cancellationRequests: { where: { status: "Open" }, select: { id: true } },
   lead: { select: { source: true } },
@@ -53,6 +56,11 @@ function factsOf(b: Row, settings: Settings): BookingFacts & { money: ReturnType
     totalCents: money.totalCents,
     paidCents: money.paidCents,
     needsSignature: owed.step === "sign" || (b.tier === 2 && b.agreement?.contractStatus !== "Signed"),
+    // Block FIX1: a GO contract does not go out without these details.
+    contractWaitingOn:
+      b.tier === 2 && b.agreement?.contractStatus !== "Signed" && (b.agreement?.format === "go-v2" || (settings.useGoContract && !b.agreement?.format))
+        ? goContractReadinessMessage(goContractMissing({ venueName: b.venueName, onsiteContactName: b.onsiteContactName, onsiteContactPhone: b.onsiteContactPhone, expectedGuests: b.expectedGuests ?? b.guestCount, timeFrom: b.timeFrom, timeTo: b.timeTo }))
+        : null,
     contractSentAt: b.agreement?.contractSentAt?.toISOString() ?? null,
     retainerPaid: money.retainerPaid,
     retainerOwedCents: owed.step === "retainer" || owed.step === "sign" ? owed.amountCents : null,
@@ -64,7 +72,7 @@ function factsOf(b: Row, settings: Settings): BookingFacts & { money: ReturnType
     weddingDetailsMissing: isWeddingBooking({ weddingOverride: b.weddingOverride, occasion: b.occasion, package: b.package }) && b.weddingDetails?.status !== "submitted",
     crewNeeded: live.length,
     crewUnassigned: live.filter((g) => g.filledById === null).length,
-    items: bookingItemLines(b.units, b.gigs),
+    items: bookingItemLines(b.units, b.gigs, b.lines),
     packageName: b.package?.name ?? null,
     money,
     owed,
@@ -123,7 +131,7 @@ export async function loadBookingSummary(accountId: string, id: string, now = ne
     paperwork: {
       path: b.tier === 2 ? ("contract" as const) : ("policy" as const),
       policy: { ...policy, line: policyLine(policy), acceptedText: more.policyAcceptedText },
-      contract: b.tier === 2 ? { status: b.agreement?.contractStatus === "Signed" ? "Signed" : b.agreement?.contractSentAt ? "Sent, not signed" : "Not sent", sentAt: b.agreement?.contractSentAt?.toISOString() ?? null, signedAt: b.agreement?.contractDocument?.signedAt?.toISOString() ?? null, pdfUrl: b.agreement?.contractUrl ?? null } : null,
+      contract: b.tier === 2 ? { waitingOn: f.contractWaitingOn ?? null, status: b.agreement?.contractStatus === "Signed" ? "Signed" : b.agreement?.contractSentAt ? "Sent, not signed" : "Not sent", sentAt: b.agreement?.contractSentAt?.toISOString() ?? null, signedAt: b.agreement?.contractDocument?.signedAt?.toISOString() ?? null, pdfUrl: b.agreement?.contractUrl ?? null } : null,
       weddingDetailsMissing: f.weddingDetailsMissing,
     },
     history,

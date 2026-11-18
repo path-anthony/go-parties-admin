@@ -35,6 +35,8 @@ async function loadForCalendar(bookingId: string): Promise<(BookingForCalendar &
     where: { id: bookingId },
     include: {
       units: { include: { unit: { select: { item: { select: { id: true, name: true } } } } } },
+      // Block FIX1: items that hold no unit.
+      lines: { select: { itemId: true, itemName: true, quantity: true, guests: true, perGuest: true } },
       gigs: { where: { status: { not: "Cancelled" } }, select: { itemId: true, itemName: true, skill: true, filledBy: { select: { name: true } } } },
     },
   });
@@ -44,6 +46,10 @@ async function loadForCalendar(bookingId: string): Promise<(BookingForCalendar &
     const cur = items.get(row.unit.item.id) ?? { name: row.unit.item.name, quantity: 0 };
     cur.quantity += 1;
     items.set(row.unit.item.id, cur);
+  }
+  for (const l of b.lines) {
+    const key = l.itemId ?? l.itemName;
+    if (!items.has(key)) items.set(key, { name: l.perGuest && l.guests ? `${l.itemName} (${l.guests} guests)` : l.itemName, quantity: l.quantity });
   }
   for (const g of b.gigs) {
     if (g.itemId && !items.has(g.itemId)) items.set(g.itemId, { name: g.itemName, quantity: 1 });

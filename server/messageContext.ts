@@ -78,6 +78,10 @@ export function composeValues(settings: Settings, rec: LoadedRecords): Record<st
   set("responseDays", String(settings.requestResponseDays));
   set("companyPhone", settings.rushContactPhone?.trim() || prettyPhone(process.env.TWILIO_PHONE_NUMBER));
   set("depositPercentage", String(settings.depositPercentage));
+  // Block FIX1: the same numbers under the names the wording uses.
+  set("retainerPercent", String(settings.depositPercentage));
+  set("balanceDueDays", String(settings.balanceDueDays));
+  set("rescheduleFeePercent", String(settings.rescheduleFeePercent));
   set("cancellationWindowDays", String(settings.cancellationWindowDays));
   set("portalLink", storefront ? `${storefront}/party` : "");
   // Nothing is asked of an event type that isn't known: "your event".

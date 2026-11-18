@@ -1,4 +1,5 @@
-import { GuestCountError, isPerGuest, packagePrice } from "./packagePricing.js";
+import { isPerGuest } from "./packagePricing.js";
+import { PricingError, countsAgainstStock, priceCart, type Priced } from "./pricing.js";
 import { prisma } from "./db.js";
 import { getDefaultAccount } from "./account.js";
 import { resolveAddons, type ChosenAddon } from "./addons.js";
@@ -33,6 +34,10 @@ export type QuoteCart = {
   // Block A8: the guest count a per-guest package is priced on; null
   // otherwise. Part of the cart, so part of the quote hash.
   guestCount?: number | null;
+  // Block FIX1: units per item when more than one. Part of the cart, so part
+  // of the quote hash. Ones are left out so a cart without quantities hashes
+  // the same as before.
+  quantities?: Record<string, number> | null;
 };
 
 // The cart in a stable spelling: items and add-on ids sorted, so the same
@@ -47,7 +52,23 @@ export function normalizeCart(cart: QuoteCart): QuoteCart {
           .map(([itemId, ids]) => [itemId, [...new Set(ids)].sort()]),
       )
     : null;
-  return { itemIds, packageId: cart.packageId || null, addons: addons && Object.keys(addons).length > 0 ? addons : null, eventDate: cart.eventDate, eventTime: cart.eventTime?.trim() || null, occasion: cart.occasion?.trim() || null, guestCount: cart.guestCount ?? null };
+  const quantities = cart.quantities
+    ? Object.fromEntries(
+        Object.entries(cart.quantities)
+          .filter(([itemId, n]) => itemIds.includes(itemId) && Number.isInteger(n) && n > 1)
+          .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)),
+      )
+    : null;
+  return {
+    itemIds,
+    packageId: cart.packageId || null,
+    addons: addons && Object.keys(addons).length > 0 ? addons : null,
+    eventDate: cart.eventDate,
+    eventTime: cart.eventTime?.trim() || null,
+    occasion: cart.occasion?.trim() || null,
+    guestCount: cart.guestCount ?? null,
+    ...(quantities && Object.keys(quantities).length > 0 ? { quantities } : {}),
+  };
 }
 
 // A quote lives until the end of the day it was made, Eastern.
@@ -66,7 +87,7 @@ export class CartError extends Error {
 }
 
 export type ResolvedCart = {
-  items: { id: string; name: string; category: string; price: number | null; skills: string[]; unitCount: number }[];
+  items: { id: string; name: string; category: string; price: number | null; priceUnit: string | null; skills: string[]; unitCount: number; countsAgainstStock: boolean; maxPerDay: number | null }[];
   // price is what the package costs for this cart (the bundle, or the
   // per-guest total for the count given).
   pkg: { id: string; name: string; price: number; occasions: string[]; pricingMode: string; guestCount: number | null } | null;
@@ -77,6 +98,8 @@ export type ResolvedCart = {
   crewed: boolean;
   categories: string[];
   occasions: string[];
+  // Block FIX1: the one pricing rule's answer, line by line.
+  priced: Priced;
 };
 
 // Prices the cart the way a direct booking does: the package's bundle price
@@ -99,34 +122,30 @@ export async function resolveCart(accountId: string, cart: QuoteCart, opts: { en
   }
   const items = cart.itemIds.map((id) => found.find((i) => i.id === id)).filter((i) => i !== undefined);
   if (items.length !== cart.itemIds.length) throw new CartError(404, "not-found", cart.itemIds.length === 1 ? "item not found" : "One or more items were not found");
-  const mapped = items.map((i) => ({ id: i.id, name: i.name, category: i.category, price: i.price === null ? null : Number(i.price), skills: i.skills, unitCount: i._count.units }));
-  const wanted = mapped.map((item) => ({ item, quantity: pkg ? (pkg.items.find((row) => row.itemId === item.id)?.quantity ?? 1) : 1 }));
+  const mapped = items.map((i) => ({ id: i.id, name: i.name, category: i.category, price: i.price === null ? null : Number(i.price), priceUnit: i.priceUnit, skills: i.skills, unitCount: i._count.units, countsAgainstStock: countsAgainstStock(i), maxPerDay: i.maxPerDay }));
   const selections = new Map<string, string[]>(Object.entries(cart.addons ?? {}));
   const chosen = await resolveAddons(items, selections, { enforceRequired: opts.enforceRequired ?? false });
-  const quantityOf = (itemId: string) => wanted.find((w) => w.item.id === itemId)?.quantity ?? 1;
-  const addonRows = chosen.map((a) => ({ ...a, quantity: quantityOf(a.itemId) }));
-  const addonsTotal = Math.round(addonRows.reduce((sum, a) => sum + a.priceDelta * a.quantity, 0) * 100) / 100;
-  let base: number | null;
-  let pkgPrice = 0;
-  if (pkg) {
-    try {
-      pkgPrice = packagePrice(pkg, cart.guestCount ?? null);
-    } catch (err) {
-      if (err instanceof GuestCountError) throw new CartError(400, err.reason, err.message);
-      throw err;
-    }
-    base = pkgPrice;
-  } else {
-    const priced = wanted.filter(({ item }) => item.price !== null);
-    base = priced.length === 0 ? null : Math.round(priced.reduce((sum, { item, quantity }) => sum + (item.price as number) * quantity, 0) * 100) / 100;
+  // Block FIX1: the one pricing rule (server/pricing.ts) prices the cart.
+  const quantities = pkg ? Object.fromEntries(pkg.items.map((row) => [row.itemId, row.quantity])) : (cart.quantities ?? {});
+  let priced: Priced;
+  try {
+    priced = priceCart({ items: mapped, quantities, guestCount: cart.guestCount ?? null, addons: chosen, pkg });
+  } catch (err) {
+    if (err instanceof PricingError) throw new CartError(400, err.reason, err.message);
+    throw err;
   }
-  const total = base === null ? null : Math.round((base + addonsTotal) * 100) / 100;
+  const wanted = mapped.map((item) => ({ item, quantity: priced.lines.find((l) => l.itemId === item.id)?.quantity ?? 1 }));
+  const multiplierOf = (itemId: string) => priced.lines.find((l) => l.itemId === itemId)?.multiplier ?? 1;
+  const addonRows = chosen.map((a) => ({ ...a, quantity: multiplierOf(a.itemId) }));
+  const total = priced.total;
+  const pkgPrice = pkg && total !== null ? Math.round((total - priced.addonsTotal) * 100) / 100 : 0;
   return {
     items: mapped,
     pkg: pkg ? { id: pkg.id, name: pkg.name, price: pkgPrice, occasions: pkg.occasions, pricingMode: pkg.pricingMode, guestCount: isPerGuest(pkg) ? (cart.guestCount ?? null) : null } : null,
     wanted,
     addonRows,
     total,
+    priced,
     crewed: mapped.some((i) => needsCrew(i)),
     categories: mapped.map((i) => i.category),
     occasions: [...(cart.occasion ? [cart.occasion] : []), ...(pkg?.occasions ?? [])],
@@ -152,7 +171,9 @@ export function cartLines(resolved: ResolvedCart): BookedLine[] {
       // A package is one price for the whole cart: its items print without
       // a fee each and the bundle price goes on the first line.
       const unitPriceCents = resolved.pkg ? null : item.price === null ? null : Math.round((item.price + deltas) * 100);
-      return { itemId: item.id, name: item.name, category: item.category, quantity, unitPriceCents, needsCrew: needsCrew(item) };
+      // Block FIX1: a per-guest line is priced on the guest count.
+      const line = resolved.priced.lines.find((l) => l.itemId === item.id);
+      return { itemId: item.id, name: item.name, category: item.category, quantity, unitPriceCents, needsCrew: needsCrew(item), guests: line?.perGuest ? line.guests : null };
     });
 }
 
@@ -219,7 +240,8 @@ export async function composeQuoteDocument(input: QuoteDocumentInput): Promise<{
       timeTo: null,
       // Block A8: the count a per-guest package was priced on, so the quote
       // hash changes with it.
-      expectedGuests: input.resolved.pkg?.guestCount ?? null,
+      // Block FIX1: and the count per-guest items were priced on.
+      expectedGuests: input.resolved.pkg?.guestCount ?? (input.resolved.priced.hasPerGuest ? (input.cart.guestCount ?? null) : null),
       ageRange: null,
       venueName: null,
       venueAddress: null,

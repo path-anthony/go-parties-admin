@@ -47,21 +47,78 @@ export function publicPolicy(policy: PolicyVersionRow) {
   return { id: policy.id, version: policy.version, text: policy.text, updatedAt: policy.createdAt.toISOString() };
 }
 
-// Block F1. The policy text with its {{numbers}} filled in, for places where
-// the admin hands a customer the wording to read and accept (the cancellation
-// terms, the pay link). The storefront fills the same tokens itself from
-// GET /api/settings/public for the policy it shows at checkout; this is the
-// same rule: a token is the name of a number setting, case does not matter,
-// and a token that names nothing is left as written.
-const POLICY_NUMBERS = ["depositPercentage", "cancellationWindowDays", "minBookingNoticeHours", "rescheduleFeePercent", "balanceDueDays", "requestResponseDays"] as const;
-export function fillPolicyText(text: string, settings: Partial<Record<(typeof POLICY_NUMBERS)[number], number>>): string {
-  const byName = new Map<string, number>();
-  for (const k of POLICY_NUMBERS) {
-    const v = settings[k];
-    if (typeof v === "number" && Number.isFinite(v)) byName.set(k.toLowerCase(), v);
+// Block F1, widened in Block FIX1. The policy text with its {{numbers}}
+// filled in from Settings at the moment it is shown, for every place a
+// customer reads or accepts it: checkout, the pay link, the cancellation
+// terms, both contract layouts. A token is the name of a number setting, in
+// camelCase or snake_case, case ignored; {{retainerPercent}} and
+// {{depositPercentage}} are the same number. A token that names nothing is
+// left as written. What a customer already accepted is stored filled in and
+// never filled again.
+type PolicyNumbers = Partial<Record<"depositPercentage" | "cancellationWindowDays" | "minBookingNoticeHours" | "rescheduleFeePercent" | "balanceDueDays" | "requestResponseDays", number>>;
+export function policyTokenValues(settings: PolicyNumbers): Map<string, number> {
+  const named: [string, number | undefined][] = [
+    ["depositPercentage", settings.depositPercentage],
+    ["retainerPercent", settings.depositPercentage],
+    ["retainerPercentage", settings.depositPercentage],
+    ["cancellationWindowDays", settings.cancellationWindowDays],
+    ["minBookingNoticeHours", settings.minBookingNoticeHours],
+    ["rescheduleFeePercent", settings.rescheduleFeePercent],
+    ["balanceDueDays", settings.balanceDueDays],
+    ["requestResponseDays", settings.requestResponseDays],
+  ];
+  const out = new Map<string, number>();
+  for (const [name, v] of named) {
+    if (typeof v !== "number" || !Number.isFinite(v)) continue;
+    out.set(name.toLowerCase(), v);
+    out.set(name.replace(/[A-Z]/g, (c) => `_${c}`).toLowerCase(), v);
   }
-  return text.replace(/\{\{\s*([A-Za-z]+)\s*\}\}/g, (whole, name: string) => {
+  return out;
+}
+export function fillPolicyText(text: string, settings: PolicyNumbers): string {
+  const byName = policyTokenValues(settings);
+  return text.replace(/\{\{\s*([A-Za-z_]+)\s*\}\}/g, (whole, name: string) => {
     const v = byName.get(name.toLowerCase());
     return v === undefined ? whole : String(v);
   });
+}
+
+// Block FIX1. Where a policy's wording still carries a number or a word that
+// should come from Settings. For staff, on the policy screen and in the
+// report. Pure.
+export function hardcodedInPolicy(text: string): string[] {
+  const found = new Set<string>();
+  for (const m of text.matchAll(/\b\d{1,3}(\.\d+)?\s?%/g)) found.add(m[0].replace(/\s/g, ""));
+  for (const m of text.matchAll(/\b(\d{1,3})\s+(business\s+)?(days?|hours?)\b/gi)) found.add(m[0]);
+  if (/\bdeposits?\b/i.test(text)) found.add('"deposit"');
+  return [...found];
+}
+
+// Block FIX1. A suggested new version: in every sentence that is about the
+// retainer, a deposit, the balance or cancelling, a percent becomes
+// {{retainerPercent}}% and a day count that matches a setting becomes that
+// setting's token; "deposit" becomes "retainer" everywhere. Shown to staff as
+// a draft to read before it is ever used. Pure.
+export function suggestPolicyDraft(text: string, settings: { cancellationWindowDays: number; balanceDueDays: number; rescheduleFeePercent?: number }): string {
+  // Paragraph by paragraph: a heading line like "Remaining balance." and the
+  // sentence under it belong together.
+  const sentences = text.split(/(\n\s*\n)/);
+  const out = sentences.map((part) => {
+    if (/^\s+$/.test(part)) return part;
+    let p = part;
+    const money = /\b(retainer|deposit|hold your date|holds? (the|your) date|booking fee)/i.test(p);
+    const reschedule = /\breschedul/i.test(p);
+    if (reschedule && settings.rescheduleFeePercent !== undefined) p = p.replace(/\b(\d{1,3})\s?%/g, (w, n) => (Number(n) === settings.rescheduleFeePercent ? "{{rescheduleFeePercent}}%" : w));
+    else if (money) p = p.replace(/\b\d{1,3}\s?%/g, "{{retainerPercent}}%");
+    if (/\bcancel/i.test(p)) p = p.replace(/\b(\d{1,3})(\s+)days\b/g, (w, n, sp) => (Number(n) === settings.cancellationWindowDays ? `{{cancellationWindowDays}}${sp}days` : w));
+    if (/\bbalance\b/i.test(p)) p = p.replace(/\b(\d{1,3})(\s+)days\b/g, (w, n, sp) => (Number(n) === settings.balanceDueDays ? `{{balanceDueDays}}${sp}days` : w));
+    return p;
+  });
+  return out
+    .join("")
+    .replace(/\bDeposits\b/g, "Retainers")
+    .replace(/\bdeposits\b/g, "retainers")
+    .replace(/\bDeposit\b/g, "Retainer")
+    .replace(/\bdeposit\b/g, "retainer")
+    .replace(/\bDEPOSIT\b/g, "RETAINER");
 }

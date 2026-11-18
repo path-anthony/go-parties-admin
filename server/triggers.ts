@@ -584,7 +584,10 @@ const crew: TriggerDef[] = [
 ];
 
 // The company name signs every email, so every message may use it.
-export const TRIGGERS: TriggerDef[] = [...lead, ...client, ...crew].map((t) => ({ ...t, tokens: [...new Set([...t.tokens, "companyName"])] }));
+// Block FIX1: the numbers a customer message may quote, always the ones in
+// Settings at the moment it is sent, never typed into the wording.
+export const SETTINGS_TOKENS = ["retainerPercent", "depositPercentage", "balanceDueDays", "cancellationWindowDays", "rescheduleFeePercent"];
+export const TRIGGERS: TriggerDef[] = [...lead, ...client, ...crew].map((t) => ({ ...t, tokens: [...new Set([...t.tokens, "companyName", ...(t.journey === "crew" ? [] : SETTINGS_TOKENS)])] }));
 
 const byKey = new Map(TRIGGERS.map((t) => [t.key, t]));
 

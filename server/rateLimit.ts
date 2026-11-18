@@ -1,3 +1,4 @@
+import type { RequestHandler } from "express";
 import rateLimit from "express-rate-limit";
 
 // /api/recommend is public (no session required) and each call costs real
@@ -19,11 +20,22 @@ export const recommendLimiter = rateLimit({
 // POST /api/bookings/direct is public like /api/recommend and writes real
 // rows, so it gets the same tight per-IP cap, in its own bucket so a long
 // Ask GO conversation can't use up someone's booking attempts.
+// Block FIX1: only a real attempt to hold counts. A request refused before
+// anything is locked (a bad field, too many items, an address Google could
+// not place, an account required) is given back. The bot check's refusal
+// still counts, so a bot cannot use refusals to keep trying for free.
+export function countsAsHoldAttempt(status: number, reason: unknown): boolean {
+  if (status === 400) return reason === "bot-check";
+  if (status === 401) return false;
+  return true;
+}
 export const directBookingLimiter = rateLimit({
   windowMs: 60 * 60 * 1000, // 1 hour
   limit: 5,
   standardHeaders: true,
   legacyHeaders: false,
+  skipFailedRequests: true,
+  requestWasSuccessful: (_req, res) => countsAsHoldAttempt(res.statusCode, res.locals.refusalReason),
   message: { error: "Too many booking attempts from this connection. Please try again later, or call or text us.", reason: "rate-limited" },
 });
 
@@ -151,3 +163,14 @@ export const makeBidReadLimiter = (limit = 120) => bidLimit(60 * 1000, limit);
 export const makeBidWriteLimiter = (limit = 30) => bidLimit(10 * 60 * 1000, limit);
 export const bidReadLimiter = makeBidReadLimiter();
 export const bidWriteLimiter = makeBidWriteLimiter();
+
+// Block FIX1: keeps the reason of a refusal on res.locals, so a limiter can
+// tell a validation refusal from a real attempt.
+export const rememberRefusalReason: RequestHandler = (_req, res, next) => {
+  const json = res.json.bind(res);
+  res.json = (body: unknown) => {
+    if (body && typeof body === "object" && "reason" in body) res.locals.refusalReason = (body as { reason: unknown }).reason;
+    return json(body);
+  };
+  next();
+};
