@@ -1,3 +1,4 @@
+import { createNotifications } from "./notifications.js";
 import { getDefaultAccount } from "./account.js";
 import { redact, safeErr } from "./log.js";
 import { afterContractSend, contractSendAction, reallySent, sendFailureReason, type ContractSendAction, type ContractSendKind } from "./contractSend.js";
@@ -115,6 +116,19 @@ async function sendContractWith(target: { bookingId?: string; designRequestId?: 
               journey: "client",
             },
           });
+          // Block FIX1: never wait silently. A bell alert says what is
+          // missing, once per booking for each different list of details.
+          await createNotifications([
+            {
+              accountId: account.id,
+              type: "contract-not-ready",
+              title: `Contract for ${(await prisma.booking.findUnique({ where: { id: target.bookingId }, select: { customerName: true } }))?.customerName ?? "a booking"} is waiting on details`,
+              body: notReady,
+              link: `/bookings?booking=${target.bookingId}`,
+              bookingId: target.bookingId,
+              dedupeKey: `contract-not-ready:${target.bookingId}:${notReady}`,
+            },
+          ]).catch(() => 0);
           return { result: { logId: row.id, status: "skipped-not-ready", error: notReady }, action: "send-link", linkIsOut: false, stageMoved: false, signed: false, reason: notReady };
         }
       }

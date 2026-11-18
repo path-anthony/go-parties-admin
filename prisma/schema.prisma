@@ -51,6 +51,10 @@ model Account {
   // Block F3a. When on, pay links in messages open the storefront's own pay
   // page (<store>/pay/<token>) instead of the admin address.
   payLinksOpenStorefront    Boolean  @default(false) @map("pay_links_open_storefront")
+  maxItemsPerBooking        Int      @default(40) @map("max_items_per_booking")
+  policyDraftText           String?  @map("policy_draft_text")
+  policyDraftAt             DateTime? @map("policy_draft_at")
+  policyDraftByName         String?  @map("policy_draft_by_name")
   // Share of the total taken as the deposit. One global value for now.
   depositPercentage         Decimal  @default(20) @map("deposit_percentage") @db.Decimal(5, 2)
   // Days before the event after which a cancellation is no longer free. One
@@ -570,6 +574,7 @@ model Booking {
   notifications Notification[]
   weddingDetails WeddingDetails?
   units         BookingUnit[]
+  lines         BookingLine[]
   addons        BookingAddon[]
   gigs          Gig[]
   agreement     Agreement?
@@ -807,11 +812,14 @@ model Item {
   // a real setup and needs waitstaff and a bartender). Booking it creates
   // one Gig per skill per unit wanted, on top of any unit it holds.
   skills           String[] @default([])
+  countsAgainstStock Boolean? @map("counts_against_stock")
+  maxPerDay        Int?     @map("max_per_day")
   createdAt        DateTime @default(now()) @map("created_at")
   updatedAt        DateTime @updatedAt @map("updated_at")
 
   account       Account        @relation(fields: [accountId], references: [id])
   units         Unit[]
+  bookingLines  BookingLine[]
   packageItems  PackageItem[]
   addonGroups   AddonGroup[]
   bookingAddons BookingAddon[]
@@ -937,6 +945,8 @@ model Lead {
   lostNote         String?   @map("lost_note")
   lostAt           DateTime? @map("lost_at")
   storeLinkSentAt  DateTime? @map("store_link_sent_at")
+  occasionFromStore String? @map("occasion_from_store")
+  occasionFromChat  String? @map("occasion_from_chat")
   createdAt        DateTime  @default(now()) @map("created_at")
   updatedAt        DateTime  @default(now()) @updatedAt @map("updated_at")
 
@@ -1016,6 +1026,7 @@ model Agreement {
   // confirm-by date it pinned.
   quoteId            String?   @map("quote_id")
   confirmByDate      String?   @map("confirm_by_date")
+  policyTextSeen     String?   @map("policy_text_seen")
   createdAt          DateTime  @default(now()) @map("created_at")
 
   account          Account           @relation(fields: [accountId], references: [id])
@@ -1533,4 +1544,30 @@ model AdminAudit {
 
   @@index([accountId, createdAt])
   @@map("admin_audit")
+}
+
+// Block FIX1. An item on a booking that is not held through a unit: an item
+// that does not count against stock (per-guest catering by default). It is
+// how the booking remembers the item, how it was priced, and how the
+// item's "Maximum bookings per day" is counted. eventDate follows the
+// booking's date.
+model BookingLine {
+  id        String   @id @default(cuid())
+  bookingId String   @map("booking_id")
+  itemId    String?  @map("item_id")
+  itemName  String   @map("item_name")
+  quantity  Int      @default(1)
+  guests    Int?
+  perGuest  Boolean  @default(false) @map("per_guest")
+  unitPrice Decimal? @map("unit_price") @db.Decimal(10, 2)
+  lineTotal Decimal? @map("line_total") @db.Decimal(10, 2)
+  eventDate DateTime @map("event_date") @db.Date
+  createdAt DateTime @default(now()) @map("created_at")
+
+  booking Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  item    Item?   @relation(fields: [itemId], references: [id], onDelete: SetNull)
+
+  @@index([bookingId])
+  @@index([itemId, eventDate])
+  @@map("booking_lines")
 }

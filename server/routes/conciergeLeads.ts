@@ -6,6 +6,7 @@ import { prisma } from "../db.js";
 import { contactLine, leadContactFrom } from "../leadContact.js";
 import { getDefaultStatus } from "../leadStatuses.js";
 import { safeInline } from "../sanitize.js";
+import { settleOccasion } from "../occasionText.js";
 import { INVALID, isOneOf, normalizeDate, normalizeText } from "../validate.js";
 
 // Where the customer chose to talk to a person instead of checking out.
@@ -56,6 +57,13 @@ router.post("/", botCheck("concierge"), async (req, res) => {
   // their details, and nothing is added to Leads.
   const who = await leadContactFrom(req, body);
   if (!who) return res.json({ ok: true, leadId: null });
+  // Block FIX1: the occasion comes from what the customer wrote. The store
+  // may send the Ask GO chat (messages, the customer's lines only are read);
+  // otherwise the Ask GO lead this customer made in the last six hours is
+  // read. The store's own occasion is kept beside it, and loses when they
+  // disagree.
+  const said = await customerWords(account.id, body, who);
+  const settled = settleOccasion(occasion, said);
   const lines = [
     `Asked to talk to a person from ${from} and was sent to Calendly (${CALENDLY_URL}).`,
     context ? `Was looking at: ${context}.` : null,
@@ -69,7 +77,9 @@ router.post("/", botCheck("concierge"), async (req, res) => {
       tags: ["concierge", body.source === "checkout" ? "from checkout" : "from Ask GO"],
       customerName: who.name,
       contact: contactLine(who),
-      occasion,
+      occasion: settled.occasion,
+      occasionFromStore: settled.fromStore,
+      occasionFromChat: settled.fromChat,
       theme: context,
       dateOfInterest: date,
       notes: lines.join(" "),
@@ -78,9 +88,30 @@ router.post("/", botCheck("concierge"), async (req, res) => {
   await prisma.leadActivity.create({
     data: { leadId: lead.id, text: `Concierge request from ${from}${context ? `, about ${context}` : ""}. Sent to Calendly.` },
   });
+  if (settled.conflict) {
+    await prisma.leadActivity.create({ data: { leadId: lead.id, kind: "status", text: `Occasion mismatch: the store sent "${settled.fromStore}", but the customer wrote about "${settled.fromChat}". The lead uses "${settled.fromChat}".` } });
+  }
 
   await notifyNewLead(lead);
   res.status(201).json({ ok: true, leadId: lead.id });
 });
+
+// The customer's own words from Ask GO, for the occasion: the messages the
+// store sent, else the newest Ask GO lead for the same email or phone made
+// in the last six hours. Empty when there is neither.
+async function customerWords(accountId: string, body: Record<string, unknown>, who: { email: string | null; phone: string | null }): Promise<string> {
+  if (Array.isArray(body.messages)) {
+    return body.messages
+      .slice(-20)
+      .filter((m): m is { role: string; content: string } => !!m && typeof m === "object" && (m as { role?: unknown }).role === "user" && typeof (m as { content?: unknown }).content === "string")
+      .map((m) => m.content.slice(0, 500))
+      .join(" / ");
+  }
+  if (body.source !== "ask_go") return "";
+  const ors = [who.email ? { contact: { contains: who.email, mode: "insensitive" as const } } : null, who.phone ? { contact: { contains: who.phone } } : null].filter((x): x is NonNullable<typeof x> => x !== null);
+  if (ors.length === 0) return "";
+  const recent = await prisma.lead.findFirst({ where: { accountId, source: "ask-go", createdAt: { gte: new Date(Date.now() - 6 * 3_600_000) }, OR: ors }, orderBy: { createdAt: "desc" }, select: { theme: true } });
+  return recent?.theme ?? "";
+}
 
 export default router;

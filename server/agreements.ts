@@ -16,5 +16,7 @@ export const AGREEMENT_SELECT = {
     confirmByDate: true,
     contractSentAt: true,
     policyVersion: { select: { id: true, version: true } },
+    // Block FIX1: the policy wording as the customer saw it, numbers filled.
+    policyTextSeen: true,
   },
 } as const;

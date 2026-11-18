@@ -32,6 +32,8 @@ export const NOTIFICATION_TYPES = [
   { type: "content-creation-interest", label: "Upsell: content creation" },
   { type: "address-checks-paused", label: "Address checks paused" },
   { type: "address-not-checked", label: "Address not checked" },
+  // Block FIX1: a GO contract send held back for missing details.
+  { type: "contract-not-ready", label: "Contract waiting on details" },
 ] as const;
 export type NotificationType = (typeof NOTIFICATION_TYPES)[number]["type"];
 export const isNotificationType = (v: unknown): v is NotificationType => NOTIFICATION_TYPES.some((t) => t.type === v);

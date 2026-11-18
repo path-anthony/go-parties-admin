@@ -14,7 +14,7 @@ const CSV_HEADERS = ["name", "category", "price", "price_unit", "notes", "photo_
 
 const router = Router();
 
-const EDITABLE_FIELDS = ["name", "category", "price", "priceUnit", "notes", "description", "hidden", "photoUrl", "skills", "source", "needsPriceReview"] as const;
+const EDITABLE_FIELDS = ["name", "category", "price", "priceUnit", "notes", "description", "hidden", "photoUrl", "skills", "source", "needsPriceReview", "countsAgainstStock", "maxPerDay"] as const;
 
 // Block A7: the customer-facing description. Blank, null and absent clear
 // it; it is cleaned like a name since the storefront prints it.
@@ -294,6 +294,21 @@ router.patch("/:id", async (req, res) => {
         return res.status(400).json({ error: `source must be one of ${ITEM_SOURCES.join(", ")}` });
       }
       data.source = body.source;
+      continue;
+    }
+
+    // Block FIX1: whether holding the item locks a unit (null puts it back to
+    // the default: off for a per-guest item, on for anything else), and the
+    // most bookings it can be on in one day (null: no limit).
+    if (field === "countsAgainstStock") {
+      if (body.countsAgainstStock !== null && typeof body.countsAgainstStock !== "boolean") return res.status(400).json({ error: "countsAgainstStock must be true, false or null" });
+      data.countsAgainstStock = body.countsAgainstStock;
+      continue;
+    }
+    if (field === "maxPerDay") {
+      const n = body.maxPerDay;
+      if (n !== null && (typeof n !== "number" || !Number.isInteger(n) || n < 1 || n > 1000)) return res.status(400).json({ error: "maxPerDay must be a whole number from 1 to 1000, or empty for no limit" });
+      data.maxPerDay = n;
       continue;
     }
 

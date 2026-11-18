@@ -3,6 +3,8 @@ import { describeAddon, resolveAddons } from "./addons.js";
 import { lockFreeUnit } from "./availability.js";
 import { actorFields } from "./actor.js";
 import { prisma } from "./db.js";
+import { chargeForOne, countsAgainstStock, isPerGuestUnit } from "./pricing.js";
+import { claimDailyPlace } from "./stock.js";
 import { BOOKING_GIGS_SELECT, cancelGigs, createGigs, moveGigs, needsCrew } from "./gigs.js";
 import { displayStatus, legacyCustomerStatus } from "../src/lib/bookingStatus.js";
 import { rushFor } from "./settings.js";
@@ -23,19 +25,24 @@ export class NoFreeUnit extends Error {
 // drop, and the transaction still rolls back as a whole.
 export class NoFreeUnits extends Error {
   readonly itemNames: string[];
+  // Block FIX1: how many were asked for and how many were free.
+  readonly shortBy: { name: string; asked: number; free: number }[];
 
-  constructor(itemNames: string[]) {
+  constructor(itemNames: string[], shortBy: { name: string; asked: number; free: number }[] = []) {
     super(`No free unit of ${itemNames.join(", ")}`);
     this.itemNames = itemNames;
+    this.shortBy = shortBy;
   }
 }
 
 type Tx = Prisma.TransactionClient;
 
 const WITH_UNIT_DETAILS = {
-  units: { include: { unit: { include: { item: { select: { id: true, name: true, price: true } } } } } },
+  units: { include: { unit: { include: { item: { select: { id: true, name: true, price: true, priceUnit: true } } } } } },
   addons: { orderBy: { createdAt: "asc" } },
   gigs: BOOKING_GIGS_SELECT,
+  // Block FIX1: items that hold no unit.
+  lines: { orderBy: { createdAt: "asc" } },
 } as const;
 
 export type BookingWithUnits = Prisma.BookingGetPayload<{ include: typeof WITH_UNIT_DETAILS }>;
@@ -117,6 +124,13 @@ export async function rescheduleBooking(
       // The booking's gigs move too, each checked for a free person on
       // the new date; if any can't be covered the whole move is refused.
       await moveGigs(tx, booking.accountId, bookingId, change.date);
+      // Block FIX1: items that hold no unit move with the booking, inside
+      // their daily maximum on the new date.
+      if (booking.lines.length > 0) {
+        const limits = await tx.item.findMany({ where: { id: { in: booking.lines.flatMap((l) => (l.itemId ? [l.itemId] : [])) } }, select: { id: true, name: true, maxPerDay: true } });
+        for (const item of limits) await claimDailyPlace(tx, item, dateText, bookingId);
+        await tx.bookingLine.updateMany({ where: { bookingId }, data: { eventDate: change.date } });
+      }
       data.eventDate = change.date;
       // Moved inside (or out of) the notice window: the flag follows the new date.
       data.rush = await rushFor(booking.accountId, change.date);
@@ -155,6 +169,8 @@ export async function changeBookingItem(
     }
     await releaseUnits(tx, bookingId);
     await cancelGigs(tx, bookingId);
+    // Block FIX1: and any item that held no unit.
+    await tx.bookingLine.deleteMany({ where: { bookingId } });
     if (unit.id) await tx.bookingUnit.create({ data: { bookingId, unitId: unit.id, eventDate: booking.eventDate } });
     if (needsCrew(item)) {
       await createGigs(tx, { accountId: booking.accountId, bookingId, date: booking.eventDate, wanted: [{ item, quantity: 1 }] });
@@ -201,17 +217,38 @@ async function adjustTotal(tx: Tx, booking: { id: string; total: unknown }, by: 
 // one. The item is charged once whichever of those it needed.
 export async function addBookingItem(
   bookingId: string,
-  item: { id: string; name: string; price: unknown; skills: string[]; unitCount: number },
+  item: { id: string; name: string; price: unknown; priceUnit?: string | null; skills: string[]; unitCount: number; countsAgainstStock?: boolean | null; maxPerDay?: number | null },
 ): Promise<BookingWithUnits> {
   return prisma.$transaction(async (tx) => {
     const booking = await tx.booking.findUniqueOrThrow({ where: { id: bookingId }, include: WITH_UNIT_DETAILS });
     if (booking.status === "Cancelled" || booking.status === "Released") {
       throw new BookingEditError("A cancelled or released booking can't hold items. Set it back to Held first.");
     }
+    const dateText = booking.eventDate.toISOString().slice(0, 10);
+    const charge = chargeForOne({ price: item.price, priceUnit: item.priceUnit ?? null }, booking.guestCount);
+    // Block FIX1: an item that does not count against stock is written as a
+    // line, inside its daily maximum. A per-guest one is priced on the
+    // booking's guest count, and is one line however often it is added.
+    if (!countsAgainstStock({ countsAgainstStock: item.countsAgainstStock, priceUnit: item.priceUnit ?? null })) {
+      const perGuest = isPerGuestUnit(item.priceUnit);
+      if (perGuest && !booking.guestCount) throw new BookingEditError(`${item.name} is priced per guest. Add the guest count to the booking first, then add it.`);
+      const existing = booking.lines.find((l) => l.itemId === item.id);
+      if (existing && perGuest) throw new BookingEditError(`${item.name} is already on this booking for ${existing.guests ?? booking.guestCount} guests.`);
+      if (!existing) await claimDailyPlace(tx, { id: item.id, name: item.name, maxPerDay: item.maxPerDay ?? null }, dateText, bookingId);
+      const price = item.price === null || item.price === undefined ? null : Number(item.price);
+      if (existing) {
+        await tx.bookingLine.update({ where: { id: existing.id }, data: { quantity: { increment: 1 }, lineTotal: price === null ? null : cents(Number(existing.lineTotal ?? 0) + price) } });
+      } else {
+        await tx.bookingLine.create({ data: { bookingId, itemId: item.id, itemName: item.name, quantity: 1, guests: perGuest ? booking.guestCount : null, perGuest, unitPrice: price, lineTotal: price === null ? null : charge, eventDate: booking.eventDate } });
+      }
+      await adjustTotal(tx, booking, charge);
+      await logActivity(tx, booking.leadId, `Added ${item.name}${perGuest ? ` for ${booking.guestCount} guests` : ""} to the booking from the admin.`);
+      return tx.booking.findUniqueOrThrow({ where: { id: bookingId }, include: WITH_UNIT_DETAILS });
+    }
     if (item.unitCount === 0 && !needsCrew(item)) {
       throw new BookingEditError(`${item.name} has no units and needs no crew, so there is nothing to hold. Give it a unit first.`);
     }
-    const dateText = booking.eventDate.toISOString().slice(0, 10);
+    await claimDailyPlace(tx, { id: item.id, name: item.name, maxPerDay: item.maxPerDay ?? null }, dateText, bookingId);
     let label = "crew";
     if (item.unitCount > 0) {
       const unit = await lockFreeUnit(tx, item.id, dateText);
@@ -227,7 +264,7 @@ export async function addBookingItem(
       await tx.bookingAddon.updateMany({ where: { bookingId, itemId: item.id }, data: { quantity: { increment: 1 } } });
     }
     const addonsPerUnit = itemAddons.reduce((sum, a) => sum + Number(a.priceDelta), 0);
-    await adjustTotal(tx, booking, (item.price === null ? 0 : Number(item.price)) + addonsPerUnit);
+    await adjustTotal(tx, booking, charge + addonsPerUnit);
     const crewNote = needsCrew(item) ? `, needs ${item.skills.join(", ")}` : "";
     await logActivity(tx, booking.leadId, `Added ${item.name} (${label}${crewNote}) to the booking from the admin.`);
     return tx.booking.findUniqueOrThrow({ where: { id: bookingId }, include: WITH_UNIT_DETAILS });
@@ -306,8 +343,24 @@ export async function removeBookingUnit(bookingId: string, unitId: string): Prom
       else await tx.bookingAddon.updateMany({ where: { bookingId, itemId: item.id }, data: { quantity: { decrement: 1 } } });
     }
     const addonsPerUnit = itemAddons.reduce((sum, a) => sum + Number(a.priceDelta), 0);
-    await adjustTotal(tx, booking, -((item.price === null ? 0 : Number(item.price)) + addonsPerUnit));
+    await adjustTotal(tx, booking, -(chargeForOne({ price: item.price, priceUnit: item.priceUnit }, booking.guestCount) + addonsPerUnit));
     await logActivity(tx, booking.leadId, `Removed ${item.name} (${row.unit.label}) from the booking from the admin.`);
+    return tx.booking.findUniqueOrThrow({ where: { id: bookingId }, include: WITH_UNIT_DETAILS });
+  });
+}
+
+// Block FIX1. Takes an item that holds no unit off a booking, with what it
+// was charged at. Frees its place in the daily maximum.
+export async function removeBookingLine(bookingId: string, lineId: string): Promise<BookingWithUnits> {
+  return prisma.$transaction(async (tx) => {
+    const booking = await tx.booking.findUniqueOrThrow({ where: { id: bookingId }, include: WITH_UNIT_DETAILS });
+    const line = booking.lines.find((l) => l.id === lineId);
+    if (!line) throw new BookingEditError("That item isn't on this booking.");
+    await tx.bookingLine.delete({ where: { id: line.id } });
+    if (line.itemId) await tx.bookingAddon.deleteMany({ where: { bookingId, itemId: line.itemId } });
+    const addons = line.itemId ? booking.addons.filter((a) => a.itemId === line.itemId).reduce((s, a) => s + Number(a.priceDelta) * a.quantity, 0) : 0;
+    await adjustTotal(tx, booking, -(Number(line.lineTotal ?? 0) + (line.perGuest ? 0 : addons)));
+    await logActivity(tx, booking.leadId, `Removed ${line.itemName} from the booking from the admin.`);
     return tx.booking.findUniqueOrThrow({ where: { id: bookingId }, include: WITH_UNIT_DETAILS });
   });
 }
@@ -415,6 +468,8 @@ export function serializeCustomerBooking(booking: BookingWithUnits) {
         itemName: row.unit.item.name,
       })),
       ...liveGigs.map((g) => ({ unitId: null, unitLabel: "Crew", itemId: g.itemId, itemName: g.itemName })),
+      // Block FIX1: an item that holds no unit; a per-guest one says the count.
+      ...(booking.lines ?? []).map((l) => ({ unitId: null, unitLabel: l.perGuest && l.guests ? `${l.guests} guests` : l.quantity > 1 ? `x ${l.quantity}` : "Included", itemId: l.itemId, itemName: l.itemName })),
     ],
   };
 }

@@ -123,7 +123,7 @@ payApiRouter.get("/:token", async (req, res) => {
   // the policy themselves (here, or at checkout in the store).
   const more = await prisma.booking.findUniqueOrThrow({
     where: { id: b.id },
-    select: { ...POLICY_FACTS_SELECT, policyAcceptedText: true, policyAcceptedVersionId: true, guestCount: true, eventTime: true, package: { select: { name: true } }, units: { select: { unit: { select: { item: { select: { name: true } } } } } }, gigs: { select: { itemName: true, skill: true, status: true } } },
+    select: { ...POLICY_FACTS_SELECT, policyAcceptedText: true, policyAcceptedVersionId: true, guestCount: true, eventTime: true, package: { select: { name: true } }, lines: { select: { itemName: true, quantity: true } }, units: { select: { unit: { select: { item: { select: { name: true } } } } } }, gigs: { select: { itemName: true, skill: true, status: true } } },
   });
   const accepted = policyStateOf(more);
   // Once accepted on the pay link, the text shown is the one they accepted.
@@ -156,7 +156,7 @@ payApiRouter.get("/:token", async (req, res) => {
     eventTime: more.eventTime,
     guestCount: more.guestCount,
     package: more.package?.name ?? null,
-    items: bookingItemLines(more.units, more.gigs),
+    items: bookingItemLines(more.units, more.gigs, more.lines),
     balance: owed.money.balanceDueCents === null ? null : owed.money.balanceDueCents / 100,
     balanceDueDate: owed.money.totalCents === null ? null : daysBefore(b.eventDate.toISOString().slice(0, 10), owed.settings.balanceDueDays),
     hasAccount: b.customer !== null,

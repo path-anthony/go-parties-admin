@@ -152,6 +152,7 @@ function ItemDetail({
         </label>
         <span className="muted field-help">Keeps the item in the admin and on existing bookings, but customers can't see or book it.</span>
       </div>
+      <StockFields item={item} onSave={save} />
       <div className="detail-field">
         <span className="detail-field-label">Category</span>
         <CategoryField item={item} categories={categories} onSave={save} />
@@ -923,5 +924,42 @@ function DescriptionField({ item, onSave }: { item: Item; onSave: (patch: Partia
       </span>
       {error && <span className="form-error">{error}</span>}
     </label>
+  );
+}
+
+// Block FIX1. Whether holding the item takes one of its units, and how many
+// bookings may have it on one day.
+const PER_GUEST = new Set(["per guest", "per person", "per head"]);
+function StockFields({ item, onSave }: { item: Item; onSave: (patch: ItemPatch) => Promise<void> }) {
+  const perGuest = PER_GUEST.has((item.priceUnit ?? "").trim().toLowerCase());
+  const counts = item.countsAgainstStock ?? !perGuest;
+  const [max, setMax] = useState(item.maxPerDay === null ? "" : String(item.maxPerDay));
+  const [error, setError] = useState<string | null>(null);
+  async function saveMax() {
+    const t = max.trim();
+    const n = t === "" ? null : Number(t);
+    if (n !== null && (!Number.isInteger(n) || n < 1 || n > 1000)) return setError("Enter a whole number from 1 to 1000, or leave it empty for no limit.");
+    setError(null);
+    if (n !== item.maxPerDay) await onSave({ maxPerDay: n });
+  }
+  return (
+    <>
+      <div className="detail-field detail-field-span" data-testid="stock-fields">
+        <span className="detail-field-label">Counts against stock</span>
+        <label className="checkbox-label">
+          <input type="checkbox" role="switch" aria-checked={counts} checked={counts} onChange={(e) => void onSave({ countsAgainstStock: e.target.checked === !perGuest ? null : e.target.checked })} />
+          {counts ? "On: each booking takes one of its units" : "Off: it takes no unit, any number of bookings can have it"}
+        </label>
+        <span className="muted field-help">
+          On for things you own a set number of, like a tent or a bounce house: a booking holds one unit, and when every unit is taken that day it can't be booked. Off for things you can supply to every party, like catering priced per guest: no unit is held and two parties on the same day can both have it. {perGuest ? "Items priced per guest start off." : "Items not priced per guest start on."}
+        </span>
+      </div>
+      <div className="detail-field">
+        <span className="detail-field-label">Maximum bookings per day</span>
+        <input type="number" min={1} max={1000} step={1} value={max} placeholder="No limit" aria-label={`Maximum bookings per day for ${item.name}`} onChange={(e) => setMax(e.target.value)} onBlur={() => void saveMax()} />
+        <span className="muted field-help">Optional. 2 means at most two bookings can have this item on the same day, however much stock there is. Leave it empty for no limit.</span>
+        {error && <span className="form-error">{error}</span>}
+      </div>
+    </>
   );
 }

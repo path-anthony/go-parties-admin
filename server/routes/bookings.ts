@@ -9,11 +9,13 @@ import {
   addBookingItem,
   releaseUnits,
   removeBookingGig,
+  removeBookingLine,
   removeBookingUnit,
   rescheduleBooking,
   setBookingItemAddons,
 } from "../bookingOps.js";
 import { BOOKING_GIGS_SELECT, NoCrewFree } from "../gigs.js";
+import { DailyMaxReached } from "../stock.js";
 import { prisma } from "../db.js";
 import { Prisma } from "../../src/generated/prisma/client.js";
 import { BALANCE_PREFERENCES, BOOKING_STAGES, displayStatus } from "../../src/lib/bookingStatus.js";
@@ -32,6 +34,8 @@ const router = Router();
 
 const WITH_UNITS = {
   units: { select: { unitId: true } },
+  // Block FIX1: items that hold no unit, for the booking popup.
+  lines: { select: { id: true, itemId: true, itemName: true, quantity: true, guests: true, perGuest: true, unitPrice: true, lineTotal: true }, orderBy: { createdAt: "asc" as const } },
   addons: {
     select: { id: true, itemId: true, addonId: true, itemName: true, groupName: true, addonName: true, priceDelta: true, quantity: true },
     orderBy: { createdAt: "asc" as const },
@@ -365,6 +369,9 @@ router.patch("/:id", async (req, res) => {
       if (err instanceof NoFreeUnit) {
         return res.status(409).json({ error: noFreeUnitMessage(err.itemName, moveTo), reason: "unavailable" });
       }
+      if (err instanceof DailyMaxReached) {
+        return res.status(409).json({ error: noFreeUnitMessage(err.itemName, moveTo), reason: "unavailable" });
+      }
       if (err instanceof NoCrewFree) {
         return res.status(409).json({ error: noCrewMessage(err.itemName, err.skill, moveTo), reason: "unavailable" });
       }
@@ -453,7 +460,7 @@ router.post("/:id/units", async (req, res) => {
     typeof itemId === "string"
       ? await prisma.item.findFirst({
           where: { id: itemId, accountId: account.id },
-          select: { id: true, name: true, price: true, skills: true, _count: { select: { units: true } } },
+          select: { id: true, name: true, price: true, priceUnit: true, skills: true, countsAgainstStock: true, maxPerDay: true, _count: { select: { units: true } } },
         })
       : null;
   if (!item) return res.status(404).json({ error: "item not found" });
@@ -461,8 +468,9 @@ router.post("/:id/units", async (req, res) => {
   try {
     // A unit if the item has units, a gig per skill if it has skills,
     // both if both, each locked the way a direct booking locks it.
-    await addBookingItem(id, { id: item.id, name: item.name, price: item.price, skills: item.skills, unitCount: item._count.units });
+    await addBookingItem(id, { id: item.id, name: item.name, price: item.price, priceUnit: item.priceUnit, skills: item.skills, unitCount: item._count.units, countsAgainstStock: item.countsAgainstStock, maxPerDay: item.maxPerDay });
   } catch (err) {
+    if (err instanceof DailyMaxReached) return res.status(409).json({ error: `${err.itemName} is fully booked that day (at most ${err.max} bookings a day), so nothing was changed.`, reason: "unavailable" });
     if (err instanceof NoFreeUnit || err instanceof NoCrewFree) {
       const date = (await prisma.booking.findUniqueOrThrow({ where: { id }, select: { eventDate: true } })).eventDate;
       const message = err instanceof NoFreeUnit ? noFreeUnitMessage(item.name, date) : noCrewMessage(err.itemName, err.skill, date);
@@ -481,6 +489,20 @@ router.delete("/:id/units/:unitId", async (req, res) => {
   if (!booking) return res.status(404).json({ error: "booking not found" });
   try {
     await removeBookingUnit(id, String(req.params.unitId));
+  } catch (err) {
+    if (err instanceof BookingEditError) return res.status(404).json({ error: err.message });
+    throw err;
+  }
+  await sendBooking(res, id);
+});
+
+// Block FIX1: takes off an item that holds no unit.
+router.delete("/:id/lines/:lineId", async (req, res) => {
+  const id = String(req.params.id);
+  const { booking } = await findOwn(id);
+  if (!booking) return res.status(404).json({ error: "booking not found" });
+  try {
+    await removeBookingLine(id, String(req.params.lineId));
   } catch (err) {
     if (err instanceof BookingEditError) return res.status(404).json({ error: err.message });
     throw err;

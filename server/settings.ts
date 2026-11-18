@@ -61,6 +61,7 @@ export async function getSettings(accountId: string) {
       retainerReminderDay3: true,
       holdReminderEmails: true,
       payLinksOpenStorefront: true,
+      maxItemsPerBooking: true,
     },
   });
   return {
@@ -120,6 +121,8 @@ export async function getSettings(accountId: string) {
     // Block F3a.
     holdReminderEmails: account.holdReminderEmails,
     payLinksOpenStorefront: account.payLinksOpenStorefront,
+    // Block FIX1: the most items one hold or price check may carry.
+    maxItemsPerBooking: account.maxItemsPerBooking,
   };
 }
 

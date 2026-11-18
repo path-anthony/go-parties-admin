@@ -4,6 +4,9 @@ import { getDefaultAccount } from "../account.js";
 import { prisma } from "../db.js";
 import { aiGate, companyPhone } from "../ai.js";
 import { audienceOf, cleanSuggestions, starterPrompts } from "../askSuggestions.js";
+import { applyCartAction, parseAskCart, wantsCartChange, type CartAction, type CartLine } from "../askCart.js";
+import { settleOccasion } from "../occasionText.js";
+import { PricingError, isPerGuestUnit, priceCart } from "../pricing.js";
 import { todayEastern } from "../validate.js";
 import { botCheck } from "../botCheck.js";
 import { contactLine, leadContactFrom, type LeadContact } from "../leadContact.js";
@@ -41,12 +44,14 @@ type LeadItem = { id: string; name: string; category: string; price: number | nu
 // none of the three makes no lead. Never awaited on the response path, and
 // errors are swallowed (logged, not thrown): a slow or failed insert must not
 // add latency or block the customer's answer.
-function logLead(accountId: string, who: LeadContact | null, theme: string, items: LeadItem[], total: number, suggestConcierge = false) {
+function logLead(accountId: string, who: LeadContact | null, theme: string, items: LeadItem[], total: number, suggestConcierge = false, occ: { occasion: string | null; fromStore: string | null; fromChat: string | null } = { occasion: null, fromStore: null, fromChat: null }) {
   if (!who) return;
   getDefaultStatus(accountId)
     .then((status) =>
       prisma.lead.create({
-        data: { accountId, source: "ask-go", status, customerName: who.name, contact: contactLine(who), theme, itemsReturned: { items, total, suggestConcierge } },
+        // Block FIX1: the occasion the customer wrote about, with what the
+        // store sent kept beside it.
+        data: { accountId, source: "ask-go", status, customerName: who.name, contact: contactLine(who), theme, occasion: occ.occasion, occasionFromStore: occ.fromStore, occasionFromChat: occ.fromChat, itemsReturned: { items, total, suggestConcierge } },
       }),
     )
     .then((lead) => notifyNewLead(lead))
@@ -145,6 +150,18 @@ const INSTRUCTIONS =
   "anything adult only for a kids party. Each line is 6 words or fewer, with no punctuation at the end, no " +
   "emoji and no quotation marks. Never repeat a line the customer has already sent. The suggestions never " +
   "change which items you pick or what you say.\n\n" +
+  "The cart: the customer may already have a cart, shown after the catalog as 'The customer's cart right now'; " +
+  "when it is not shown, the cart is empty. " +
+  "Never change it unless the customer asks for a change. A question about delivery, setup, space, power, " +
+  "water, weather or rain, timing, payment, prices or policies is answered in two or three plain sentences " +
+  "and the cart stays exactly as it is: cart_action none. Only when the customer asks to add, remove, swap, " +
+  "lower the total, change the size, or start over do you change it: add (item_ids are the items to add), " +
+  "remove (item_ids are the items to take out), or replace (item_ids are the whole new cart). Building the " +
+  "first lineup when there is no cart is replace. If you don't know an answer, say so and offer a person: " +
+  "call or text GO. Never invent a fee, a size or a rule.\n\n" +
+  "Prices: an item marked (per guest) costs its price times the guest count, so 100 guests of a $10 per " +
+  "guest item is $1,000. Check the budget with that math, and always put the guest count you are using in " +
+  "guest_count. Everything else costs its price once per unit.\n\n" +
   "You may only recommend items by the exact id given in the catalog below. Never invent an item, id, or price. " +
   "Pick a set of items that fits the occasion, guest count, and budget as closely as possible, favoring a mix " +
   "of categories over many items from one category. If the budget can't be met with real items, get as close " +
@@ -153,13 +170,19 @@ const INSTRUCTIONS =
 // The static part (instructions, then the catalog) comes first and carries the
 // cache marker, so every turn of every conversation reuses it at a fraction of
 // the price. Only the short sub-occasion line, which changes, comes after.
-export function buildSystem(catalogItems: CatalogRow[], subOcc: string | null): Anthropic.TextBlockParam[] {
+export function buildSystem(catalogItems: CatalogRow[], subOcc: string | null, cart: { lines: CartLine[]; total: number | null; guestCount: number | null } | null = null): Anthropic.TextBlockParam[] {
   const catalog = catalogItems.map(catalogLine).join("\n");
   const blocks: Anthropic.TextBlockParam[] = [
     { type: "text", text: INSTRUCTIONS },
     { type: "text", text: `Catalog:\n${catalog}`, cache_control: { type: "ephemeral" } },
   ];
-  if (subOcc) blocks.push({ type: "text", text: `The customer selected sub-occasion: ${subOcc}.` });
+  if (subOcc) blocks.push({ type: "text", text: `The customer selected sub-occasion: ${subOcc}. If their own messages describe a different occasion, follow their messages.` });
+  // Block FIX1: what the customer has now. Names and prices come from the
+  // catalog here, never from the store, so nothing typed reaches this part.
+  if (cart && cart.lines.length > 0) {
+    const lines = cart.lines.map((l) => `- id: ${l.id}, ${l.name}${l.perGuest ? " (per guest)" : l.quantity > 1 ? ` x ${l.quantity}` : ""}`).join("\n");
+    blocks.push({ type: "text", text: `The customer's cart right now (${cart.lines.length} items${cart.total !== null ? `, $${cart.total}` : ""}${cart.guestCount ? ` for ${cart.guestCount} guests` : ""}):\n${lines}` });
+  }
   return blocks;
 }
 
@@ -198,10 +221,23 @@ export const RESPOND_TOOL: Anthropic.Tool = {
         type: "array",
         items: { type: "string" },
         description:
-          "Only used when ready is true: IDs of recommended items, taken only from the catalog provided, at most " +
-          "20. With a real budget, build within or close to it. When the customer explicitly declined to give " +
+          "Only used when cart_action is add, remove or replace: the items that action applies to (see " +
+          "cart_action), taken only from the catalog provided, at most 20. With a real budget, build within or close to it. When the customer explicitly declined to give " +
           "one, lean toward the highest-value items across categories, this is 'show me what's possible', not " +
           "a safe middle. Leave empty when ready is false.",
+      },
+      cart_action: {
+        type: "string",
+        enum: ["none", "add", "remove", "replace"],
+        description:
+          "What this reply does to the customer's cart. none: the cart stays exactly as it is (every question, " +
+          "every reply that only asks something, and any turn where the customer did not ask for a change). add: " +
+          "item_ids are added. remove: item_ids are taken out. replace: item_ids are the whole new cart (the " +
+          "first lineup, or when the customer asks to start over or rebuild it).",
+      },
+      guest_count: {
+        type: "integer",
+        description: "The guest count from the conversation, when the customer has given one. Per-guest items are priced on it.",
       },
       suggestions: {
         type: "array",
@@ -215,7 +251,7 @@ export const RESPOND_TOOL: Anthropic.Tool = {
           "conversation: nothing about kids or parents for an adult party, nothing adult only for a kids party.",
       },
     },
-    required: ["ready", "message", "item_ids", "suggest_concierge", "suggestions"],
+    required: ["ready", "message", "item_ids", "suggest_concierge", "suggestions", "cart_action"],
   },
 };
 
@@ -296,17 +332,30 @@ router.post("/", botCheck("recommend", { minAgeApplies: (req) => Array.isArray(r
 
   const anthropic = modelOverride ? null : new Anthropic({ apiKey: apiKey as string });
   const callModel: AskGoModel = modelOverride ?? ((request) => (anthropic as Anthropic).messages.create(request));
-  const system = buildSystem(catalogItems, subOcc);
+  // Block FIX1: the cart the store has now, read against the catalog (ids
+  // only; names and prices are the catalog's), and the guest count it sent.
+  const catalogById = new Map(catalogItems.map((item: Item) => [item.id, item]));
+  const current = parseAskCart((req.body ?? {}).cart, catalogById);
+  const storeGuests = typeof (req.body ?? {}).guestCount === "number" && Number.isInteger((req.body ?? {}).guestCount) && (req.body ?? {}).guestCount >= 1 && (req.body ?? {}).guestCount <= 5000 ? ((req.body ?? {}).guestCount as number) : null;
+  // Block FIX1: the occasion is what the customer wrote; the store's pick is
+  // only passed on when it agrees with that.
+  const customerText = messages.filter((m) => m.role === "user").map((m) => m.content).join(" / ");
+  const occ = settleOccasion(subOcc, customerText);
+  const cartTotal = (lines: CartLine[], guests: number | null) => totalOf(lines, guests);
+  const system = buildSystem(catalogItems, occ.conflict ? null : subOcc, { lines: current, total: cartTotal(current, storeGuests).total, guestCount: storeGuests });
   // Block G1: who the party is for, from the customer's own words and the
   // occasion they picked, for the backstop check on the suggestions.
-  const audience = audienceOf(`${subOcc ?? ""} ${theme}`);
+  const audience = audienceOf(`${occ.conflict ? "" : (subOcc ?? "")} ${theme}`);
+  const lastUser = messages[messages.length - 1].content;
 
-  let ready = false;
   let message = "";
   let requestedIds: string[] = [];
   let suggestConcierge = false;
+  let action: CartAction = "none";
+  let modelGuests: number | null = null;
   // Block G1: the tap-to-send replies, from the same call as the message.
   let suggestions: string[] = [];
+  let next: CartLine[] = current;
 
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
     const response = await callModel({
@@ -328,8 +377,8 @@ router.post("/", botCheck("recommend", { minAgeApplies: (req) => Array.isArray(r
       continue;
     }
 
-    const input = toolUse.input as { ready?: unknown; message?: unknown; item_ids?: unknown; suggest_concierge?: unknown; suggestions?: unknown };
-    ready = input.ready === true;
+    const input = toolUse.input as { ready?: unknown; message?: unknown; item_ids?: unknown; suggest_concierge?: unknown; suggestions?: unknown; cart_action?: unknown; guest_count?: unknown };
+    const ready = input.ready === true;
     suggestConcierge = input.suggest_concierge === true;
     message = typeof input.message === "string" ? input.message : "";
     // Missing or malformed suggestions are an empty list, never a reason to
@@ -338,49 +387,82 @@ router.post("/", botCheck("recommend", { minAgeApplies: (req) => Array.isArray(r
     requestedIds = Array.isArray(input.item_ids)
       ? input.item_ids.filter((id): id is string => typeof id === "string").slice(0, MAX_RECOMMENDED_ITEMS)
       : [];
-
-    // A ready answer with no item ids is as useless to the customer as an
-    // empty message: the closing line describes a lineup that never arrives.
-    // Both are retried rather than passed through.
-    const usable = message.trim().length >= MIN_MESSAGE_LENGTH && (!ready || requestedIds.length > 0);
-    if (usable) {
-      break;
+    modelGuests = typeof input.guest_count === "number" && Number.isInteger(input.guest_count) && input.guest_count >= 1 && input.guest_count <= 5000 ? input.guest_count : null;
+    // An older model answer with no cart_action: a ready lineup is a replace.
+    const said = input.cart_action;
+    action = said === "add" || said === "remove" || said === "replace" || said === "none" ? said : ready && requestedIds.length > 0 ? "replace" : "none";
+    // The rule the client asked for, kept here as well as in the prompt: a
+    // question never changes a cart the customer already has.
+    if (action !== "none" && current.length > 0 && !wantsCartChange(lastUser)) {
+      console.warn(`[recommend] attempt ${attempt}: the model changed the cart on a question; kept the cart`);
+      action = "none";
     }
+    next = applyCartAction(current, action, requestedIds, catalogById);
+
+    // A change that leaves nothing to show (an add or a lineup with no real
+    // items) is as useless as an empty message: retried.
+    const emptyChange = (action === "add" || action === "replace") && next.length === 0;
+    if (message.trim().length >= MIN_MESSAGE_LENGTH && !emptyChange) break;
     console.warn(
-      `[recommend] attempt ${attempt}: degenerate response (ready=${ready}, ids=${requestedIds.length}, stop=${response.stop_reason}, message length ${message.length}), retrying`,
+      `[recommend] attempt ${attempt}: degenerate response (action=${action}, ids=${requestedIds.length}, stop=${response.stop_reason}, message length ${message.length}), retrying`,
     );
   }
 
-  if (message.trim().length < MIN_MESSAGE_LENGTH || (ready && requestedIds.length === 0)) {
+  if (message.trim().length < MIN_MESSAGE_LENGTH || ((action === "add" || action === "replace") && next.length === 0)) {
     return res.status(502).json({ error: "Model did not return a usable response" });
   }
 
-  if (!ready) {
-    return res.json({ ready: false, message, suggestConcierge: false, suggestions });
+  const guestCount = modelGuests ?? storeGuests;
+  // What stays the same in every reply: the occasion read from the chat and
+  // the guest count, so the store can show them and send them back.
+  const common = { suggestConcierge, suggestions, cartAction: action, guestCount, occasion: occ.occasion };
+
+  if (action === "none") {
+    // The cart is untouched. ready stays false so a store that only knows
+    // "ready means a new lineup" keeps the cart it has.
+    return res.json({ ready: false, message, ...common, suggestConcierge: current.length > 0 ? suggestConcierge : false });
   }
 
-  const catalogById = new Map(catalogItems.map((item: Item) => [item.id, item]));
-  const recommended = requestedIds
-    .map((id) => catalogById.get(id))
-    .filter((item): item is (typeof catalogItems)[number] => item !== undefined);
   const droppedIds = requestedIds.filter((id) => !catalogById.has(id));
-
   if (droppedIds.length > 0) {
     console.warn(`[recommend] dropped ${droppedIds.length} id(s) not in the catalog`);
   }
-
-  const total = recommended.reduce((sum, item) => sum + Number(item.price), 0);
-
-  logLead(account.id, who, theme, toLeadItems(recommended), total, suggestConcierge);
+  // Block FIX1: the cart's total by the one pricing rule.
+  const { total, guestCountNeeded } = cartTotal(next, guestCount);
+  const recommended = next.map((l) => catalogById.get(l.id)).filter((item): item is (typeof catalogItems)[number] => item !== undefined);
+  logLead(account.id, who, theme, toLeadItems(recommended), total ?? 0, suggestConcierge, occ);
 
   // What goes back to the customer is the same allowlist the public catalog
-  // uses, nothing internal. The total stays the base prices: no add-on has
-  // been chosen yet.
-  const items = recommended.map(toPublicItem);
-
-  // suggestConcierge is a signal for the storefront to offer a planning
-  // call; it never changes what is recommended.
-  res.json({ ready: true, message, items, total, suggestConcierge, suggestions });
+  // uses, nothing internal. items is the whole cart after the change (so a
+  // store that replaces its cart on every lineup still ends up right);
+  // added and removed say what changed.
+  const items = next.map((l) => ({ ...toPublicItem(catalogById.get(l.id) as (typeof catalogItems)[number]), quantity: l.quantity }));
+  const before = new Set(current.map((l) => l.id));
+  const after = new Set(next.map((l) => l.id));
+  res.json({
+    ready: true,
+    message,
+    items,
+    total,
+    ...common,
+    added: next.filter((l) => !before.has(l.id)).map((l) => l.id),
+    removed: current.filter((l) => !after.has(l.id)).map((l) => l.id),
+    ...(guestCountNeeded ? { guestCountNeeded: true } : {}),
+  });
 });
+
+// The cart's total by the one pricing rule. A per-guest item with no guest
+// count yet is left out of the total, and guestCountNeeded says so.
+function totalOf(lines: CartLine[], guests: number | null): { total: number | null; guestCountNeeded: boolean } {
+  const items = lines.map((l) => ({ id: l.id, name: l.name, price: l.price, priceUnit: l.priceUnit }));
+  const quantities = Object.fromEntries(lines.map((l) => [l.id, l.quantity]));
+  try {
+    return { total: priceCart({ items, quantities, guestCount: guests }).total, guestCountNeeded: false };
+  } catch (err) {
+    if (!(err instanceof PricingError)) throw err;
+    const rest = items.filter((i) => !isPerGuestUnit(i.priceUnit));
+    return { total: rest.length === 0 ? null : priceCart({ items: rest, quantities }).total, guestCountNeeded: true };
+  }
+}
 
 export default router;

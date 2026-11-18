@@ -68,7 +68,10 @@ export function fillGoTokens(text: string, values: GoTokenValues): string {
 // ---- service roll-up -------------------------------------------------------------
 
 export type ServiceRowDef = { id: string; column: "left" | "right"; position: number; label: string; isGroupHeading: boolean; categories: string[]; itemWords: string[]; itemIds: string[] };
-export type BookedLine = { itemId: string; name: string; category: string; quantity: number; unitPriceCents: number | null; needsCrew: boolean; hours?: string | null };
+// guests: set on a per-guest line (Block FIX1); the fee is the price per
+// guest times it, and the line reads "Name (100 guests)".
+export type BookedLine = { itemId: string; name: string; category: string; quantity: number; unitPriceCents: number | null; needsCrew: boolean; hours?: string | null; guests?: number | null };
+const lineCount = (l: BookedLine) => (l.guests ? l.guests : l.quantity);
 export type RowOverride = { checked?: boolean | null; details?: string | null; feeCents?: number | null };
 
 // Which row an item belongs to: an explicit item mapping first, then a
@@ -102,8 +105,8 @@ export function rollUpServices(rows: ServiceRowDef[], lines: BookedLine[], overr
   return sorted.map((row) => {
     const items = grouped.get(row.id) ?? [];
     const priced = items.filter((l) => l.unitPriceCents !== null);
-    const computedFee = items.length > 0 && priced.length > 0 ? priced.reduce((sum, l) => sum + (l.unitPriceCents as number) * l.quantity, 0) : null;
-    const computedDetails = items.length > 0 ? items.map((l) => `${l.name}${l.quantity > 1 ? ` x${l.quantity}` : ""}${l.hours ? ` (${l.hours})` : ""}`).join("; ") : null;
+    const computedFee = items.length > 0 && priced.length > 0 ? priced.reduce((sum, l) => sum + (l.unitPriceCents as number) * lineCount(l), 0) : null;
+    const computedDetails = items.length > 0 ? items.map((l) => `${l.name}${l.guests ? ` (${l.guests} guests)` : l.quantity > 1 ? ` x${l.quantity}` : ""}${l.hours ? ` (${l.hours})` : ""}`).join("; ") : null;
     const o = overrides[row.id] ?? {};
     return {
       ...row,

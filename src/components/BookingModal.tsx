@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useNavigate as useRouterNavigate } from "react-router-dom";
 import { X } from "lucide-react";
-import { addBookingUnit, getBookingSummary, getBookings, getPolicy, removeBookingGig, removeBookingUnit, setBookingAddons, updateBooking } from "../lib/api";
+import { addBookingUnit, getBookingSummary, getBookings, getPolicy, removeBookingGig, removeBookingLine, removeBookingUnit, setBookingAddons, updateBooking } from "../lib/api";
 import { BALANCE_PREFERENCES, type BalancePreference, isInactiveStage } from "../lib/bookingStatus";
 import { deltaLabel, describeAddon } from "../lib/addons";
 import { leadTitle } from "../lib/leads";
@@ -152,7 +152,9 @@ export function BookingModal({
     .filter((i): i is Item => !!i);
   // What "add an item" can offer: anything with units, anything with
   // skills (covered by crew), or both.
-  const trackedItems = items.filter((item) => item.skills.length > 0 || units.some((u) => u.itemId === item.id));
+  // Block FIX1: plus anything that does not count against stock.
+  const takesNoUnit = (item: Item) => item.countsAgainstStock === false || (item.countsAgainstStock === null && ["per guest", "per person", "per head"].includes((item.priceUnit ?? "").trim().toLowerCase()));
+  const trackedItems = items.filter((item) => item.skills.length > 0 || units.some((u) => u.itemId === item.id) || takesNoUnit(item));
   const liveGigs = booking.gigs.filter((g) => g.status !== "Cancelled");
   const gigItems = [...new Set(liveGigs.map((g) => g.itemId))]
     .map((id) => items.find((i) => i.id === id))
@@ -280,7 +282,24 @@ export function BookingModal({
             <div className="booking-items">
           <span className="detail-field-label">Items and units</span>
           {cancelled && <p className="muted">A cancelled booking holds no units. Set it back to Confirmed to add some.</p>}
-          {!cancelled && heldItems.length === 0 && liveGigs.length === 0 && <p className="muted">No items on this booking yet.</p>}
+          {!cancelled && heldItems.length === 0 && liveGigs.length === 0 && (booking.lines ?? []).length === 0 && <p className="muted">No items on this booking yet.</p>}
+          {(booking.lines ?? []).length > 0 && (
+            <ul className="booking-addons" aria-label="Items that hold no unit">
+              {(booking.lines ?? []).map((l) => (
+                <li key={l.id}>
+                  <strong>{l.itemName}</strong>{" "}
+                  <span className="muted">
+                    · {l.perGuest ? `${l.guests ?? "?"} guests at ${l.unitPrice === null ? "TBD" : usd(Number(l.unitPrice))} each` : l.quantity > 1 ? `x ${l.quantity}` : "1"} · {l.lineTotal === null ? "no price" : usd(Number(l.lineTotal))} · takes no unit
+                  </span>{" "}
+                  {!cancelled && (
+                    <button type="button" className="btn-secondary" disabled={busy} onClick={() => run(() => removeBookingLine(booking.id, l.id))}>
+                      Remove
+                    </button>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
 
           {heldItems.map((item) => (
             <BookingItemCard
@@ -343,6 +362,13 @@ export function BookingModal({
                 {trackedItems.map((item) => {
                   const hasUnits = units.some((u) => u.itemId === item.id);
                   const crewNote = item.skills.length > 0 ? ` · needs ${item.skills.join(", ")}` : "";
+                  if (takesNoUnit(item)) {
+                    return (
+                      <option key={item.id} value={item.id}>
+                        {item.name} · takes no unit{item.priceUnit ? ` · ${item.priceUnit}` : ""}
+                      </option>
+                    );
+                  }
                   if (!hasUnits) {
                     return (
                       <option key={item.id} value={item.id}>
@@ -426,6 +452,11 @@ export function BookingModal({
                 <summary>The policy text the customer accepted</summary>
                 <pre className="policy-text-shown">{paper.policy.acceptedText}</pre>
               </details>
+            )}
+            {paper?.contract?.waitingOn && (
+              <p className="stage-warning" role="note" data-testid="contract-waiting">
+                <strong>The contract is waiting on details.</strong> {paper.contract.waitingOn} Until then, sending the contract link sends nothing.
+              </p>
             )}
             <div className="status-control" role="group" aria-label={`Contract for ${who}`} id="booking-contract">
               <span className="status-now">
@@ -653,6 +684,9 @@ function AgreementDetail({ booking }: { booking: Booking }) {
   async function show() {
     setError(null);
     try {
+      // Block FIX1: the wording as it read for them, when it was kept;
+      // older agreements show the saved version with its {{tokens}}.
+      if (agreement?.policyTextSeen) return setText(agreement.policyTextSeen);
       const policy = await getPolicy();
       setText(policy.versions.find((v) => v.id === versionId)?.text ?? "(not found)");
     } catch (err) {

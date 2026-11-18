@@ -220,17 +220,21 @@ export function NewBookingModal({
     });
   }
 
-  // The same arithmetic the server does: price times quantity, plus each
-  // chosen option's change times the quantity; a package is its own price.
+  // The same arithmetic the server does (server/pricing.ts): a per-guest
+  // item is its price times the guest count, anything else its price times
+  // the quantity; options follow their item; a package is its own price.
+  const perGuestItem = (item: AvailableItem) => !pkg && ["per guest", "per person", "per head"].includes((item.priceUnit ?? "").trim().toLowerCase());
   const lines = chosenItems.map((item) => {
-    const qty = qtyOf(item.id);
+    const qty = perGuestItem(item) ? 1 : qtyOf(item.id);
+    const times = perGuestItem(item) ? (guestNumber !== null && guestsOk ? guestNumber : 0) : qty;
     const chosen = item.addonGroups.flatMap((group) => {
       const addon = group.addons.find((a) => a.id === pickOf(item, group.id));
       return addon ? [addon] : [];
     });
     const delta = chosen.reduce((sum, a) => sum + a.priceDelta, 0);
-    return { item, qty, base: item.price === null ? null : item.price * qty, delta: delta * qty, options: chosen.map((a) => a.name) };
+    return { item, qty, perGuest: perGuestItem(item), base: item.price === null ? null : item.price * times, delta: delta * times, options: chosen.map((a) => a.name) };
   });
+  const perGuestNames = lines.filter((l) => l.perGuest).map((l) => l.item.name);
   const addonsTotal = lines.reduce((sum, l) => sum + l.delta, 0);
   const priced = lines.filter((l) => l.base !== null);
   const computed = pkg ? (packagePrice(pkg) === null ? null : Math.round(((packagePrice(pkg) as number) + addonsTotal) * 100) / 100) : priced.length === 0 ? null : Math.round(priced.reduce((sum, l) => sum + (l.base ?? 0) + l.delta, 0) * 100) / 100;
@@ -306,6 +310,8 @@ export function NewBookingModal({
           ? `${pkg.name} cannot be booked on this date. ${packageBlock(pkg)}.`
           : mode === "package" && pkg?.pricingMode === "per_guest" && (guestNumber === null || !guestsOk)
             ? "Type the guest count. This package is priced per guest."
+            : perGuestNames.length > 0 && (guestNumber === null || !guestsOk)
+              ? `Type the guest count. ${perGuestNames.join(", ")} ${perGuestNames.length === 1 ? "is" : "are"} priced per guest.`
             : mode === "items" && chosenItems.length === 0
               ? "Add at least one item."
               : !guestsOk
@@ -616,7 +622,7 @@ export function NewBookingModal({
                   </select>
                 </label>
                 <label>
-                  Guest count{pkg?.pricingMode === "per_guest" ? "*" : ""}
+                  Guest count{pkg?.pricingMode === "per_guest" || perGuestNames.length > 0 ? "*" : ""}
                   <input type="number" min={1} max={5000} value={guests} onChange={(e) => setGuests(e.target.value)} placeholder="How many guests" aria-label="Guest count" />
                 </label>
               </div>
@@ -673,14 +679,14 @@ export function NewBookingModal({
                     <span>{packagePrice(pkg) === null ? "TBD" : usd(packagePrice(pkg) as number)}</span>
                   </li>
                 )}
-                {lines.map(({ item, qty, base, delta, options }) => (
+                {lines.map(({ item, qty, base, delta, options, perGuest }) => (
                   <li key={item.id} className="unit-row">
                     <span>
                       {item.name}
                       {qty > 1 ? ` x ${qty}` : ""}
                       {options.length > 0 ? <span className="muted"> · {options.join(", ")}</span> : null}
                     </span>
-                    <span>{pkg ? (delta > 0 ? `+ ${usd(delta)}` : "in the package") : base === null ? "TBD" : usd(base + delta)}</span>
+                    <span>{pkg ? (delta > 0 ? `+ ${usd(delta)}` : "in the package") : base === null ? "TBD" : perGuest ? `${guestNumber ?? 0} guests, ${usd(base + delta)}` : usd(base + delta)}</span>
                   </li>
                 ))}
               </ul>

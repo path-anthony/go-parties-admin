@@ -3,7 +3,8 @@ import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFPage } from "pdf
 import { getDefaultAccount } from "./account.js";
 import { currentActor } from "./actor.js";
 import { prisma } from "./db.js";
-import { currentPolicy } from "./policy.js";
+import { isPerGuestUnit } from "./pricing.js";
+import { currentPolicy, fillPolicyText } from "./policy.js";
 import { getSettings } from "./settings.js";
 import { mergeFields } from "./tokens.js";
 import { buildGoDocument, contractLogo } from "./contract/goLoad.js";
@@ -62,7 +63,8 @@ export type ContractContent = {
   eventDate: string;
   eventTime: string | null;
   address: string | null;
-  lines: { name: string; quantity: number; unitPrice: number | null }[];
+  // guests: set on a per-guest line (Block FIX1).
+  lines: { name: string; quantity: number; unitPrice: number | null; guests?: number | null }[];
   addons: { itemName: string; groupName: string; addonName: string; priceDelta: number; quantity: number }[];
   total: number | null;
   depositPercentage: number;
@@ -94,17 +96,23 @@ async function loadSubject(agreement: { bookingId: string | null; designRequestI
     const b = await prisma.booking.findUniqueOrThrow({
       where: { id: agreement.bookingId },
       include: {
-        units: { include: { unit: { select: { item: { select: { id: true, name: true, price: true } } } } } },
+        units: { include: { unit: { select: { item: { select: { id: true, name: true, price: true, priceUnit: true } } } } } },
         gigs: { where: { status: { not: "Cancelled" } }, select: { itemId: true, itemName: true } },
         addons: { orderBy: { createdAt: "asc" } },
+        // Block FIX1: items that hold no unit.
+        lines: true,
       },
     });
-    const byItem = new Map<string, { name: string; quantity: number; unitPrice: number | null }>();
+    const byItem = new Map<string, { name: string; quantity: number; unitPrice: number | null; guests?: number | null }>();
     for (const row of b.units) {
       const item = row.unit.item;
-      const cur = byItem.get(item.id) ?? { name: item.name, quantity: 0, unitPrice: item.price === null ? null : Number(item.price) };
+      const cur = byItem.get(item.id) ?? { name: item.name, quantity: 0, unitPrice: item.price === null ? null : Number(item.price), guests: isPerGuestUnit(item.priceUnit) ? b.guestCount : null };
       cur.quantity += 1;
       byItem.set(item.id, cur);
+    }
+    for (const l of b.lines) {
+      const key = l.itemId ?? `line:${l.id}`;
+      if (!byItem.has(key)) byItem.set(key, { name: l.itemName, quantity: l.quantity, unitPrice: l.unitPrice === null ? null : Number(l.unitPrice), guests: l.perGuest ? l.guests : null });
     }
     // Crew-only items hold no unit: one line each, counted by how many
     // people-per-skill they created.
@@ -137,7 +145,7 @@ async function loadSubject(agreement: { bookingId: string | null; designRequestI
   }
   const r = await prisma.designRequest.findUniqueOrThrow({ where: { id: agreement.designRequestId as string } });
   const cart = r.cart as {
-    items?: { name: string; quantity: number; price: number | null }[];
+    items?: { name: string; quantity: number; price: number | null; perGuest?: boolean; guests?: number | null }[];
     addons?: { itemName: string; groupName: string; addonName: string; priceDelta: number; quantity: number }[];
   };
   return {
@@ -149,7 +157,7 @@ async function loadSubject(agreement: { bookingId: string | null; designRequestI
     address: r.address,
     total: r.total === null ? null : Number(r.total),
     balancePaymentPreference: r.balancePaymentPreference,
-    lines: (cart.items ?? []).map((i) => ({ name: i.name, quantity: i.quantity, unitPrice: i.price })),
+    lines: (cart.items ?? []).map((i) => ({ name: i.name, quantity: i.quantity, unitPrice: i.price, guests: i.perGuest ? (i.guests ?? null) : null })),
     addons: cart.addons ?? [],
   };
 }
@@ -184,6 +192,8 @@ export async function buildContractContent(agreementId: string): Promise<Contrac
   };
 
   const serviceLines = subject.lines.map((l) => {
+    // Block FIX1: a per-guest line says the rate, the count and the line total.
+    if (l.guests && l.unitPrice !== null) return `- ${l.name}, ${l.guests} guests (${usd(l.unitPrice)} per guest, ${usd(Math.round(l.unitPrice * l.guests * 100) / 100)})`;
     const price = l.unitPrice === null ? "price to be confirmed" : `${usd(l.unitPrice)} each`;
     return `- ${l.name}${l.quantity > 1 ? ` x ${l.quantity}` : ""} (${price})`;
   });
@@ -213,7 +223,9 @@ export async function buildContractContent(agreementId: string): Promise<Contrac
     },
     {
       heading: "Cancellation and retainer policy",
-      body: mergeFields(policy.text, values),
+      // Block FIX1: the policy's numbers come from Settings at the moment the
+      // contract is read, then the booking's own values.
+      body: mergeFields(fillPolicyText(policy.text, settings), values),
     },
   ];
   const text = ["Event Services Agreement", ...sections.map((s) => `${s.heading}\n${s.body}`)].join("\n\n");

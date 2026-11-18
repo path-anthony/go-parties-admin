@@ -1,6 +1,8 @@
 import { Router } from "express";
 import { getDefaultAccount } from "../account.js";
 import { countFreeUnits, freeUnitsByItem } from "../availability.js";
+import { countsAgainstStock } from "../pricing.js";
+import { NO_STOCK_LIMIT, placesLeftByItem } from "../stock.js";
 import { crewFreeBySkill, freeForItem } from "../gigs.js";
 import { prisma } from "../db.js";
 import { PUBLIC_ITEM_RELATIONS, toPublicItem } from "../publicItem.js";
@@ -54,6 +56,8 @@ router.get("/public", availabilityLimiter, async (req, res) => {
         description: true,
         photoUrl: true,
         skills: true,
+        countsAgainstStock: true,
+        maxPerDay: true,
         // Unit count and each item's add-on groups and options ride along,
         // so the storefront can offer them without a second request.
         ...PUBLIC_ITEM_RELATIONS,
@@ -62,9 +66,19 @@ router.get("/public", availabilityLimiter, async (req, res) => {
     prisma.item.findMany({ where: { accountId: account.id }, distinct: ["category"], select: { category: true }, orderBy: { category: "asc" } }),
   ]);
 
+  // Block FIX1: an item that does not count against stock is free up to its
+  // daily maximum, or without limit. Any other item's daily maximum caps its
+  // free units too.
+  const places = dateText ? await placesLeftByItem(items.filter((i) => i.maxPerDay !== null), dateText) : new Map<string, number | null>();
+  const freeNow = (item: (typeof items)[number]) => {
+    const left = places.get(item.id) ?? null;
+    if (!countsAgainstStock(item)) return left ?? NO_STOCK_LIMIT;
+    const byStock = freeFor(item);
+    return left === null ? byStock : Math.min(byStock, left);
+  };
   const shaped = items.map((item) => ({
     ...toPublicItem(item),
-    ...(free ? { freeUnits: freeFor(item) } : {}),
+    ...(free ? { freeUnits: freeNow(item) } : {}),
   }));
 
   res.json({
@@ -83,9 +97,15 @@ router.get("/:id/availability", availabilityLimiter, async (req, res) => {
   const dateText = date.toISOString().slice(0, 10);
 
   const account = await getDefaultAccount();
-  const item = await prisma.item.findFirst({ where: { id, accountId: account.id }, select: { id: true, name: true, skills: true } });
+  const item = await prisma.item.findFirst({ where: { id, accountId: account.id }, select: { id: true, name: true, skills: true, priceUnit: true, countsAgainstStock: true, maxPerDay: true } });
   if (!item) {
     return res.status(404).json({ error: "item not found" });
+  }
+  // Block FIX1: an item that holds no unit is free up to its daily maximum.
+  if (!countsAgainstStock(item)) {
+    const left = (await placesLeftByItem([item], dateText)).get(item.id) ?? null;
+    const freeUnits = left ?? NO_STOCK_LIMIT;
+    return res.json({ itemId: item.id, date: dateText, directBooking: true, available: freeUnits > 0, freeUnits, totalUnits: item.maxPerDay ?? NO_STOCK_LIMIT });
   }
 
   const totalUnits = await prisma.unit.count({ where: { itemId: item.id } });

@@ -2,7 +2,7 @@ import { Router } from "express";
 import { getDefaultAccount } from "../account.js";
 import { parseAddonSelections } from "../addons.js";
 import { AddonSelectionError } from "../addons.js";
-import { currentPolicy, publicPolicy } from "../policy.js";
+import { currentPolicy, fillPolicyText, publicPolicy } from "../policy.js";
 import { CartError, issueQuote, normalizeCart, resolveCart, tierFor } from "../quotes.js";
 import { getSettings } from "../settings.js";
 import { tier1Amount } from "../tiers.js";
@@ -11,6 +11,7 @@ import { INVALID, normalizeDate, normalizeText, todayEastern } from "../validate
 import { safeInline } from "../sanitize.js";
 import { parseGuestCount } from "../packagePricing.js";
 import { NOT_EXACT_MESSAGE, lookupAddress } from "../addressLookup.js";
+import { parseQuantities, tooManyItems } from "./directBookings.js";
 
 // Block T1. POST /api/bookings/tier: which agreement a cart needs. Public
 // (the storefront asks once the cart and date are fixed, and again right
@@ -27,7 +28,9 @@ router.post("/", async (req, res) => {
   if (body.itemIds !== undefined) {
     if (!Array.isArray(body.itemIds) || body.itemIds.length === 0 || !body.itemIds.every((id): id is string => typeof id === "string" && id !== "")) return res.status(400).json({ error: "itemIds must be a non-empty array of item ids" });
     itemIds = [...new Set(body.itemIds as string[])];
-    if (itemIds.length > 10) return res.status(400).json({ error: "itemIds can hold at most 10 items" });
+    // Block FIX1: the same cap the hold uses, from Booking rules.
+    const max = (await getSettings((await getDefaultAccount()).id)).maxItemsPerBooking;
+    if (itemIds.length > max) return res.status(400).json({ error: tooManyItems(max), reason: "too-many-items", max });
   } else if (typeof body.itemId === "string" && body.itemId !== "") itemIds = [body.itemId];
   else return res.status(400).json({ error: "itemId or itemIds is required" });
   const date = normalizeDate(body.eventDate);
@@ -49,7 +52,10 @@ router.post("/", async (req, res) => {
   // Block A8: the guest count for a per-guest package (optional otherwise).
   const guestCount = parseGuestCount(body.guestCount);
   if (typeof guestCount === "string") return res.status(400).json({ error: guestCount, reason: "guest-count-invalid" });
-  const cart = normalizeCart({ itemIds, packageId, addons, eventDate: dateText, eventTime, occasion: normalizeText(occasion), guestCount });
+  // Block FIX1: units per item, the same shape the hold takes.
+  const quantities = parseQuantities(body.quantities, itemIds);
+  if (typeof quantities === "string") return res.status(400).json({ error: quantities, reason: "quantity-invalid", field: "quantities" });
+  const cart = normalizeCart({ itemIds, packageId, addons, eventDate: dateText, eventTime, occasion: normalizeText(occasion), guestCount, quantities });
   // Block A9: the event address, when the storefront sends it with the
   // quote: a place id from its suggestions, or typed text. A clear "not
   // exact" answer is refused here so the customer hears early; the hold
@@ -76,8 +82,11 @@ router.post("/", async (req, res) => {
   const { tier, reasons } = await tierFor(account.id, resolved, cart.occasion);
   const settings = await getSettings(account.id);
   const total = resolved.total;
+  // Block FIX1: how each line was priced (per guest, or by quantity), and the
+  // guest count used, so the store shows the same figures it is charged.
+  const priced = { lines: resolved.priced.lines.map((l) => ({ itemId: l.itemId, name: l.name, perGuest: l.perGuest, quantity: l.quantity, guests: l.guests, unitPrice: l.unitPrice, lineTotal: l.lineTotal })), guestCount: cart.guestCount ?? null };
   if (tier === 3) {
-    return res.json({ tier, reasons, total, retainerPercent: settings.depositPercentage, retainerAmount: total === null ? null : Math.round(total * settings.depositPercentage) / 100, policy: null, contract: null, quoteExpiresAt: null, address, responseDays: settings.requestResponseDays });
+    return res.json({ tier, reasons, total, ...priced, retainerPercent: settings.depositPercentage, retainerAmount: total === null ? null : Math.round(total * settings.depositPercentage) / 100, policy: null, contract: null, quoteExpiresAt: null, address, responseDays: settings.requestResponseDays });
   }
   if (tier === 2) {
     const q = await issueQuote(account.id, cart, resolved);
@@ -85,6 +94,7 @@ router.post("/", async (req, res) => {
       tier,
       reasons,
       total: q.totalCents / 100,
+      ...priced,
       retainerPercent: settings.depositPercentage,
       retainerAmount: q.retainerCents / 100,
       policy: null,
@@ -99,9 +109,12 @@ router.post("/", async (req, res) => {
     tier,
     reasons,
     total,
+    ...priced,
     retainerPercent: collect === "full" ? 100 : settings.depositPercentage,
     retainerAmount: total === null ? null : tier1Amount(total, settings.depositPercentage, collect),
-    policy: policy ? { version: policy.version, text: policy.text } : null,
+    // Block FIX1: the numbers are filled in from Settings now, so the text
+    // always says what checkout charges.
+    policy: policy ? { version: policy.version, text: fillPolicyText(policy.text, settings) } : null,
     contract: null,
     quoteExpiresAt: null,
     address,

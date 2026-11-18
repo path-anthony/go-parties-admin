@@ -561,3 +561,165 @@ No body, no cookie, no bot fields, and no model call. Optional `?occasion=` with
 2. After every reply, draw one button per string in that reply's `suggestions`. Draw none when it is empty.
 3. Before the first message, draw the buttons from `GET /api/recommend/starters`.
 4. A tap sends the string as the customer's next message.
+
+# Block FIX1: one pricing rule, quantities, the cart sent to Ask GO, and the numbers to read
+
+Live on the admin API. Additive: every existing call keeps working. What changes is that the admin now prices per-guest items by the guest count and holds the quantity the store asks for. Fixes `docs/BUGS-AUDIT.md` items 1, 2, 3 and 5.
+
+## 18. Quantities and the guest count on price checks, holds and requests
+
+`POST /api/bookings/tier` and `POST /api/bookings/direct` (a hold, or a request when the order goes to review) accept two more fields:
+
+```json
+{
+  "itemIds": ["chair-id", "spread-id", "tent-id"],
+  "quantities": { "chair-id": 40 },
+  "guestCount": 100,
+  "eventDate": "2026-12-26"
+}
+```
+
+- `quantities` is `{ [itemId]: number }`, a whole number from 1 to 50, for items in `itemIds`. Missing means one. Send the quantity the drawer shows; until now it was never sent, so a customer saw 3 times the price and was held and charged for 1.
+- `guestCount` is a whole number from 1 to 5000. **It is required whenever the cart has an item billed per guest** (`priceUnit` "per guest").
+- An item billed per guest costs its price times `guestCount`. Its quantity is ignored (it is one line). Anything else costs its price times its quantity. A package keeps its own price. An option's price change counts as many times as its item.
+
+The tier answer now says how each line was priced. Show these figures, not the store's own sum:
+
+```json
+{
+  "tier": 1,
+  "total": 6176,
+  "guestCount": 100,
+  "lines": [
+    { "itemId": "chair-id", "name": "Gold Chiavari Chair", "perGuest": false, "quantity": 40, "guests": null, "unitPrice": 8, "lineTotal": 320 },
+    { "itemId": "spread-id", "name": "Mediterranean Spread", "perGuest": true, "quantity": 1, "guests": 100, "unitPrice": 58.56, "lineTotal": 5856 }
+  ],
+  "retainerPercent": 30,
+  "retainerAmount": 1852.8,
+  "policy": { "version": 4, "text": "GO Event Group, Booking & Cancellation Policy ... A retainer of 30% of your total ..." }
+}
+```
+
+- `policy.text` now comes with its numbers already filled in from Settings. Show it as it is.
+- A review request keeps each line's pricing in its cart (`perGuest`, `guests`, `lineTotal`), so staff see the same figures.
+- Per-guest catering no longer holds a unit by default. Any number of parties can book it on the same day, up to an optional daily maximum. In `GET /api/items/public?date=` such an item shows `freeUnits: 999` when it has no maximum, or the places left that day. The store should not show a quantity control for a per-guest item.
+
+## 19. The guest count error, and the other new refusals
+
+Missing guest count, HTTP 400:
+
+```json
+{ "error": "Tell us how many guests, so we can price Mediterranean Spread. It is priced per guest.", "reason": "guest-count-required", "field": "guestCount" }
+```
+
+Show `error` under the guest count field and ask for it before checkout. A per-guest package still answers its own reasons (`guest-count-range`, `guest-count-invalid`).
+
+Not enough units for the quantity asked, HTTP 409:
+
+```json
+{ "error": "Not enough free that date: only 7 of Gold Chiavari Chair are free (you asked for 8). Nothing was booked.", "reason": "unavailable", "unavailable": ["Gold Chiavari Chair"], "short": [{ "name": "Gold Chiavari Chair", "asked": 8, "free": 7 }] }
+```
+
+A per-guest item that has reached its daily maximum, HTTP 409:
+
+```json
+{ "error": "Mediterranean Spread is fully booked that day, so nothing was booked. Drop it or try another date.", "reason": "unavailable", "unavailable": ["Mediterranean Spread"] }
+```
+
+A bad quantity, HTTP 400: `{ "error": "each quantity must be a whole number from 1 to 50", "reason": "quantity-invalid", "field": "quantities" }`.
+
+## 20. The item limit
+
+A hold or a price check can now carry up to **40** different items (a setting, Booking rules, "Most items in one booking"; it can be set up to 50). Above it, HTTP 400:
+
+```json
+{ "error": "A booking can have up to 40 items. Remove some, or call or text us and we'll put it together with you.", "reason": "too-many-items", "max": 40 }
+```
+
+Read the number from `GET /api/settings/public` (`maxItemsPerBooking`) and stop the customer adding more, rather than letting the hold refuse. A refusal like this (any 400 before a hold is tried, and 401 account-required) no longer counts against the five holds an hour; only real attempts do.
+
+## 21. Ask GO with the cart: the cart sent, and `cartAction` in the reply
+
+Send the cart the customer has now, and the guest count when known, with every Ask GO message:
+
+```json
+{
+  "messages": [{ "role": "user", "content": "Backyard grad party for 60, about $5000" }, { "role": "assistant", "content": "Here's a lineup for 60." }, { "role": "user", "content": "what if it rains" }],
+  "subOcc": null,
+  "cart": [{ "itemId": "spread-id" }, { "itemId": "chair-id", "quantity": 40 }],
+  "guestCount": 60
+}
+```
+
+Every reply now says what it did to the cart in `cartAction`: `none`, `add`, `remove` or `replace`.
+
+A question (delivery, space, power, rain, prices, policies). The cart is unchanged and no items are sent:
+
+```json
+{ "ready": false, "message": "If rain is in the forecast you can move the date for free until the crew leaves.", "cartAction": "none", "guestCount": 60, "occasion": "Graduation", "suggestConcierge": false, "suggestions": ["Does it need power", "Looks good, book it"] }
+```
+
+A change the customer asked for:
+
+```json
+{
+  "ready": true,
+  "message": "Added a snow cone station, still inside your budget.",
+  "cartAction": "add",
+  "items": [{ "id": "spread-id", "name": "Mediterranean Spread", "priceUnit": "per guest", "price": 58.56, "quantity": 1 }, { "id": "chair-id", "quantity": 40 }, { "id": "snow-id", "quantity": 1 }],
+  "added": ["snow-id"],
+  "removed": [],
+  "total": 3868.6,
+  "guestCount": 60,
+  "occasion": "Graduation",
+  "suggestConcierge": false,
+  "suggestions": ["Keep it under $3,500", "Looks good, book it"]
+}
+```
+
+- On `none`, keep the cart exactly as it is and draw no cart card. On `add`, `remove` or `replace`, `items` is the **whole cart after the change** (so replacing the cart with `items` is always right), and `added` and `removed` say what changed.
+- `ready` is now true only when the reply changes the cart. A store that still replaces its cart whenever `ready` is true keeps working.
+- `total` follows the pricing rule, per-guest items times `guestCount`. When the cart has a per-guest item and no guest count is known yet, the reply has `guestCountNeeded: true` and `total` leaves those items out.
+- `occasion` is what the customer's own messages describe. Use it for "Talk to us instead", not the occasion remembered from an earlier screen.
+- The admin also refuses to change a cart on a reply to a question, even if the model tries.
+
+## 22. "Talk to us instead" from Ask GO: send the chat
+
+`POST /api/leads/concierge` accepts the Ask GO messages, so the lead gets the occasion the customer wrote about:
+
+```json
+{ "source": "ask_go", "occasion": "Team building", "itemOrPackage": "Snack Station", "email": "pat@example.com", "messages": [{ "role": "user", "content": "Graduation party for 60 in the backyard" }] }
+```
+
+When the occasion sent disagrees with the conversation, the conversation wins; staff see both on the lead. Without `messages` the admin reads the customer's recent Ask GO lead, if there is one. The body may now be up to 32 KB.
+
+## 23. The numbers to read, never to type
+
+The store must not hardcode a percent or a day count. Read them from `GET /api/settings/public`:
+
+```json
+{
+  "retainerPercent": 30,
+  "depositPercentage": 30,
+  "smallRentalCollects": "retainer",
+  "balanceDueDays": 30,
+  "cancellationWindowDays": 30,
+  "rescheduleFeePercent": 20,
+  "maxItemsPerBooking": 40,
+  "policy": { "id": "cmw...", "version": 4, "text": "... A retainer of {{retainerPercent}}% ...", "updatedAt": "..." },
+  "policyFilled": "... A retainer of 30% ..."
+}
+```
+
+- Show `policyFilled`, or the `policy.text` from a tier answer or a pay link: all three are filled in from Settings at that moment.
+- "Due today to hold the date" is the tier answer's `retainerAmount` and `retainerPercent` (100 when `smallRentalCollects` is `full`), never 20% typed into the store.
+- Text a customer already accepted (at checkout, on the pay page, in a signed contract, in the cancellation terms they saw) is kept as they saw it. The admin returns that stored text, not today's.
+
+## 24. What the storefront should build for Block FIX1
+
+1. Send `quantities` and `guestCount` on every tier call and hold. Ask for the guest count as soon as a per-guest item is in the cart, and show `guest-count-required` under the field.
+2. Show line totals and the total from the tier answer's `lines`. Drop the quantity control for per-guest items.
+3. Stop the cart at `maxItemsPerBooking`.
+4. Send `cart` and `guestCount` with every Ask GO message, keep the cart on `cartAction: "none"`, and store each reply's own count and total on that message so an old card never redraws.
+5. Send the Ask GO `messages` (or the reply's `occasion`) with "Talk to us instead" from Ask GO.
+6. Replace every hardcoded percent and day count with the values in section 23.

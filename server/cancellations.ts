@@ -29,7 +29,10 @@ export type RetainerTerms = { source: "contract" | "policy"; title: string; text
 type TermsBooking = {
   accountId: string;
   tier: number | null;
-  agreement?: { policyVersion?: { id: string; text: string } | null; contractStatus: string | null; contractDocument?: { documentJson: unknown } | null } | null;
+  agreement?: { policyVersion?: { id: string; text: string } | null; policyTextSeen?: string | null; contractStatus: string | null; contractDocument?: { documentJson: unknown } | null } | null;
+  // Block FIX1: what the customer accepted on the pay page.
+  policyAcceptedText?: string | null;
+  policyAcceptedVersionId?: string | null;
 };
 
 // The retainer terms the customer agreed to, in this order: the retainer and
@@ -47,6 +50,10 @@ export async function retainerTermsFor(b: TermsBooking): Promise<RetainerTerms |
   // The policy's numbers are filled in here, so what the customer reads and
   // accepts, and what is stored, is the finished wording.
   const settings = await getSettings(b.accountId);
+  // Block FIX1: the wording the customer actually accepted, as they saw it,
+  // when it was kept: on the pay page, or at checkout.
+  const seen = b.policyAcceptedText ?? b.agreement?.policyTextSeen ?? null;
+  if (seen && seen.trim() !== "") return { source: "policy", title: "Cancellation and retainer policy", text: seen, policyVersionId: b.policyAcceptedVersionId ?? b.agreement?.policyVersion?.id ?? null };
   const own = b.agreement?.policyVersion;
   if (own && own.text.trim() !== "") return { source: "policy", title: "Cancellation and retainer policy", text: fillPolicyText(own.text, settings), policyVersionId: own.id };
   const current = await currentPolicy(b.accountId);
@@ -55,7 +62,8 @@ export async function retainerTermsFor(b: TermsBooking): Promise<RetainerTerms |
 }
 
 const REQUEST_BOOKING = {
-  agreement: { select: { contractStatus: true, policyVersion: { select: { id: true, text: true } }, contractDocument: { select: { documentJson: true } } } },
+  agreement: { select: { contractStatus: true, policyTextSeen: true, policyVersion: { select: { id: true, text: true } }, contractDocument: { select: { documentJson: true } } } },
+  // (the booking's own fields, policyAcceptedText among them, come with the include)
   payments: true,
 } as const;
 

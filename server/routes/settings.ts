@@ -1,10 +1,11 @@
+import { actorFields } from "../actor.js";
 import { Router } from "express";
 import { OWNER_ONLY_MESSAGE, requireOwner } from "../auth.js";
 import type { AdminUser } from "../../src/generated/prisma/client.js";
 import { audit } from "../users.js";
 import { getDefaultAccount } from "../account.js";
 import { prisma } from "../db.js";
-import { MAX_POLICY_LENGTH, currentPolicy, listPolicyVersions, publicPolicy, savePolicy } from "../policy.js";
+import { MAX_POLICY_LENGTH, currentPolicy, listPolicyVersions, publicPolicy, savePolicy, fillPolicyText, hardcodedInPolicy, suggestPolicyDraft } from "../policy.js";
 import { availabilityLimiter } from "../rateLimit.js";
 import { MAX_NOTICE_HOURS, MAX_PHONE_LENGTH, getSettings } from "../settings.js";
 import { canonicalOccasion } from "../../src/lib/occasions.js";
@@ -43,7 +44,16 @@ publicSettingsRouter.get("/public", availabilityLimiter, async (_req, res) => {
     // Block F2: business days in which staff contact a customer whose order
     // went to review.
     requestResponseDays: settings.requestResponseDays,
+    // Block FIX1: the retainer percent under its plain name, what checkout
+    // collects for a small rental, and the most items one booking may have.
+    // The store reads these and never types a percent or a day count itself.
+    retainerPercent: settings.depositPercentage,
+    smallRentalCollects: settings.tier1Collect === "full" ? "full" : "retainer",
+    maxItemsPerBooking: settings.maxItemsPerBooking,
+    // The policy as published, with its {{tokens}}, and the same wording with
+    // the numbers already filled from Settings: show policyFilled.
     policy: publicPolicy(policy),
+    policyFilled: policy.text.trim() === "" ? null : fillPolicyText(policy.text, settings),
   });
 });
 
@@ -113,6 +123,7 @@ router.patch("/", async (req, res) => {
     retainerReminderDay3?: number;
     holdReminderEmails?: boolean;
     payLinksOpenStorefront?: boolean;
+    maxItemsPerBooking?: number;
   } = {};
 
   if ("minBookingNoticeHours" in body) {
@@ -283,6 +294,12 @@ router.patch("/", async (req, res) => {
     if (body.tier1Collect !== "retainer" && body.tier1Collect !== "full") return res.status(400).json({ error: "tier1Collect must be retainer or full" });
     data.tier1Collect = body.tier1Collect;
   }
+  // Block FIX1: the most items in one hold or price check.
+  if ("maxItemsPerBooking" in body) {
+    const n = body.maxItemsPerBooking;
+    if (typeof n !== "number" || !Number.isInteger(n) || n < 1 || n > 50) return res.status(400).json({ error: "maxItemsPerBooking must be a whole number from 1 to 50" });
+    data.maxItemsPerBooking = n;
+  }
   for (const key of ["holdReminderEmails", "payLinksOpenStorefront"] as const) {
     if (key in body) {
       if (typeof body[key] !== "boolean") return res.status(400).json({ error: `${key} must be true or false` });
@@ -324,11 +341,50 @@ router.patch("/", async (req, res) => {
 // agreements point at each.
 router.get("/policy", async (_req, res) => {
   const account = await getDefaultAccount();
-  const versions = await listPolicyVersions(account.id);
+  const [versions, settings, draftRow] = await Promise.all([listPolicyVersions(account.id), getSettings(account.id), prisma.account.findUniqueOrThrow({ where: { id: account.id }, select: { policyDraftText: true, policyDraftAt: true, policyDraftByName: true } })]);
+  const current = versions[0];
+  // Block FIX1: what customers read today (numbers from Settings), what in
+  // the live wording is still typed in rather than taken from Settings, a
+  // suggested update, and the draft, if one is saved. Nothing here changes
+  // the live version.
+  const suggested = current.text.trim() === "" ? null : suggestPolicyDraft(current.text, settings);
   res.json({
-    current: { id: versions[0].id, version: versions[0].version, text: versions[0].text, createdAt: versions[0].createdAt },
+    current: { id: current.id, version: current.version, text: current.text, createdAt: current.createdAt },
     versions: versions.map((v) => ({ id: v.id, version: v.version, text: v.text, createdAt: v.createdAt, agreements: v._count.agreements })),
+    asCustomersSeeIt: fillPolicyText(current.text, settings),
+    hardcoded: hardcodedInPolicy(current.text),
+    suggested: suggested && suggested !== current.text ? suggested : null,
+    draft: draftRow.policyDraftText === null ? null : { text: draftRow.policyDraftText, savedAt: draftRow.policyDraftAt, savedBy: draftRow.policyDraftByName, asCustomersSeeIt: fillPolicyText(draftRow.policyDraftText, settings), hardcoded: hardcodedInPolicy(draftRow.policyDraftText) },
   });
+});
+
+// Block FIX1. A draft of the next version. Saving a draft changes nothing a
+// customer sees. Making it live is its own step, by an Owner, and saves it as
+// the next version the usual way.
+router.put("/policy/draft", requireOwner, async (req, res) => {
+  const text = (req.body ?? {}).text;
+  if (typeof text !== "string" || text.trim() === "" || text.length > MAX_POLICY_LENGTH) return res.status(400).json({ error: `text is required, up to ${MAX_POLICY_LENGTH} characters` });
+  const account = await getDefaultAccount();
+  await prisma.account.update({ where: { id: account.id }, data: { policyDraftText: text, policyDraftAt: new Date(), policyDraftByName: actorFields().userName ?? "staff" } });
+  await audit("policy draft saved", `${text.length} characters`);
+  res.json({ saved: true });
+});
+
+router.delete("/policy/draft", requireOwner, async (_req, res) => {
+  const account = await getDefaultAccount();
+  await prisma.account.update({ where: { id: account.id }, data: { policyDraftText: null, policyDraftAt: null, policyDraftByName: null } });
+  await audit("policy draft discarded", "");
+  res.json({ discarded: true });
+});
+
+router.post("/policy/draft/activate", requireOwner, async (_req, res) => {
+  const account = await getDefaultAccount();
+  const row = await prisma.account.findUniqueOrThrow({ where: { id: account.id }, select: { policyDraftText: true } });
+  if (row.policyDraftText === null) return res.status(409).json({ error: "There is no draft to make live." });
+  const { created, policy } = await savePolicy(account.id, row.policyDraftText);
+  await prisma.account.update({ where: { id: account.id }, data: { policyDraftText: null, policyDraftAt: null, policyDraftByName: null } });
+  await audit("policy draft made live", `version ${policy.version}`);
+  res.json({ created, version: { id: policy.id, version: policy.version, text: policy.text, createdAt: policy.createdAt } });
 });
 
 // Saving adds a version; it never edits or removes an earlier one.

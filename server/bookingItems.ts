@@ -5,8 +5,11 @@
 
 export type ItemLine = { name: string; quantity: number };
 
-export function bookingItemLines(units: { unit: { item: { name: string } } }[], gigs: { itemName: string; skill?: string | null; status?: string | null }[]): ItemLine[] {
+// Block FIX1: plus the items that hold no unit (booking lines). A per-guest
+// line counts as one item.
+export function bookingItemLines(units: { unit: { item: { name: string } } }[], gigs: { itemName: string; skill?: string | null; status?: string | null }[], bookingLines: { itemName: string; quantity: number }[] = []): ItemLine[] {
   const lines = new Map<string, number>();
+  for (const l of bookingLines) lines.set(l.itemName, (lines.get(l.itemName) ?? 0) + l.quantity);
   for (const u of units) lines.set(u.unit.item.name, (lines.get(u.unit.item.name) ?? 0) + 1);
   const crew = new Map<string, Map<string, number>>();
   for (const g of gigs) {

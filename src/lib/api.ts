@@ -1,4 +1,5 @@
 import type {
+  PolicyScreen,
   StaffAddressCheck,
   BookingSummary,
   BookingsList,
@@ -143,7 +144,7 @@ export function createItem(item: NewItem): Promise<Item & { unitCount: number }>
   return fetch("/api/items", jsonRequest("POST", item)).then(asJson<Item & { unitCount: number }>);
 }
 
-export type ItemPatch = Partial<Pick<Item, "name" | "category" | "priceUnit" | "notes" | "photoUrl" | "skills" | "source" | "needsPriceReview" | "hidden">> & {
+export type ItemPatch = Partial<Pick<Item, "name" | "category" | "priceUnit" | "notes" | "photoUrl" | "skills" | "source" | "needsPriceReview" | "hidden" | "countsAgainstStock" | "maxPerDay">> & {
   price?: string | number | null;
 };
 
@@ -405,6 +406,11 @@ export function updateGigOffer(gigId: string, offerId: string, status: "Accepted
   return fetch(`/api/gigs/${gigId}/offers/${offerId}`, jsonRequest("PATCH", { status })).then(asJson<GigDetail>);
 }
 
+// Block FIX1: takes off an item that holds no unit.
+export function removeBookingLine(id: string, lineId: string): Promise<Booking> {
+  return fetch(`/api/bookings/${id}/lines/${lineId}`, jsonRequest("DELETE")).then(asJson<Booking>);
+}
+
 export function removeBookingGig(id: string, gigId: string): Promise<Booking> {
   return fetch(`/api/bookings/${id}/gigs/${gigId}`, jsonRequest("DELETE")).then(asJson<Booking>);
 }
@@ -423,8 +429,20 @@ export function updateSettings(patch: Partial<AccountSettings> & { contractLogo?
 
 // The policy text and every version of it, newest first. Saving adds a
 // version; the old ones stay.
-export function getPolicy(): Promise<{ current: PolicyVersionInfo; versions: PolicyVersionInfo[] }> {
-  return fetch("/api/settings/policy").then(asJson<{ current: PolicyVersionInfo; versions: PolicyVersionInfo[] }>);
+export function getPolicy(): Promise<PolicyScreen> {
+  return fetch("/api/settings/policy").then(asJson<PolicyScreen>);
+}
+
+// Block FIX1: the draft of the next policy version. Nothing here changes
+// what customers see until activatePolicyDraft.
+export function savePolicyDraft(text: string): Promise<{ saved: true }> {
+  return fetch("/api/settings/policy/draft", jsonRequest("PUT", { text })).then(asJson<{ saved: true }>);
+}
+export function discardPolicyDraft(): Promise<{ discarded: true }> {
+  return fetch("/api/settings/policy/draft", jsonRequest("DELETE")).then(asJson<{ discarded: true }>);
+}
+export function activatePolicyDraft(): Promise<{ created: boolean; version: PolicyVersionInfo }> {
+  return fetch("/api/settings/policy/draft/activate", jsonRequest("POST")).then(asJson<{ created: boolean; version: PolicyVersionInfo }>);
 }
 
 export function savePolicy(text: string): Promise<{ created: boolean; version: { id: string; version: number; text: string; createdAt: string } }> {

@@ -25,7 +25,7 @@ function keysOn(path: string): string[] {
 const EXPECTED: Record<string, string[]> = {
   "/settings/business": ["contractCompanyName", "contractAddressLine", "contractPhone", "rushContactPhone", "contractEmail", "contractWebsite", "contractFooterLine", "contractLogo"],
   "/settings/booking-rules": [
-    "requireCustomerAccount", "requireAgreementCheckbox", "minBookingNoticeHours", "reviewAmountWedding", "reviewAmountCorporate", "reviewAmountKids", "reviewAmountAdult", "reviewAmountDefault", "requestResponseDays", "contractRequiredOver", "contractRequiredForCrewed",
+    "requireCustomerAccount", "requireAgreementCheckbox", "minBookingNoticeHours", "reviewAmountWedding", "reviewAmountCorporate", "reviewAmountKids", "reviewAmountAdult", "reviewAmountDefault", "requestResponseDays", "contractRequiredOver", "maxItemsPerBooking", "contractRequiredForCrewed",
     "depositPercentage", "balanceDueDays", "tier1Collect", "saveCardForBalance", "retainerReminderDay1", "retainerReminderDay2", "retainerReminderDay3", "holdReminderEmails", "cancellationWindowDays", "holdReleaseDays", "contractHoldReleaseDays", "aiDailyCap", "directBookingDailyCap", "requireBotCheck",
   ],
   "/settings/contract-and-policy": ["panel:policy", "useGoContract", "panel:contractTerms", "signAndPayWindowDays", "returnedCheckFee", "rescheduleFeePercent", "outsidePlannerChargePercent", "authorizedSignerName", "authorizedSignerTitle", "panel:serviceRows"],
