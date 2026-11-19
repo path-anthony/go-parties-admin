@@ -3,6 +3,7 @@ import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFPage } from "pdf
 import { getDefaultAccount } from "./account.js";
 import { currentActor } from "./actor.js";
 import { prisma } from "./db.js";
+import { amountsFor } from "./payments.js";
 import { isPerGuestUnit } from "./pricing.js";
 import { currentPolicy, fillPolicyText } from "./policy.js";
 import { getSettings } from "./settings.js";
@@ -86,6 +87,9 @@ type Subject = {
   eventTime: string | null;
   address: string | null;
   total: number | null;
+  // Block FIX1b: the retainer the booking actually owes, from amountsFor;
+  // null for a request (no booking yet) or when nothing is priced.
+  retainerDue: number | null;
   balancePaymentPreference: string;
   lines: ContractContent["lines"];
   addons: ContractContent["addons"];
@@ -101,8 +105,11 @@ async function loadSubject(agreement: { bookingId: string | null; designRequestI
         addons: { orderBy: { createdAt: "asc" } },
         // Block FIX1: items that hold no unit.
         lines: true,
+        payments: true,
+        agreement: { select: { contractDocument: { select: { documentJson: true } } } },
       },
     });
+    const money = amountsFor(b, b.payments, await getSettings(b.accountId));
     const byItem = new Map<string, { name: string; quantity: number; unitPrice: number | null; guests?: number | null }>();
     for (const row of b.units) {
       const item = row.unit.item;
@@ -138,6 +145,7 @@ async function loadSubject(agreement: { bookingId: string | null; designRequestI
       eventTime: b.eventTime,
       address: b.address,
       total: b.total === null ? null : Number(b.total),
+      retainerDue: money.retainerDueCents === null ? null : money.retainerDueCents / 100,
       balancePaymentPreference: b.balancePaymentPreference,
       lines: [...byItem.values()],
       addons: b.addons.map((a) => ({ itemName: a.itemName, groupName: a.groupName, addonName: a.addonName, priceDelta: Number(a.priceDelta), quantity: a.quantity })),
@@ -156,6 +164,7 @@ async function loadSubject(agreement: { bookingId: string | null; designRequestI
     eventTime: r.eventTime,
     address: r.address,
     total: r.total === null ? null : Number(r.total),
+    retainerDue: null,
     balancePaymentPreference: r.balancePaymentPreference,
     lines: (cart.items ?? []).map((i) => ({ name: i.name, quantity: i.quantity, unitPrice: i.price, guests: i.perGuest ? (i.guests ?? null) : null })),
     addons: cart.addons ?? [],
@@ -174,7 +183,11 @@ export async function buildContractContent(agreementId: string): Promise<Contrac
 
   const dateText = subject.eventDate.toISOString().slice(0, 10);
   const total = subject.total;
-  const depositAmount = total === null ? null : Math.round(total * settings.depositPercentage) / 100;
+  // Block FIX1b: the retainer the booking owes (amountsFor), so "collect in
+  // full" and a signed contract's own figure are respected.
+  const depositAmount = subject.retainerDue ?? (total === null ? null : Math.round(total * settings.depositPercentage) / 100);
+  const inFull = total !== null && depositAmount !== null && total > 0 && depositAmount >= total;
+  const retainerPercentShown = total !== null && depositAmount !== null && total > 0 ? Math.round((depositAmount / total) * 10000) / 100 : settings.depositPercentage;
   const balanceAmount = total === null || depositAmount === null ? null : Math.round((total - depositAmount) * 100) / 100;
 
   const values: Record<string, string> = {
@@ -216,7 +229,7 @@ export async function buildContractContent(agreementId: string): Promise<Contrac
       heading: "Price and payment",
       body: [
         `Total: ${values.total}`,
-        `Retainer (${values.deposit_percentage}%): ${values.deposit_amount}`,
+        inFull ? `Payment in full: ${values.deposit_amount}` : `Retainer (${retainerPercentShown}%): ${values.deposit_amount}`,
         `Balance: ${values.balance_amount}`,
         `Balance payment: ${subject.balancePaymentPreference}`,
       ].join("\n"),
@@ -242,7 +255,8 @@ export async function buildContractContent(agreementId: string): Promise<Contrac
     lines: subject.lines,
     addons: subject.addons,
     total,
-    depositPercentage: settings.depositPercentage,
+    // Block FIX1b: the percent the retainer below actually is (100 when paid in full).
+    depositPercentage: retainerPercentShown,
     depositAmount,
     balanceAmount,
     balancePaymentPreference: subject.balancePaymentPreference,

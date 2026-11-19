@@ -723,3 +723,87 @@ The store must not hardcode a percent or a day count. Read them from `GET /api/s
 4. Send `cart` and `guestCount` with every Ask GO message, keep the cart on `cartAction: "none"`, and store each reply's own count and total on that message so an old card never redraws.
 5. Send the Ask GO `messages` (or the reply's `occasion`) with "Talk to us instead" from Ask GO.
 6. Replace every hardcoded percent and day count with the values in section 23.
+
+## 25. Line prices on My party, the pay link and requests (Block FIX1b)
+
+Every place the store shows a customer's items now carries one line per item with how it is priced. The store should read these and never work a price out itself.
+
+The line shape, the same in all three places:
+
+| Field | Meaning |
+|---|---|
+| `itemId` | the item, or null on a line whose item was deleted |
+| `name` | the item's name as booked |
+| `kind` | `"per guest"`, `"per 10 guests"`, `"each"`, `"per day"`, `"per event"` (or the item's own unit), or `"in package"` |
+| `perGuest` | true on a per-guest line |
+| `quantity` | the number the unit price is multiplied by: the guest count on a per-guest line (100, never 1), else how many |
+| `guests` | the guest count on a per-guest line, else null |
+| `unitPrice` | the price of one, or null inside a package |
+| `optionsTotal` | what the chosen options add to the line, 0 when none |
+| `lineTotal` | `unitPrice` x `quantity` + `optionsTotal`, or null inside a package |
+
+Show "100 guests x $58.56" when `perGuest` is true, "3 x $8.00" otherwise, and `lineTotal` on the right. Inside a package show the item name only; the package price is the booking total.
+
+### My party: `GET /api/customer/bookings` and `GET /api/customer/bookings/:id`
+
+Each booking gains `lines`. Items that hold no unit (per-guest catering since FIX1) are included.
+
+```json
+{
+  "id": "cmx...",
+  "total": 5880,
+  "guestCount": 100,
+  "lines": [
+    { "itemId": "cma...", "name": "Mediterranean Spread", "kind": "per guest", "perGuest": true, "quantity": 100, "guests": 100, "unitPrice": 58.56, "optionsTotal": 0, "lineTotal": 5856 },
+    { "itemId": "cmb...", "name": "Gold Chair", "kind": "each", "perGuest": false, "quantity": 3, "guests": null, "unitPrice": 8, "optionsTotal": 0, "lineTotal": 24 }
+  ]
+}
+```
+
+The older `units` and `addons` lists on a booking are unchanged; read `lines` for prices.
+
+### The pay link: `GET /api/pay/:token`
+
+`items` is now the same line shape (it used to be name and quantity only, with a per-guest item as quantity 1).
+
+```json
+{
+  "total": 5880,
+  "items": [
+    { "itemId": "cma...", "name": "Mediterranean Spread", "kind": "per guest", "perGuest": true, "quantity": 100, "guests": 100, "unitPrice": 58.56, "optionsTotal": 0, "lineTotal": 5856 },
+    { "itemId": "cmb...", "name": "Gold Chair", "kind": "each", "perGuest": false, "quantity": 3, "guests": null, "unitPrice": 8, "optionsTotal": 0, "lineTotal": 24 }
+  ]
+}
+```
+
+`items[].name` and `items[].quantity` are still there, so a store that reads only those keeps working, now with the right quantity.
+
+### Requests: `GET /api/customer/requests`
+
+Each request's `items` is the same line shape, and `total` is the request total.
+
+```json
+{
+  "requests": [
+    {
+      "id": "cmr...",
+      "total": 11842.4,
+      "guestCount": 40,
+      "items": [
+        { "itemId": "cmt...", "name": "Grand Tent", "kind": "per day", "perGuest": false, "quantity": 1, "guests": null, "unitPrice": 9500, "optionsTotal": 0, "lineTotal": 9500 },
+        { "itemId": "cma...", "name": "Mediterranean Spread", "kind": "per guest", "perGuest": true, "quantity": 40, "guests": 40, "unitPrice": 58.56, "optionsTotal": 0, "lineTotal": 2342.4 }
+      ]
+    }
+  ]
+}
+```
+
+### The retainer figure in messages and the older contract
+
+`{{depositAmount}}` in a text or email, and the retainer line of the older (non GO) contract, now show what the booking actually owes, from the same figure the pay link charges:
+
+- "Collect in full" for small rentals: the whole total ("Payment in full: $5,880.00" on the older contract).
+- A signed contract: the retainer in that contract, even if the percent in Settings has changed since.
+- Otherwise: the total x the retainer percent, as before.
+
+On a request (no booking yet) it is still the total x the percent. Nothing for the store to change here; it is listed so the store and the messages agree.

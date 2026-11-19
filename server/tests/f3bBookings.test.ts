@@ -383,7 +383,8 @@ test("a phone booking needs no staff tick; the customer accepts the policy on th
   // The pay link's data: the items, the balance due date, and the policy state.
   let pay = (await get(`/api/pay/${token}`)).json as unknown as PayView;
   assert.deepEqual([pay.step, pay.policyRequired, pay.policyAccepted, pay.policyAcceptedAt], ["retainer", true, false, null]);
-  assert.deepEqual(pay.items, [{ name: `${ZZ} F3b Portable Bar`, quantity: 2 }]);
+  // Block FIX1b added price fields to each line; the name and count are unchanged.
+  assert.deepEqual((pay.items as { name: string; quantity: number }[]).map((l) => ({ name: l.name, quantity: l.quantity })), [{ name: `${ZZ} F3b Portable Bar`, quantity: 2 }]);
   assert.equal(pay.balanceDueDate, day(60 - 14));
   assert.equal(pay.balance, 360);
   assert.ok(pay.policy && !/\{\{/.test(pay.policy.text));

@@ -279,7 +279,8 @@ test("100 guests of a $58.56 per-guest item is $5,856 in the tier check, the hol
   // The retainer and balance on the pay link.
   const pay = await call(`/api/pay/${b.payToken}`);
   assert.deepEqual([pay.json.step, pay.json.amount, pay.json.total, pay.json.balance], ["retainer", 1171.2, 5856, 4684.8]);
-  assert.deepEqual(pay.json.items, [{ name: `${ZZ} Mediterranean Spread`, quantity: 1 }]);
+  // Block FIX1b: a per-guest line reads its guest count, never 1.
+  assert.deepEqual((pay.json.items as { name: string; quantity: number; lineTotal: number }[]).map((l) => ({ name: l.name, quantity: l.quantity, lineTotal: l.lineTotal })), [{ name: `${ZZ} Mediterranean Spread`, quantity: 100, lineTotal: 5856 }]);
 
   // The older contract layout and the GO contract.
   const older = await buildContractContent(b.agreement!.id);

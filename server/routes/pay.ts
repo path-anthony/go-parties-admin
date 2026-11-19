@@ -8,7 +8,7 @@ import { owedFor, payLinkFor, usd } from "../payLink.js";
 import { PaymentError, createPaymentSession, paymentStatus } from "../payments.js";
 import { currentPolicy, fillPolicyText } from "../policy.js";
 import { customerStage } from "../portal.js";
-import { bookingItemLines } from "../bookingItems.js";
+import { LINE_DETAIL_SELECT, lineDetailOf } from "../lineDetail.js";
 import { daysBefore } from "../contract/goMoney.js";
 import { POLICY_FACTS_SELECT, acceptPolicy, policyStateOf } from "../policyAccept.js";
 import { StripeError } from "../stripe/client.js";
@@ -123,7 +123,7 @@ payApiRouter.get("/:token", async (req, res) => {
   // the policy themselves (here, or at checkout in the store).
   const more = await prisma.booking.findUniqueOrThrow({
     where: { id: b.id },
-    select: { ...POLICY_FACTS_SELECT, policyAcceptedText: true, policyAcceptedVersionId: true, guestCount: true, eventTime: true, package: { select: { name: true } }, lines: { select: { itemName: true, quantity: true } }, units: { select: { unit: { select: { item: { select: { name: true } } } } } }, gigs: { select: { itemName: true, skill: true, status: true } } },
+    select: { ...POLICY_FACTS_SELECT, policyAcceptedText: true, policyAcceptedVersionId: true, eventTime: true, package: { select: { name: true } }, ...LINE_DETAIL_SELECT },
   });
   const accepted = policyStateOf(more);
   // Once accepted on the pay link, the text shown is the one they accepted.
@@ -156,7 +156,9 @@ payApiRouter.get("/:token", async (req, res) => {
     eventTime: more.eventTime,
     guestCount: more.guestCount,
     package: more.package?.name ?? null,
-    items: bookingItemLines(more.units, more.gigs, more.lines),
+    // Block FIX1b: each line with how it is priced. quantity is what the unit
+    // price is multiplied by, so a per-guest line reads 100, not 1.
+    items: lineDetailOf(more),
     balance: owed.money.balanceDueCents === null ? null : owed.money.balanceDueCents / 100,
     balanceDueDate: owed.money.totalCents === null ? null : daysBefore(b.eventDate.toISOString().slice(0, 10), owed.settings.balanceDueDays),
     hasAccount: b.customer !== null,

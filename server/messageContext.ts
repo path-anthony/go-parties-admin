@@ -1,3 +1,4 @@
+import { amountsFor } from "./payments.js";
 import { prisma } from "./db.js";
 import { bookingMapsUrl } from "./delivery.js";
 import { getSettings } from "./settings.js";
@@ -48,7 +49,9 @@ type Settings = Awaited<ReturnType<typeof getSettings>>;
 export type LoadedRecords = {
   lead?: { customerName: string | null; occasion: string | null; dateOfInterest: Date | null } | null;
   designRequest?: { customerName: string; eventDate: Date; eventTime: string | null; occasion: string | null; address: string | null; total: unknown } | null;
-  booking?: { id?: string; customerName: string; eventDate: Date; eventTime: string | null; occasion: string | null; address: string | null; total: unknown; placeId?: string | null; addressLat?: number | null; addressLng?: number | null; setupLat?: number | null; setupLng?: number | null } | null;
+  // retainerDue: the retainer this booking actually owes, in dollars, from
+  // amountsFor (Block FIX1b); null when nothing is priced.
+  booking?: { id?: string; customerName: string; eventDate: Date; eventTime: string | null; occasion: string | null; address: string | null; total: unknown; retainerDue?: number | null; placeId?: string | null; addressLat?: number | null; addressLng?: number | null; setupLat?: number | null; setupLng?: number | null } | null;
   crew?: { name: string } | null;
   gig?: {
     skill: string;
@@ -87,10 +90,13 @@ export function composeValues(settings: Settings, rec: LoadedRecords): Record<st
   // Nothing is asked of an event type that isn't known: "your event".
   set("eventType", "event");
 
-  const applyMoney = (total: unknown) => {
+  // Block FIX1b: the retainer is the one the booking owes (payment in full on
+  // a small rental when Settings say so, a signed contract's own figure);
+  // total x percent only for a request, which has no booking yet.
+  const applyMoney = (total: unknown, retainerDue?: number | null) => {
     if (total === null || total === undefined) return;
     const t = Number(total);
-    const deposit = Math.round(t * settings.depositPercentage) / 100;
+    const deposit = retainerDue ?? Math.round(t * settings.depositPercentage) / 100;
     set("depositAmount", usd(deposit));
     set("balanceDue", usd(Math.round((t - deposit) * 100) / 100));
   };
@@ -120,7 +126,7 @@ export function composeValues(settings: Settings, rec: LoadedRecords): Record<st
   if (rec.booking) {
     const b = rec.booking;
     applyEvent({ name: b.customerName, date: b.eventDate, time: b.eventTime, type: b.occasion, address: b.address });
-    applyMoney(b.total);
+    applyMoney(b.total, b.retainerDue);
     // Block A9: the exact place on Google Maps; a search by the typed
     // address when there is no place; a note when there is no address, so a
     // confirmation is never blocked by an empty token.
@@ -169,7 +175,13 @@ export async function buildMessageValues(accountId: string, ctx: MessageContext)
   if (!bookingId && ctx.gigId) {
     bookingId = (await prisma.gig.findUnique({ where: { id: ctx.gigId }, select: { bookingId: true } }))?.bookingId ?? null;
   }
-  if (bookingId) rec.booking = await prisma.booking.findUnique({ where: { id: bookingId } });
+  if (bookingId) {
+    const b = await prisma.booking.findUnique({ where: { id: bookingId }, include: { payments: true, agreement: { select: { contractDocument: { select: { documentJson: true } } } } } });
+    if (b) {
+      const money = amountsFor(b, b.payments, settings);
+      rec.booking = { ...b, retainerDue: money.retainerDueCents === null ? null : money.retainerDueCents / 100 };
+    }
+  }
   if (ctx.crewMemberId) rec.crew = await prisma.crewMember.findUnique({ where: { id: ctx.crewMemberId }, select: { name: true } });
   if (ctx.gigId) rec.gig = await prisma.gig.findUnique({ where: { id: ctx.gigId }, include: { booking: { select: { eventTime: true, address: true } } } });
   if (ctx.offerId) rec.offer = await prisma.gigOffer.findUnique({ where: { id: ctx.offerId }, select: { token: true, bidAmount: true, deadlineAt: true } });
