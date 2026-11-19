@@ -248,7 +248,8 @@ test("a $5,000 wedding goes to review with everything the customer typed; conver
   assert.equal(req0.address, "14 Maple Ln, Avon, CT 06001, USA");
   assert.equal(req0.guestCount, 120);
   assert.equal(req0.eventDate, eventDate);
-  assert.deepEqual(req0.items, [{ name: `${ZZ} F2 Grand Setup`, quantity: 1 }]);
+  // Block FIX1b added price fields to each line; the name and count are unchanged.
+  assert.deepEqual((req0.items as { name: string; quantity: number }[]).map((l) => ({ name: l.name, quantity: l.quantity })), [{ name: `${ZZ} F2 Grand Setup`, quantity: 1 }]);
   assert.equal(req0.promise, "We will contact you within 3 business days.");
   for (const hidden of ["notes", "dismissReason", "reviewReason", "phone", "email"]) assert.equal(hidden in req0, false, `${hidden} stays with staff`);
   assert.equal((await get("/api/customer/requests")).status, 401, "signed in only");

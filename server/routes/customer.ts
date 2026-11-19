@@ -21,6 +21,7 @@ import {
 } from "../customerAuth.js";
 import { prisma } from "../db.js";
 import { DailyMaxReached } from "../stock.js";
+import { LINE_DETAIL_SELECT, lineDetailOf, requestLineDetail, type RequestCart } from "../lineDetail.js";
 import { safeInline } from "../sanitize.js";
 import { queueGoogleSync } from "../google/sync.js";
 import { BOOKING_GIGS_SELECT, NoCrewFree } from "../gigs.js";
@@ -79,7 +80,13 @@ async function portalSettings(accountId: string) {
 // The customer booking as the portal reads it: the original fields plus the
 // Block T1 ones (tier, stage, steps, contract, money, delivery).
 async function portalBooking(b: PortalRow) {
-  return { ...serializeCustomerBooking(b), ...portalFields(b, await portalSettings(b.accountId)) };
+  return { ...serializeCustomerBooking(b), ...portalFields(b, await portalSettings(b.accountId)), lines: await linesFor(b.id) };
+}
+
+// Block FIX1b: every line of a booking with how it is priced, the no-unit
+// lines included.
+async function linesFor(bookingId: string) {
+  return lineDetailOf(await prisma.booking.findUniqueOrThrow({ where: { id: bookingId }, select: LINE_DETAIL_SELECT }));
 }
 
 // Block A5: an optional one-line home address, cleaned like a name since
@@ -255,13 +262,16 @@ router.get("/requests", requireCustomer, async (_req, res) => {
     getSettings(customer.accountId),
     prisma.designRequest.findMany({ where: { customerId: customer.id }, orderBy: { createdAt: "desc" } }),
   ]);
+  const ids = [...new Set(rows.flatMap((r) => ((r.cart as RequestCart | null)?.items ?? []).flatMap((i) => (i.itemId ? [i.itemId] : []))))];
+  const priceUnits = new Map((await prisma.item.findMany({ where: { id: { in: ids } }, select: { id: true, priceUnit: true } })).map((i) => [i.id, i.priceUnit]));
   const days = settings.requestResponseDays;
   const promise = `We will contact you within ${days} business ${days === 1 ? "day" : "days"}.`;
   res.json({
     responseDays: days,
     promise,
     requests: rows.map((r) => {
-      const cart = (r.cart ?? {}) as { items?: { name: string; quantity: number }[]; addons?: { itemName: string; groupName: string; addonName: string }[]; package?: { name: string } | null };
+      const cart = (r.cart ?? {}) as Omit<RequestCart, "addons"> & { addons?: { itemId: string; itemName: string; groupName: string; addonName: string; priceDelta: number; quantity: number }[] };
+      const lineDetail = requestLineDetail(cart, r.guestCount, priceUnits);
       const open = r.status === "Open";
       const state = open ? (r.notes && r.notes.trim() !== "" ? REQUEST_STATUS.reviewing : REQUEST_STATUS.received) : (REQUEST_STATUS[r.status] ?? REQUEST_STATUS.received);
       return {
@@ -279,7 +289,9 @@ router.get("/requests", requireCustomer, async (_req, res) => {
         guestCount: r.guestCount,
         total: r.total === null ? null : Number(r.total),
         package: cart.package?.name ?? null,
-        items: (cart.items ?? []).map((i) => ({ name: i.name, quantity: i.quantity })),
+        // Block FIX1b: each line with how it is priced (quantity is what the
+        // unit price is multiplied by: the guest count on a per-guest line).
+        items: lineDetail.map((l) => ({ ...l })),
         addons: (cart.addons ?? []).map((a) => ({ itemName: a.itemName, groupName: a.groupName, addonName: a.addonName })),
         // Only an open request still carries the promise.
         promise: open ? promise : null,
@@ -296,7 +308,8 @@ router.get("/bookings", requireCustomer, async (_req, res) => {
     orderBy: [{ eventDate: "asc" }, { createdAt: "asc" }],
   });
   const settings = bookings.length > 0 ? await portalSettings(bookings[0].accountId) : null;
-  res.json(bookings.map((b) => ({ ...serializeCustomerBooking(b), ...(settings ? portalFields(b, settings) : {}) })));
+  const lines = new Map((await prisma.booking.findMany({ where: { id: { in: bookings.map((b) => b.id) } }, select: { id: true, ...LINE_DETAIL_SELECT } })).map((row) => [row.id, lineDetailOf(row)]));
+  res.json(bookings.map((b) => ({ ...serializeCustomerBooking(b), ...(settings ? portalFields(b, settings) : {}), lines: lines.get(b.id) ?? [] })));
 });
 
 // A booking is only reachable through the customer that owns it. Anyone
